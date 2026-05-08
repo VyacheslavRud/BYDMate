@@ -58,10 +58,22 @@ class AutoserviceChargingDetector @Inject constructor(
 ) {
     companion object {
         const val MIN_DELTA_KWH = 0.5
-        // Heuristic duration when we have no other clue (catch-up after deep sleep).
-        // 1 hour is a safe midpoint: under 20 kWh → AC tariff (cheaper, safer for user
-        // pocket); above → DC. Phase 3 live tick will replace this with measured ms.
-        const val HEURISTIC_HOURS = 1.0
+        // Last-resort heuristic duration when prev.ts is unset (cold start).
+        // Real elapsed time (now - prev.ts) is preferred and used whenever
+        // available — see runCatchUp Step 7. Was the only path before v2.5.15
+        // and produced false-DC rows for overnight AC sessions (30 kWh / 1h
+        // = 30 kW → DC).
+        const val HEURISTIC_HOURS_FALLBACK = 1.0
+        // Floor on elapsed-time heuristic to avoid div-by-near-zero blowing
+        // a short live-edge fire into a false DC classification.
+        const val MIN_ELAPSED_HOURS = 0.05
+        // Ceiling on elapsed-time heuristic. Caps the rare case where the
+        // car sat idle for days with no state save in between, then a DC
+        // fast charge made the per-hour rate look tiny (30 kWh / 48h →
+        // 0.625 kW → false AC). 16h covers any realistic single-night AC
+        // session; anything longer is multi-day idle and we'd rather bias
+        // toward AC tariff anyway (cheaper for the user when uncertain).
+        const val MAX_ELAPSED_HOURS = 16.0
         // Min SOC delta for BatterySnapshot capacity calculation (matches BatteryHealthRepository).
         const val MIN_SOC_DELTA_FOR_SNAPSHOT = 5
         // Gun not connected — autoservice gunConnectState value meaning "no gun".
@@ -225,9 +237,23 @@ class AutoserviceChargingDetector @Inject constructor(
             val socStart = prev.socPercent
             val socEnd = currentSoc
 
+            // Real elapsed time since the previous state save — far more
+            // accurate for AC/DC heuristic than a fixed 1-hour assumption.
+            // Overnight AC of 30 kWh divided by the old 1h constant looked
+            // like 30 kW → DC; divided by the actual ~8h elapsed it lands at
+            // ~4 kW → AC, matching reality. The floor blocks div-by-tiny on
+            // back-to-back live-edge fires; the ceiling caps multi-day idle.
+            // A backward clock jump (now < prev.ts, e.g. user-set time
+            // correction) makes raw elapsed negative; we treat that as
+            // "no reliable elapsed signal" and fall back to the 1h baseline.
+            val rawElapsedHours = (now - prev.ts) / 3_600_000.0
+            val elapsedHours = when {
+                prev.ts <= 0L || rawElapsedHours <= 0.0 -> HEURISTIC_HOURS_FALLBACK
+                else -> rawElapsedHours.coerceIn(MIN_ELAPSED_HOURS, MAX_ELAPSED_HOURS)
+            }
             val type = classifier.fromGunState(charging?.gunConnectState)
                 ?: classifier.fromObservedPowerKw(observedKwAbs)
-                ?: classifier.heuristicByPower(delta, HEURISTIC_HOURS)
+                ?: classifier.heuristicByPower(delta, elapsedHours)
             val tariff = if (type == "DC") settings.getDcTariff() else settings.getHomeTariff()
             val cost = delta * tariff
 

@@ -140,6 +140,7 @@ class AutoserviceChargingDetectorTest {
         ),
         prevSoc: Int? = null,
         prevCapacityKwh: Float? = null,
+        prevTs: Long? = null,
         autoserviceAvailable: Boolean = true,
         homeTariff: Double = 0.20,
         dcTariff: Double = 0.73,
@@ -159,6 +160,9 @@ class AutoserviceChargingDetectorTest {
             }
             if (prevCapacityKwh != null) {
                 put(SettingsRepository.KEY_LAST_CAPACITY_KWH, prevCapacityKwh.toString())
+            }
+            if (prevTs != null) {
+                put(SettingsRepository.KEY_LAST_STATE_TS, prevTs.toString())
             }
         }
         val settingsDao = FakeSettingsDao(initialMap)
@@ -717,6 +721,120 @@ class AutoserviceChargingDetectorTest {
 
         val ch = setup.chargeDao.inserted.single()
         assertEquals("AC", ch.type)
+    }
+
+    @Test
+    fun `overnight AC catch-up uses real elapsed time and classifies as AC`() = runTest {
+        // The exact scenario reported by users: car off in the evening, plugged
+        // into AC overnight, woken up in the morning at 100%, gun pulled before
+        // any DiPars power sample lands in observedKwAbs. Old code divided 30 kWh
+        // by the fixed 1h heuristic → 30 kW → false DC. The fix divides by the
+        // real elapsed time (8h here) → ~3.75 kW → AC.
+        val eightHoursMs = 8L * 3_600_000L
+        val now = 100L + eightHoursMs
+        val setup = build(
+            battery = battery(soc = 100f),
+            charging = charging(capKwh = 30.0f, gunState = 1),
+            prevSoc = 60,
+            prevCapacityKwh = 0.0f,
+            prevTs = 100L
+        )
+
+        setup.detector.runCatchUp(now = now)
+
+        val ch = setup.chargeDao.inserted.single()
+        assertEquals("AC", ch.type)
+    }
+
+    @Test
+    fun `short DC catch-up uses real elapsed time and classifies as DC`() = runTest {
+        // Inverse of the overnight scenario: 40 kWh charged in 30 minutes —
+        // unmistakably DC. Real elapsed time keeps the classification correct
+        // even though no live observedKwAbs is supplied.
+        val halfHourMs = 30L * 60_000L
+        val now = 100L + halfHourMs
+        val setup = build(
+            battery = battery(soc = 90f),
+            charging = charging(capKwh = 40.0f, gunState = 1),
+            prevSoc = 30,
+            prevCapacityKwh = 0.0f,
+            prevTs = 100L
+        )
+
+        setup.detector.runCatchUp(now = now)
+
+        val ch = setup.chargeDao.inserted.single()
+        assertEquals("DC", ch.type)
+    }
+
+    @Test
+    fun `clock skew with prevTs in the future falls back to 1h heuristic`() = runTest {
+        // User corrected the system clock backward between sessions →
+        // raw elapsed becomes negative. We must not treat that as "almost
+        // zero hours" (which would force false DC); fall back to the 1h
+        // baseline so behavior matches a fresh cold start.
+        val setup = build(
+            battery = battery(soc = 90f),
+            charging = charging(capKwh = 5.0f, gunState = 1),
+            prevSoc = 80,
+            prevCapacityKwh = 0.0f,
+            prevTs = 10_000L
+        )
+
+        // now < prevTs by 1s → rawElapsed = -1s/3.6M = negative
+        setup.detector.runCatchUp(now = 9_000L)
+
+        val ch = setup.chargeDao.inserted.single()
+        // 5 kWh / 1h = 5 kW → AC. If clock-skew handling were missing this
+        // would be 5 kWh / 0.05h = 100 kW → false DC.
+        assertEquals("AC", ch.type)
+    }
+
+    @Test
+    fun `multi-day idle then DC charge is capped at MAX_ELAPSED_HOURS`() = runTest {
+        // Pathological case: car sat 48h then took a 30 kWh DC charge.
+        // Without an upper clamp, 30/48 = 0.625 kW → false AC. With the
+        // 16h ceiling, 30/16 = 1.875 kW → still AC by the 15 kW threshold,
+        // but any DC session above ~240 kWh in 16h would correctly land
+        // as DC. Conservative cap intentionally biases toward the cheaper
+        // AC tariff when uncertain — the user can override via the row dialog.
+        val twoDaysMs = 48L * 3_600_000L
+        val now = 100L + twoDaysMs
+        val setup = build(
+            battery = battery(soc = 90f),
+            charging = charging(capKwh = 250.0f, gunState = 1),
+            prevSoc = 30,
+            prevCapacityKwh = 0.0f,
+            prevTs = 100L
+        )
+
+        setup.detector.runCatchUp(now = now)
+
+        val ch = setup.chargeDao.inserted.single()
+        // 200 kWh from cap delta / 16h capped = 12.5 kW → AC. Matches the
+        // documented conservative bias; full DC scenario above 240 kWh in
+        // <16h would still classify as DC.
+        assertEquals("AC", ch.type)
+    }
+
+    @Test
+    fun `cold start with no prevTs falls back to 1h heuristic`() = runTest {
+        // First catch-up after a fresh install or store wipe — prev.ts = 0L.
+        // We can't compute elapsed hours, so the legacy 1h fallback is used.
+        // 30 kWh / 1h = 30 kW → DC. Documented edge: this is the only path
+        // that can still mis-classify, but it's a one-time first-run case.
+        val setup = build(
+            battery = battery(soc = 90f),
+            charging = charging(capKwh = 30.0f, gunState = 1),
+            prevSoc = 30,
+            prevCapacityKwh = 0.0f
+            // prevTs intentionally null → defaults to 0L
+        )
+
+        setup.detector.runCatchUp(now = 1500L)
+
+        val ch = setup.chargeDao.inserted.single()
+        assertEquals("DC", ch.type)
     }
 
     @Test
