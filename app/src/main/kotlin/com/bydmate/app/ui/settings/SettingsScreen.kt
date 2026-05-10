@@ -437,7 +437,6 @@ fun SettingsScreen(
                     colors = CardDefaults.cardColors(containerColor = CardSurface),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    val context = LocalContext.current
                     Column(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -468,28 +467,10 @@ fun SettingsScreen(
                             )
                         }
                         SettingsTextField(
-                            label = "API-ключ Iternio (опционально)",
-                            value = state.abrpApiKey,
-                            onValueChange = { viewModel.updateAbrpApiKey(it) },
-                            keyboardType = KeyboardType.Password
-                        )
-                        SettingsTextField(
                             label = "Токен живых данных из ABRP",
                             value = state.abrpUserToken,
                             onValueChange = { viewModel.updateAbrpUserToken(it) },
                             keyboardType = KeyboardType.Password
-                        )
-                        SettingsTextField(
-                            label = "Код модели ABRP (опционально)",
-                            value = state.abrpCarModel,
-                            onValueChange = { viewModel.updateAbrpCarModel(it) },
-                            keyboardType = KeyboardType.Text
-                        )
-                        SettingsTextField(
-                            label = "Интервал отправки, сек (5–120)",
-                            value = state.abrpIntervalSec,
-                            onValueChange = { viewModel.updateAbrpIntervalSec(it) },
-                            keyboardType = KeyboardType.Number
                         )
                         Button(
                             onClick = { viewModel.saveAbrpSettings() },
@@ -506,20 +487,6 @@ fun SettingsScreen(
                         state.abrpSaveStatus?.let {
                             Text(it, color = AccentGreen, fontSize = 12.sp)
                         }
-                        Text(
-                            "Документация API: Postman → телеметрия Iternio",
-                            color = AccentBlue,
-                            fontSize = 12.sp,
-                            textDecoration = TextDecoration.Underline,
-                            modifier = Modifier.clickable {
-                                context.startActivity(
-                                    Intent(
-                                        Intent.ACTION_VIEW,
-                                        Uri.parse("https://documenter.getpostman.com/view/7396339/SWTK5a8w")
-                                    )
-                                )
-                            }
-                        )
                     }
                 }
 

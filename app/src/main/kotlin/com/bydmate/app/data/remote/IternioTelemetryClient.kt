@@ -39,11 +39,19 @@ class IternioTelemetryClient @Inject constructor(
         // Gun-state values that mean the car is on a DC fast charger.
         // 3=DC, 4=AC_DC (combo CCS), 5=VTOL — all bypass the onboard AC charger.
         private val DCFC_GUN_STATES = setOf(3, 4, 5)
+        // Iternio rejects /1/tlm/send with HTTP 401 "Unauthorized Key" when no
+        // api_key query param is provided. This is the long-standing community
+        // key used by OVMS and teslamate-abrp — both major open-source ABRP
+        // bridges. We embed it as a fallback so users don't need to register
+        // their own developer key. Custom key from Settings still takes
+        // precedence when set.
+        const val DEFAULT_API_KEY = "32b2162f-9599-4647-8139-66e9f9528370"
     }
 
     /**
-     * @param apiKey Developer API key issued by Iternio (optional; sent as
-     *               `api_key` query param when present).
+     * @param apiKey Developer API key issued by Iternio. Optional from caller
+     *               perspective — when blank, falls back to [DEFAULT_API_KEY]
+     *               so the request still passes Iternio's `api_key` gate.
      * @param userToken Per-vehicle live-data token from ABRP "Generic" provider.
      * @param data Live DiPars snapshot. SOC must be present — without it the
      *             call returns a failure without hitting the network.
@@ -115,8 +123,8 @@ class IternioTelemetryClient @Inject constructor(
                 .add("tlm", telemetry.toString())
 
             val url = SEND_URL.toHttpUrl().newBuilder().apply {
-                val key = apiKey.trim()
-                if (key.isNotEmpty()) addQueryParameter("api_key", key)
+                val key = apiKey.trim().ifEmpty { DEFAULT_API_KEY }
+                addQueryParameter("api_key", key)
             }.build()
 
             val request = Request.Builder()

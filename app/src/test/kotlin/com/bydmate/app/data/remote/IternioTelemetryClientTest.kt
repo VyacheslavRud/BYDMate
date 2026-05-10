@@ -126,6 +126,19 @@ class IternioTelemetryClientTest {
     }
 
     @Test
+    fun `blank api_key falls back to embedded community key`() = runTest {
+        val capt = CapturingInterceptor()
+        val client = makeClient(capt)
+
+        // Empty string from settings — Iternio rejects with HTTP 401 if api_key
+        // is missing, so the client must send DEFAULT_API_KEY instead.
+        client.send(apiKey = "", userToken = "tok", data = drivingData(), battery = null, charging = null, carModel = null)
+
+        val url = capt.lastRequest!!.url
+        assertEquals(IternioTelemetryClient.DEFAULT_API_KEY, url.queryParameter("api_key"))
+    }
+
+    @Test
     fun `payload omits GPS fields - ABRP-on-DiLink reads location itself`() = runTest {
         val capt = CapturingInterceptor()
         val client = makeClient(capt)
