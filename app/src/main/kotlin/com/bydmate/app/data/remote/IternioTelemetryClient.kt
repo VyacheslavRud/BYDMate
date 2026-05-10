@@ -96,12 +96,16 @@ class IternioTelemetryClient @Inject constructor(
                     telemetry.put("is_dcfc", if (gun in DCFC_GUN_STATES) 1 else 0)
                 }
                 // -1.0f is the autoservice "no value" sentinel — drop it.
+                // .toDouble() is required: Android's JSONObject only exposes
+                // put(String, double) — there is no put(String, float). On JVM
+                // the desktop org.json has the float overload, so this lands as
+                // NoSuchMethodError only at runtime on the device.
                 c.chargingCapacityKwh?.takeIf { it >= 0f }?.let {
-                    telemetry.put("kwh_charged", it)
+                    telemetry.put("kwh_charged", it.toDouble())
                 }
             }
             battery?.sohPercent?.takeIf { it in 0f..100f }?.let {
-                telemetry.put("soh", it)
+                telemetry.put("soh", it.toDouble())
             }
 
             carModel?.trim()?.takeIf { it.isNotEmpty() }?.let { telemetry.put("car_model", it) }
