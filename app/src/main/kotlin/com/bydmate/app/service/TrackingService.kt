@@ -408,8 +408,13 @@ class TrackingService : Service(), LocationListener {
 
     /**
      * Отправка в [IternioTelemetryClient] с ограничением частоты, без блокировки цикла опроса.
+     *
+     * Throttle обновляется только при успешной отправке — иначе пара флапающих
+     * запросов могла бы заморозить телеметрию на полный интервал. GPS не
+     * передаётся: ABRP крутится как Android-приложение на DiLink и сам читает
+     * Location через системный API.
      */
-    private fun maybeSendIternioTelemetry(data: DiParsData, loc: Location?, nowMs: Long) {
+    private fun maybeSendIternioTelemetry(data: DiParsData, nowMs: Long) {
         serviceScope.launch {
             try {
                 if (settingsRepository.getString(
@@ -428,11 +433,13 @@ class TrackingService : Service(), LocationListener {
                 val intervalSec = settingsRepository.getString(
                     com.bydmate.app.data.repository.SettingsRepository.KEY_ABRP_INTERVAL_SEC,
                     com.bydmate.app.data.repository.SettingsRepository.DEFAULT_ABRP_INTERVAL_SEC
-                ).toIntOrNull()?.coerceIn(5, 120) ?: 12
+                ).toIntOrNull()?.coerceIn(
+                    com.bydmate.app.data.repository.SettingsRepository.MIN_ABRP_INTERVAL_SEC,
+                    com.bydmate.app.data.repository.SettingsRepository.MAX_ABRP_INTERVAL_SEC
+                ) ?: com.bydmate.app.data.repository.SettingsRepository.DEFAULT_ABRP_INTERVAL_SEC.toInt()
                 val intervalMs = intervalSec * 1000L
                 synchronized(iternioTelemetryLock) {
                     if (nowMs - lastIternioTelemetryMs < intervalMs) return@launch
-                    lastIternioTelemetryMs = nowMs
                 }
 
                 val apiKey = settingsRepository.getString(
@@ -444,13 +451,27 @@ class TrackingService : Service(), LocationListener {
                     ""
                 ).trim().takeIf { it.isNotEmpty() }
 
+                // Best-effort autoservice enrichment. Returns null on non-Leopard 3
+                // firmwares — client handles missing snapshots gracefully.
+                val battery = if (settingsRepository.isAutoserviceEnabled()) {
+                    runCatching { autoserviceClient.readBatterySnapshot() }.getOrNull()
+                } else null
+                val charging = if (settingsRepository.isAutoserviceEnabled()) {
+                    runCatching { autoserviceClient.readChargingSnapshot() }.getOrNull()
+                } else null
+
                 iternioTelemetryClient.send(
                     apiKey = apiKey,
                     userToken = token,
                     data = data,
-                    location = loc,
+                    battery = battery,
+                    charging = charging,
                     carModel = carModel,
-                ).onFailure { e ->
+                ).onSuccess {
+                    synchronized(iternioTelemetryLock) {
+                        lastIternioTelemetryMs = nowMs
+                    }
+                }.onFailure { e ->
                     Log.w(TAG, "Телеметрия Iternio: ${e.message}")
                 }
             } catch (e: Exception) {
@@ -669,7 +690,7 @@ class TrackingService : Service(), LocationListener {
                         automationEngine.evaluate(data, sessionId)
                         updateNotification(data)
                         maybeLogSessionSummary(nowMs, data, sessionId)
-                        maybeSendIternioTelemetry(data, loc, nowMs)
+                        maybeSendIternioTelemetry(data, nowMs)
                     } else {
                         consecutiveNullCount++
                         if (consecutiveNullCount >= NULL_WARNING_THRESHOLD) {

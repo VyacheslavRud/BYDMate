@@ -455,7 +455,7 @@ fun SettingsScreen(
                                     fontWeight = FontWeight.Medium
                                 )
                                 Text(
-                                    "Показатели DiPlus и GPS отправляются в Iternio Telemetry API для актуального плана в ABRP.",
+                                    "Живые данные DiPars (SOC, мощность, температуры) отправляются в Iternio Telemetry API для актуального плана в ABRP. GPS не передаётся — ABRP читает координаты сам.",
                                     color = TextSecondary,
                                     fontSize = 12.sp,
                                 )
@@ -463,6 +463,7 @@ fun SettingsScreen(
                             Switch(
                                 checked = state.abrpTelemetryEnabled,
                                 onCheckedChange = { viewModel.toggleAbrpTelemetry(it) },
+                                enabled = state.abrpUserToken.isNotBlank(),
                                 colors = bydSwitchColors(),
                             )
                         }

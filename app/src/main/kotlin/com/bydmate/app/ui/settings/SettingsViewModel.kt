@@ -665,9 +665,13 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun toggleAbrpTelemetry(enabled: Boolean) {
-        _uiState.update { it.copy(abrpTelemetryEnabled = enabled) }
+        // Switching ON without a user token is meaningless — Iternio rejects the
+        // call and we'd just spam failed requests. UI also gates on this flag,
+        // but enforce here so programmatic callers can't bypass it.
+        val effective = enabled && _uiState.value.abrpUserToken.isNotBlank()
+        _uiState.update { it.copy(abrpTelemetryEnabled = effective) }
         viewModelScope.launch {
-            settingsRepository.setString(SettingsRepository.KEY_ABRP_ENABLED, enabled.toString())
+            settingsRepository.setString(SettingsRepository.KEY_ABRP_ENABLED, effective.toString())
         }
     }
 
@@ -690,7 +694,9 @@ class SettingsViewModel @Inject constructor(
     fun saveAbrpSettings() {
         val state = _uiState.value
         viewModelScope.launch {
-            val interval = state.abrpIntervalSec.toIntOrNull()?.coerceIn(5, 120) ?: 12
+            val interval = state.abrpIntervalSec.toIntOrNull()
+                ?.coerceIn(SettingsRepository.MIN_ABRP_INTERVAL_SEC, SettingsRepository.MAX_ABRP_INTERVAL_SEC)
+                ?: SettingsRepository.DEFAULT_ABRP_INTERVAL_SEC.toInt()
             settingsRepository.setString(SettingsRepository.KEY_ABRP_API_KEY, state.abrpApiKey.trim())
             settingsRepository.setString(SettingsRepository.KEY_ABRP_USER_TOKEN, state.abrpUserToken.trim())
             settingsRepository.setString(SettingsRepository.KEY_ABRP_CAR_MODEL, state.abrpCarModel.trim())
