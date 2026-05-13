@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.SpanStyle
@@ -75,6 +76,7 @@ fun DashboardScreen(
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(lifecycleOwner) {
@@ -131,11 +133,11 @@ fun DashboardScreen(
 
                         // Live-ticking duration text (refresh every 15s, like in widget).
                         val durationText by produceState(
-                            initialValue = formatDurationShort(state.sessionStartedAt),
+                            initialValue = formatDurationShort(context, state.sessionStartedAt),
                             state.sessionStartedAt
                         ) {
                             while (true) {
-                                value = formatDurationShort(state.sessionStartedAt)
+                                value = formatDurationShort(context, state.sessionStartedAt)
                                 delay(15_000L)
                             }
                         }
@@ -189,7 +191,7 @@ fun DashboardScreen(
                             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                                 CornerStat(
                                     icon = Icons.Outlined.Route,
-                                    text = formatTripKm(state.tripDistanceKm),
+                                    text = formatTripKm(context, state.tripDistanceKm),
                                 )
                             }
                             Column(

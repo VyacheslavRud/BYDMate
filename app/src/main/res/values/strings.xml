@@ -411,6 +411,22 @@
     <string name="service_confirm_action_yes">Выполнить</string>
     <string name="service_confirm_action_no">Отмена</string>
 
+    <!-- Floating widget -->
+    <string name="widget_unit_km">км</string>
+    <string name="widget_unit_volts">В</string>
+    <!-- Duration compact formats: hours mode and minutes-only mode -->
+    <string name="widget_duration_hours">%1$dч %2$dм</string>
+    <string name="widget_duration_minutes">%1$d мин</string>
+    <!-- Trip distance value with unit -->
+    <string name="widget_trip_km_value">%1$.1f км</string>
+    <!-- Voltage value with unit: %.1f V -->
+    <string name="widget_voltage_value">%1$.1f В</string>
+    <!-- Long-press toast -->
+    <string name="widget_toast_hidden">Виджет скрыт. Откройте BYDMate - вернётся.</string>
+    <!-- Trash zone labels -->
+    <string name="widget_trash_release">отпустить - виджет скрыт</string>
+    <string name="widget_trash_hint">перетащить сюда, чтобы скрыть</string>
+
     <!-- Dashboard -->
     <!-- Top bar -->
     <string name="dashboard_diplus_offline">DiPlus не отвечает</string>

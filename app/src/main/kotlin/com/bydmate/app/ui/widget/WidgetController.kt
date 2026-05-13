@@ -24,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import com.bydmate.app.R
 import com.bydmate.app.domain.calculator.ConsumptionAggregator
 import com.bydmate.app.domain.calculator.ConsumptionState
 import com.bydmate.app.domain.calculator.Trend
@@ -465,7 +466,7 @@ object WidgetController {
                         try {
                             android.widget.Toast.makeText(
                                 context,
-                                "Виджет скрыт. Откройте BYDMate — вернётся.",
+                                context.getString(R.string.widget_toast_hidden),
                                 android.widget.Toast.LENGTH_SHORT,
                             ).show()
                         } catch (_: Exception) {}
