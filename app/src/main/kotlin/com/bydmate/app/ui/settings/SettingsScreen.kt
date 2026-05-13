@@ -301,7 +301,114 @@ private fun RailItem(
 
 @Composable
 private fun BatterySection(state: SettingsUiState, viewModel: SettingsViewModel) {
-    Text("Авто и батарея — pending Task 8", color = TextMuted)
+    SectionHeader(text = "Батарея и тарифы")
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = CardSurfaceElevated),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            SettingsTextField(
+                label = "Ёмкость батареи (кВт·ч)",
+                value = state.batteryCapacity,
+                onValueChange = { viewModel.saveBatteryCapacity(it) },
+                keyboardType = KeyboardType.Decimal
+            )
+            SettingsTextField(
+                label = "Тариф дома (${state.currencySymbol}/кВт·ч)",
+                value = state.homeTariff,
+                onValueChange = { viewModel.updateHomeTariff(it) },
+                keyboardType = KeyboardType.Decimal
+            )
+            SettingsTextField(
+                label = "Тариф DC (${state.currencySymbol}/кВт·ч)",
+                value = state.dcTariff,
+                onValueChange = { viewModel.updateDcTariff(it) },
+                keyboardType = KeyboardType.Decimal
+            )
+            Text("Тариф поездок", color = TextSecondary, fontSize = 14.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                UnitChip("AC", state.tripCostTariff == "home") { viewModel.saveTripCostTariff("home") }
+                UnitChip("DC", state.tripCostTariff == "dc") { viewModel.saveTripCostTariff("dc") }
+                UnitChip("Свой", state.tripCostTariff != "home" && state.tripCostTariff != "dc") {
+                    viewModel.saveTripCostTariff(state.homeTariff)
+                }
+            }
+            if (state.tripCostTariff != "home" && state.tripCostTariff != "dc") {
+                SettingsTextField(
+                    label = "Свой тариф (${state.currencySymbol}/кВт·ч)",
+                    value = state.tripCostTariff,
+                    onValueChange = { viewModel.saveTripCostTariff(it) },
+                    keyboardType = KeyboardType.Decimal
+                )
+            }
+
+            // Save tariffs button
+            Button(
+                onClick = { viewModel.saveTariffs() },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AccentGreen, contentColor = NavyDark)
+            ) {
+                Text("Сохранить тарифы", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            }
+            state.tariffSaveStatus?.let {
+                Text(it, color = AccentGreen, fontSize = 12.sp)
+            }
+            Text(
+                "Новый тариф применяется к будущим поездкам.\nУже посчитанные поездки не изменятся.",
+                color = TextMuted, fontSize = 11.sp, lineHeight = 15.sp
+            )
+
+            HorizontalDivider(color = CardBorder, modifier = Modifier.padding(vertical = 4.dp))
+
+            // Recalculate all trips button
+            Button(
+                onClick = { viewModel.showRecalcConfirm() },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentOrange),
+                border = androidx.compose.foundation.BorderStroke(1.dp, AccentOrange.copy(alpha = 0.4f))
+            ) {
+                Text("Пересчитать все поездки", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            }
+            state.recalcStatus?.let {
+                Text(it, color = AccentGreen, fontSize = 12.sp)
+            }
+            Text(
+                "Пересчитает стоимость всех поездок\nпо текущему тарифу.",
+                color = TextMuted, fontSize = 11.sp, lineHeight = 15.sp
+            )
+        }
+    }
+
+    SectionHeader(text = "Пороги расхода")
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = CardSurfaceElevated),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SettingsTextField(
+                label = "Хороший < (кВт·ч/100км)",
+                value = state.consumptionGood,
+                onValueChange = { viewModel.saveConsumptionGood(it) },
+                keyboardType = KeyboardType.Decimal
+            )
+            SettingsTextField(
+                label = "Плохой > (кВт·ч/100км)",
+                value = state.consumptionBad,
+                onValueChange = { viewModel.saveConsumptionBad(it) },
+                keyboardType = KeyboardType.Decimal
+            )
+        }
+    }
 }
 
 @Composable
