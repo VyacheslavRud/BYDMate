@@ -11,8 +11,12 @@ import androidx.work.Configuration
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.os.LocaleListCompat
 import com.bydmate.app.data.local.DataThinningWorker
 import com.bydmate.app.data.local.HistoryImporter
+import com.bydmate.app.data.local.LocalePreferences
+import com.bydmate.app.data.local.decideLanguage
 import com.bydmate.app.data.local.dao.ChargeDao
 import com.bydmate.app.data.repository.SettingsRepository
 import com.bydmate.app.ui.widget.WidgetController
@@ -22,6 +26,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.osmdroid.config.Configuration as OsmdroidConfig
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -34,6 +39,7 @@ class BYDMateApp : Application(), Configuration.Provider {
     @Inject lateinit var workerFactory: HiltWorkerFactory
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var chargeDao: ChargeDao
+    @Inject lateinit var localePreferences: LocalePreferences
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -44,6 +50,7 @@ class BYDMateApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        bootstrapLocale()
         initOsmdroid()
         appScope.launch {
             // One-shot migration: remove phantom autoservice rows created by the
@@ -62,6 +69,25 @@ class BYDMateApp : Application(), Configuration.Provider {
         }
         scheduleDataThinning()
         registerActivityLifecycleCallbacks(WidgetLifecycleCallbacks(this))
+    }
+
+    private fun bootstrapLocale() {
+        // Already decided on a previous launch: AppCompat autoStoreLocales handles
+        // applying the saved locale before this point, nothing to do.
+        if (localePreferences.getLanguage() != null) return
+
+        val setupCompleted = if (localePreferences.isSetupCompletedMirror()) {
+            true
+        } else {
+            // First v2.8.0 launch - older versions didn't write the mirror flag.
+            // Single Room read, gated to one-time, far below the ANR threshold.
+            runBlocking { settingsRepository.isSetupCompleted() }
+        }
+
+        val lang = decideLanguage(setupCompleted)
+        localePreferences.setLanguage(lang)
+        if (setupCompleted) localePreferences.markSetupCompletedMirror()
+        AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(lang))
     }
 
     private fun initOsmdroid() {

@@ -16,6 +16,7 @@ import com.bydmate.app.data.local.dao.SettingsDao
 import com.bydmate.app.data.local.dao.TripDao
 import com.bydmate.app.data.local.dao.TripPointDao
 import com.bydmate.app.data.local.database.AppDatabase
+import com.bydmate.app.data.local.LocalePreferences
 import com.bydmate.app.domain.calculator.OdometerConsumptionBuffer
 import com.bydmate.app.domain.calculator.RangeAvgSource
 import com.bydmate.app.domain.calculator.RangeCalculator
@@ -280,6 +281,11 @@ object AppModule {
         capacityProvider = { settingsRepository.getBatteryCapacity() },
         socInterpolator = socInterpolator,
     )
+
+    @Provides
+    @Singleton
+    fun provideLocalePreferences(@ApplicationContext context: Context): LocalePreferences =
+        LocalePreferences(context)
 
     @Provides
     @Singleton

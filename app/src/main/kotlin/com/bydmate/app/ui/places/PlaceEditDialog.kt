@@ -19,6 +19,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,10 +52,10 @@ fun PlaceEditDialog(
     onDismiss: () -> Unit,
     onSave: (id: Long?, name: String, lat: Double, lon: Double, radiusM: Int) -> Unit
 ) {
-    var nameText by remember { mutableStateOf(initial?.name ?: "") }
-    var latText by remember { mutableStateOf(if (initial != null) initial.lat.toString() else "") }
-    var lonText by remember { mutableStateOf(if (initial != null) initial.lon.toString() else "") }
-    var radiusText by remember { mutableStateOf(initial?.radiusM?.toString() ?: "50") }
+    var nameText by rememberSaveable { mutableStateOf(initial?.name ?: "") }
+    var latText by rememberSaveable { mutableStateOf(if (initial != null) initial.lat.toString() else "") }
+    var lonText by rememberSaveable { mutableStateOf(if (initial != null) initial.lon.toString() else "") }
+    var radiusText by rememberSaveable { mutableStateOf(initial?.radiusM?.toString() ?: "50") }
 
     // Fallback centre: last GPS fix or Moscow Red Square
     val fallback = remember {

@@ -3,6 +3,7 @@ package com.bydmate.app.ui.charges
 import com.bydmate.app.data.autoservice.AutoserviceClient
 import com.bydmate.app.data.autoservice.BatteryReading
 import com.bydmate.app.data.autoservice.ChargingReading
+import com.bydmate.app.data.local.LocalePreferences
 import com.bydmate.app.data.local.dao.BatterySnapshotDao
 import com.bydmate.app.data.local.dao.ChargeDao
 import com.bydmate.app.data.local.dao.ChargePointDao
@@ -31,6 +32,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import io.mockk.mockk
 import java.util.Calendar
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -165,7 +167,7 @@ class ChargesViewModelTest {
         batteryCapacityKwh: String = "72.9"
     ): Pair<ChargesViewModel, FakeChargeDao> {
         val settingsDao = FakeSettingsDao(autoserviceEnabled, batteryCapacityKwh)
-        val settingsRepo = SettingsRepository(settingsDao)
+        val settingsRepo = SettingsRepository(settingsDao, mockk<LocalePreferences>(relaxed = true))
 
         val chargeDao = FakeChargeDao(chargesFlow, autoserviceCharges, legacyExists)
         val chargeRepo = ChargeRepository(chargeDao, StubChargePointDao())

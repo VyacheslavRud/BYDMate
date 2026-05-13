@@ -11,7 +11,9 @@ import com.bydmate.app.data.remote.DiParsClient
 import com.bydmate.app.data.remote.DiParsData
 import com.bydmate.app.data.repository.BatteryHealthRepository
 import com.bydmate.app.data.repository.ChargeRepository
+import com.bydmate.app.data.local.LocalePreferences
 import com.bydmate.app.data.repository.SettingsRepository
+import io.mockk.mockk
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -167,7 +169,7 @@ class AutoserviceChargingDetectorTest {
             }
         }
         val settingsDao = FakeSettingsDao(initialMap)
-        val settings = SettingsRepository(settingsDao)
+        val settings = SettingsRepository(settingsDao, mockk<LocalePreferences>(relaxed = true))
         val stateStore = ChargingStateStore(settings)
         val classifier = ChargingTypeClassifier()
         val detector = AutoserviceChargingDetector(

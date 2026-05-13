@@ -4,8 +4,10 @@ import com.bydmate.app.data.autoservice.AutoserviceClient
 import com.bydmate.app.data.autoservice.BatteryReading
 import com.bydmate.app.data.autoservice.ChargingReading
 import com.bydmate.app.data.local.entity.BatterySnapshotEntity
+import com.bydmate.app.data.local.LocalePreferences
 import com.bydmate.app.data.repository.BatteryHealthRepository
 import com.bydmate.app.data.repository.SettingsRepository
+import io.mockk.mockk
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -56,7 +58,7 @@ class BatteryStateRepositoryTest {
             }
             override fun getAll(): Flow<List<com.bydmate.app.data.local.entity.SettingEntity>> = flowOf(emptyList())
         }
-        return SettingsRepository(dao)
+        return SettingsRepository(dao, mockk<LocalePreferences>(relaxed = true))
     }
 
     @Test

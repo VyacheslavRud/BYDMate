@@ -6,6 +6,7 @@ import com.bydmate.app.data.autoservice.AdbOnDeviceClient
 import com.bydmate.app.data.autoservice.AutoserviceClient
 import com.bydmate.app.data.autoservice.BatteryReading
 import com.bydmate.app.data.autoservice.ChargingReading
+import com.bydmate.app.data.local.LocalePreferences
 import com.bydmate.app.data.local.EnergyDataReader
 import com.bydmate.app.data.local.HistoryImporter
 import com.bydmate.app.data.local.dao.BatterySnapshotDao
@@ -49,6 +50,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import io.mockk.mockk
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -200,7 +202,7 @@ class SettingsViewModelTest {
         val ctx: Context = ApplicationProvider.getApplicationContext()
 
         val settingsDao = FakeSettingsDao(autoserviceEnabled)
-        val settingsRepo = SettingsRepository(settingsDao)
+        val settingsRepo = SettingsRepository(settingsDao, mockk<LocalePreferences>(relaxed = true))
 
         val tripDao = StubTripDao()
         val tripPointDao = StubTripPointDao()

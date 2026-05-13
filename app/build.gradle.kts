@@ -135,7 +135,11 @@ dependencies {
     // Sun/moon position calculation for time_of_day trigger
     implementation("org.shredzone.commons:commons-suncalc:3.7")
 
+    // AppCompat (required for AppCompatDelegate.setApplicationLocales per-app language support)
+    implementation("androidx.appcompat:appcompat:1.6.1")
+
     // Testing
+    testImplementation("io.mockk:mockk:1.13.10")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation("org.robolectric:robolectric:4.13")

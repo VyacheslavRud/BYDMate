@@ -1,5 +1,6 @@
 package com.bydmate.app.data.repository
 
+import com.bydmate.app.data.local.LocalePreferences
 import com.bydmate.app.data.local.dao.SettingsDao
 import com.bydmate.app.data.local.entity.SettingEntity
 import kotlinx.coroutines.flow.Flow
@@ -10,7 +11,8 @@ import javax.inject.Singleton
 
 @Singleton
 open class SettingsRepository @Inject constructor(
-    private val settingsDao: SettingsDao
+    private val settingsDao: SettingsDao,
+    private val localePreferences: LocalePreferences,
 ) {
     companion object {
         const val KEY_BATTERY_CAPACITY = "battery_capacity_kwh"
@@ -149,8 +151,10 @@ open class SettingsRepository @Inject constructor(
     suspend fun isSetupCompleted(): Boolean =
         getString(KEY_SETUP_COMPLETED, "false") == "true"
 
-    suspend fun setSetupCompleted() =
+    suspend fun setSetupCompleted() {
         setString(KEY_SETUP_COMPLETED, "true")
+        localePreferences.markSetupCompletedMirror()  // sync mirror
+    }
 
     suspend fun isDedupCleanupDone(): Boolean =
         getString(KEY_DEDUP_CLEANUP_DONE, "false") == "true"

@@ -66,6 +66,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1407,8 +1408,8 @@ private fun NotificationEditDialog(
     onDismiss: () -> Unit,
     onSave: (String, String) -> Unit
 ) {
-    var titleText by remember { mutableStateOf(initialTitle) }
-    var bodyText by remember { mutableStateOf(initialText) }
+    var titleText by rememberSaveable { mutableStateOf(initialTitle) }
+    var bodyText by rememberSaveable { mutableStateOf(initialText) }
     val canSave = titleText.trim().isNotBlank() && titleText.trim().length <= 40
 
     val fieldColors = OutlinedTextFieldDefaults.colors(
@@ -1588,8 +1589,8 @@ private fun CallEditDialog(
     onDismiss: () -> Unit,
     onSave: (phone: String, name: String, autoDial: Boolean) -> Unit
 ) {
-    var phoneText by remember { mutableStateOf(initialPhone) }
-    var nameText by remember { mutableStateOf(initialName) }
+    var phoneText by rememberSaveable { mutableStateOf(initialPhone) }
+    var nameText by rememberSaveable { mutableStateOf(initialName) }
     var autoDial by remember { mutableStateOf(initialAutoDial) }
     val trimmedPhone = phoneText.trim()
     val canSave = trimmedPhone.isNotBlank() && trimmedPhone.length in 5..20
