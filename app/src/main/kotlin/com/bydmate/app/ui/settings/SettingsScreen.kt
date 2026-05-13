@@ -194,7 +194,7 @@ fun SettingsScreen(
                 ) {
                     when (selected) {
                         SettingsSection.BATTERY -> BatterySection(state, viewModel)
-                        SettingsSection.TRIPS -> Text("Поездки — TODO", color = TextMuted)
+                        SettingsSection.TRIPS -> TripsSection(state, viewModel)
                         SettingsSection.INTEGRATIONS -> Text("Интеграции — TODO", color = TextMuted)
                         SettingsSection.WIDGET -> Text("Виджет — TODO", color = TextMuted)
                         SettingsSection.PLACES -> Text("Места — TODO", color = TextMuted)
@@ -407,6 +407,83 @@ private fun BatterySection(state: SettingsUiState, viewModel: SettingsViewModel)
                 onValueChange = { viewModel.saveConsumptionBad(it) },
                 keyboardType = KeyboardType.Decimal
             )
+        }
+    }
+}
+
+@Composable
+private fun TripsSection(state: SettingsUiState, viewModel: SettingsViewModel) {
+    SectionHeader(text = "Источник данных поездок")
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = CardSurfaceElevated),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "Leopard 3 — BYD energydata.\nSong и другие без встроенной базы — DiPlus TripInfo.",
+                color = TextSecondary,
+                fontSize = 11.sp,
+            )
+            DataSourceOption(
+                label = "BYD energydata",
+                selected = state.dataSource == "ENERGYDATA",
+                onClick = { viewModel.setDataSource("ENERGYDATA") },
+            )
+            DataSourceOption(
+                label = "DiPlus TripInfo",
+                selected = state.dataSource == "DIPLUS",
+                onClick = { viewModel.setDataSource("DIPLUS") },
+            )
+            Text(
+                text = "Если после 2–3 поездок список пустой — переключи режим.",
+                color = TextSecondary,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            if (state.dataSourceStatus != null) {
+                Text(
+                    state.dataSourceStatus!!,
+                    color = PrimaryColor,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+    }
+
+    SectionHeader(text = "Системные данные (экспериментально)")
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = CardSurfaceElevated),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Расширенные данные с машины: SoH батареи, истинный пробег от BMS, статистика зарядок. Только чтение.",
+                color = TextSecondary,
+                fontSize = 12.sp,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Включить", color = TextPrimary, fontSize = 14.sp)
+                Switch(
+                    checked = state.autoserviceEnabled,
+                    onCheckedChange = { enabled ->
+                        viewModel.enableAutoservice(enabled)
+                    },
+                    colors = bydSwitchColors(),
+                )
+            }
+            AutoserviceStatusBlock(status = state.autoserviceStatus)
         }
     }
 }
