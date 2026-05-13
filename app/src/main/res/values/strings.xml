@@ -156,6 +156,47 @@
     <string name="trip_detail_temp_label">Темп.</string>
     <string name="trip_detail_max_speed_histogram">макс %1$d км/ч</string>
 
+    <!-- Charges screen -->
+    <string name="charges_filter_all">Все</string>
+    <string name="charges_add_button">+ зарядка</string>
+    <string name="charges_empty">Нет зарядок за выбранный период</string>
+    <string name="charges_col_time">время</string>
+    <string name="charges_col_kwh">кВт·ч</string>
+    <string name="charges_kwh_value">%1$.0f кВт·ч</string>
+    <string name="charges_action_edit">Изменить</string>
+    <string name="charges_action_delete">Удалить</string>
+    <string name="charges_delete_dialog_title">Удалить зарядку?</string>
+    <string name="charges_delete_dialog_text">%1$s кВт·ч - восстановить будет нельзя.</string>
+    <string name="charges_onboarding_empty_text">Статистика зарядок недоступна. Чтобы видеть кВт·ч и стоимость каждой зарядки - включи «Системные данные» в Настройках.</string>
+    <string name="charges_go_to_settings_button">Перейти в Настройки</string>
+    <string name="charges_sentinel_empty_text">На вашей модели машины статистика зарядок недоступна - диагностические данные не читаются. SoH тоже не показывается.</string>
+    <string name="charges_not_tracking_banner">Новые зарядки сейчас не отслеживаются.</string>
+    <string name="charges_enable_tracking_button">Включить →</string>
+    <string name="charges_stats_period_label">За выбранный период</string>
+    <string name="charges_stats_sessions">Сессий</string>
+    <string name="charges_stats_cost">Стоимость</string>
+    <string name="charges_stats_lifetime_label">Lifetime (системные данные)</string>
+    <string name="charges_stats_pumped_total">Прокачано всего</string>
+    <string name="charges_stats_equiv_cycles">Эквив. циклов</string>
+    <string name="charges_stats_bms_mileage">Пробег BMS</string>
+    <string name="charges_stats_per100km">/100км lifetime</string>
+    <string name="charges_lifetime_enable_hint">Включи «Системные данные» в Настройках, чтобы видеть пробег BMS и прокачано всего от машины.</string>
+    <string name="charges_lifetime_waiting">Жду первого ответа от машины…</string>
+    <string name="charges_stats_dynamics_label">Динамика</string>
+    <string name="charges_chart_cell_delta_title">Δ ячеек (В)</string>
+    <string name="charges_chart_cell_delta_placeholder">Δ ячеек: будет показано после 3 завершённых зарядок (сейчас: %1$d)</string>
+    <string name="charges_chart_bat_temp_title">Темп. батареи (°C)</string>
+    <string name="charges_chart_bat_temp_placeholder">Температура: будет показано после 3 завершённых зарядок (сейчас: %1$d)</string>
+
+    <!-- Charge edit dialog -->
+    <string name="charges_edit_dialog_title">Изменить зарядку</string>
+    <string name="charges_edit_type_label">Тип:</string>
+    <string name="charges_edit_kwh_label">кВт·ч:</string>
+    <string name="charges_edit_kwh_from_soc">из SOC × %1$.1f кВт·ч</string>
+    <string name="charges_edit_cost_label">Стоимость:</string>
+    <string name="charges_edit_tariff_label">%1$s/кВт·ч:</string>
+    <string name="charges_edit_save_button">Сохранить</string>
+
     <!-- Dashboard -->
     <!-- Top bar -->
     <string name="dashboard_diplus_offline">DiPlus не отвечает</string>
