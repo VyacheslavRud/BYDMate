@@ -434,4 +434,31 @@
     <string name="update_downloading_start">Downloading: 0%%</string>
     <string name="charges_day_today">today (%1$s)</string>
     <string name="charges_day_yesterday">yesterday</string>
+
+    <!-- Common duration formats -->
+    <string name="common_duration_hours_minutes">%1$d h %2$d min</string>
+    <string name="common_duration_minutes">%1$d min</string>
+
+    <!-- Automation confirm overlay buttons -->
+    <string name="confirm_overlay_cancel">Cancel</string>
+    <string name="confirm_overlay_run">Run</string>
+
+    <!-- AI insight dynamic metric labels -->
+    <string name="insight_metric_consumption">Consumption</string>
+    <string name="insight_metric_trips">Trips</string>
+    <string name="insight_metric_short_trips">Short &lt; 5 km</string>
+    <string name="insight_metric_avg_distance">Avg distance</string>
+    <string name="insight_metric_idle">Idle</string>
+    <string name="insight_section_week_to_week">Week over week</string>
+    <string name="insight_unit_kwh_per_100">%.1f kWh/100</string>
+    <string name="insight_unit_kwh_per_100_prev">%.1f</string>
+    <string name="insight_trips_value">%1$d · %2$s km</string>
+    <string name="insight_trips_prev">%1$d · %2$s km</string>
+    <string name="insight_short_value">%1$d%% (%2$d/%3$d)</string>
+    <string name="insight_short_prev">%1$d%%</string>
+    <string name="insight_avg_distance_value">%1$s km</string>
+    <string name="insight_idle_value">%1$s kWh · %2$s</string>
+    <string name="insight_idle_prev">%1$s kWh</string>
+    <string name="insight_idle_minutes">%1$s min</string>
+    <string name="insight_idle_hours">%1$s h</string>
 </resources>

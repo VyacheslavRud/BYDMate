@@ -590,4 +590,31 @@
     <!-- %1$s = day-of-week abbreviation -->
     <string name="charges_day_today">сегодня (%1$s)</string>
     <string name="charges_day_yesterday">вчера</string>
+
+    <!-- Common duration formats -->
+    <string name="common_duration_hours_minutes">%1$d ч %2$d мин</string>
+    <string name="common_duration_minutes">%1$d мин</string>
+
+    <!-- Automation confirm overlay buttons -->
+    <string name="confirm_overlay_cancel">Отмена</string>
+    <string name="confirm_overlay_run">Выполнить</string>
+
+    <!-- AI insight dynamic metric labels -->
+    <string name="insight_metric_consumption">Расход</string>
+    <string name="insight_metric_trips">Поездки</string>
+    <string name="insight_metric_short_trips">Короткие &lt; 5 км</string>
+    <string name="insight_metric_avg_distance">Ср. дистанция</string>
+    <string name="insight_metric_idle">Стоянка</string>
+    <string name="insight_section_week_to_week">Неделя к неделе</string>
+    <string name="insight_unit_kwh_per_100">%.1f кВтч/100</string>
+    <string name="insight_unit_kwh_per_100_prev">%.1f</string>
+    <string name="insight_trips_value">%1$d · %2$s км</string>
+    <string name="insight_trips_prev">%1$d · %2$s км</string>
+    <string name="insight_short_value">%1$d%% (%2$d/%3$d)</string>
+    <string name="insight_short_prev">%1$d%%</string>
+    <string name="insight_avg_distance_value">%1$s км</string>
+    <string name="insight_idle_value">%1$s кВтч · %2$s</string>
+    <string name="insight_idle_prev">%1$s кВтч</string>
+    <string name="insight_idle_minutes">%1$s мин</string>
+    <string name="insight_idle_hours">%1$s ч</string>
 </resources>

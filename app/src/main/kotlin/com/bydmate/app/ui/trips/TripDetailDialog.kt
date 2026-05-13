@@ -60,6 +60,7 @@ fun TripDetailDialog(
     currencySymbol: String,
     onDismiss: () -> Unit
 ) {
+    val ctx = LocalContext.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -154,7 +155,7 @@ fun TripDetailDialog(
                         Text(stringResource(R.string.trip_detail_stats_header), color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
 
                         trip.distanceKm?.let { DetailRow(stringResource(R.string.trip_detail_distance_label), stringResource(R.string.trip_detail_distance_value, it)) }
-                        if (trip.endTs != null) DetailRow(stringResource(R.string.trip_detail_duration_label), formatDuration(trip.startTs, trip.endTs))
+                        if (trip.endTs != null) DetailRow(stringResource(R.string.trip_detail_duration_label), formatDuration(ctx, trip.startTs, trip.endTs))
                         trip.avgSpeedKmh?.let { DetailRow(stringResource(R.string.trip_detail_avg_speed_label), stringResource(R.string.trip_detail_speed_value, it)) }
                         if (points.isNotEmpty()) {
                             val maxSpeed = points.maxOfOrNull { it.speedKmh ?: 0.0 } ?: 0.0

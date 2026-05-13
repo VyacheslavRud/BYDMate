@@ -168,7 +168,7 @@ object ConfirmOverlayManager {
                             contentColor = Color.White,
                         ),
                     ) {
-                        Text("Отмена", fontSize = 14.sp)
+                        Text(context.getString(com.bydmate.app.R.string.confirm_overlay_cancel), fontSize = 14.sp)
                     }
                     Button(
                         onClick = { dismiss("confirm") },
@@ -179,7 +179,7 @@ object ConfirmOverlayManager {
                             contentColor = Color.White,
                         ),
                     ) {
-                        Text("Выполнить", fontSize = 14.sp)
+                        Text(context.getString(com.bydmate.app.R.string.confirm_overlay_run), fontSize = 14.sp)
                     }
                 }
             }

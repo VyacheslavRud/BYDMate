@@ -96,11 +96,12 @@ fun formatDateTime(ts: Long): String {
     return sdf.format(Date(ts))
 }
 
-fun formatDuration(startTs: Long, endTs: Long): String {
+fun formatDuration(context: android.content.Context, startTs: Long, endTs: Long): String {
     val durationMs = endTs - startTs
     val hours = TimeUnit.MILLISECONDS.toHours(durationMs)
     val minutes = TimeUnit.MILLISECONDS.toMinutes(durationMs) % 60
-    return if (hours > 0) "$hours ч $minutes мин" else "$minutes мин"
+    return if (hours > 0) context.getString(R.string.common_duration_hours_minutes, hours.toInt(), minutes.toInt())
+    else context.getString(R.string.common_duration_minutes, minutes.toInt())
 }
 
 // Единый стиль Switch по всему приложению:
@@ -231,6 +232,7 @@ fun TripCard(
     modifier: Modifier = Modifier,
     currencySymbol: String = "BYN"
 ) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     // Compact single-row trip card with weight-based columns
     Row(
         modifier = modifier
@@ -251,7 +253,7 @@ fun TripCard(
 
         // Duration (2nd column)
         Text(
-            text = if (trip.endTs != null) formatDuration(trip.startTs, trip.endTs) else "…",
+            text = if (trip.endTs != null) formatDuration(ctx, trip.startTs, trip.endTs) else "…",
             color = TextMuted, fontSize = 12.sp, fontFamily = FontFamily.Monospace,
             textAlign = TextAlign.End,
             modifier = Modifier.weight(1f)
@@ -305,6 +307,7 @@ fun ChargeCard(
     modifier: Modifier = Modifier,
     currencySymbol: String = "BYN"
 ) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = CardSurface),
@@ -359,7 +362,7 @@ fun ChargeCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 if (charge.endTs != null) {
-                    Text(text = formatDuration(charge.startTs, charge.endTs), color = TextSecondary, fontSize = 14.sp)
+                    Text(text = formatDuration(ctx, charge.startTs, charge.endTs), color = TextSecondary, fontSize = 14.sp)
                 }
 
                 if (charge.avgPowerKw != null) {

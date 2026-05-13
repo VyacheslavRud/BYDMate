@@ -264,11 +264,12 @@ private fun ColumnHeaders(currencySymbol: String) {
 
 @Composable
 private fun TripRow(trip: TripEntity, currencySymbol: String, onClick: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val isStop = (trip.distanceKm ?: 0.0) == 0.0
     val time = formatTime(trip.startTs)
     val endTime = trip.endTs?.let { formatTime(it) } ?: ""
     val dist = trip.distanceKm?.let { "%.1f".format(it) } ?: "—"
-    val dur = if (trip.endTs != null) formatDuration(trip.startTs, trip.endTs) else "—"
+    val dur = if (trip.endTs != null) formatDuration(context, trip.startTs, trip.endTs) else "—"
     val kwh = trip.kwhConsumed?.let { "%.1f".format(it) } ?: "—"
     val per100 = trip.kwhPer100km?.let { "%.1f".format(it) } ?: "—"
     val cost = trip.cost?.let { "%.2f".format(it) } ?: "—"
