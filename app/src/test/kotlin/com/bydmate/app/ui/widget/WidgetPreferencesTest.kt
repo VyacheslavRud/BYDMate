@@ -143,6 +143,14 @@ class WidgetPreferencesTest {
         assertFalse(store.containsKey(WidgetPreferences.LEGACY_KEY_LEFT_TAP_NAVIGATOR))
     }
 
+    @Test fun `migration does not overwrite new key when both are present`() {
+        store[WidgetPreferences.KEY_LEFT_TAP_ZONING] = true
+        store[WidgetPreferences.LEGACY_KEY_LEFT_TAP_NAVIGATOR] = false
+        val migrated = WidgetPreferences(fakeSharedPrefs(store))
+        assertTrue(migrated.isLeftTapZoningEnabled())
+        assertFalse(store.containsKey(WidgetPreferences.LEGACY_KEY_LEFT_TAP_NAVIGATOR))
+    }
+
     // --- Minimal fake of SharedPreferences used by WidgetPreferences ---
     private fun fakeSharedPrefs(backing: MutableMap<String, Any?>): SharedPreferences {
         return object : SharedPreferences {

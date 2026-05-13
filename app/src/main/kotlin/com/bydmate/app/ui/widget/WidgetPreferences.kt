@@ -141,11 +141,15 @@ class WidgetPreferences(private val prefs: SharedPreferences) {
 
     private fun migrateLegacyLeftTapKey() {
         if (!prefs.contains(LEGACY_KEY_LEFT_TAP_NAVIGATOR)) return
-        val legacy = prefs.getBoolean(LEGACY_KEY_LEFT_TAP_NAVIGATOR, false)
-        prefs.edit()
-            .putBoolean(KEY_LEFT_TAP_ZONING, legacy)
-            .remove(LEGACY_KEY_LEFT_TAP_NAVIGATOR)
-            .apply()
+        val editor = prefs.edit().remove(LEGACY_KEY_LEFT_TAP_NAVIGATOR)
+        // Only copy legacy value if the new key has not been written yet.
+        // Protects against multi-process race where another instance already
+        // migrated and the user has since changed the setting.
+        if (!prefs.contains(KEY_LEFT_TAP_ZONING)) {
+            val legacy = prefs.getBoolean(LEGACY_KEY_LEFT_TAP_NAVIGATOR, false)
+            editor.putBoolean(KEY_LEFT_TAP_ZONING, legacy)
+        }
+        editor.apply()
     }
 
     companion object {
