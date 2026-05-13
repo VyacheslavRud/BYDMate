@@ -147,6 +147,21 @@ fun SettingsScreen(
         )
     }
 
+    val previewContext = LocalContext.current
+    val previewLifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(previewLifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                WidgetController.setPreviewMode(previewContext, false)
+            }
+        }
+        previewLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            previewLifecycleOwner.lifecycle.removeObserver(observer)
+            WidgetController.setPreviewMode(previewContext, false)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -639,20 +654,6 @@ private fun WidgetSection() {
         ),
     )
     var showLeftTapPicker by remember { mutableStateOf(false) }
-
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) {
-                WidgetController.setPreviewMode(context, false)
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            WidgetController.setPreviewMode(context, false)
-        }
-    }
 
     SectionHeader(text = "Плавающий виджет")
     Card(
