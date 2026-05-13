@@ -163,13 +163,18 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(12.dp))
 
         var selected by rememberSaveable { mutableStateOf(SettingsSection.BATTERY) }
+        val safeSelected = if (selected == SettingsSection.SMART_HOME && !state.devModeUnlocked) {
+            SettingsSection.BATTERY
+        } else {
+            selected
+        }
 
         Row(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             SettingsRail(
-                selected = selected,
+                selected = safeSelected,
                 smartHomeUnlocked = state.devModeUnlocked,
                 appVersion = state.appVersion,
                 onSelect = { selected = it },
@@ -188,7 +193,7 @@ fun SettingsScreen(
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    when (selected) {
+                    when (safeSelected) {
                         SettingsSection.BATTERY -> BatterySection(state, viewModel)
                         SettingsSection.TRIPS -> TripsSection(state, viewModel)
                         SettingsSection.INTEGRATIONS -> IntegrationsSection(state, viewModel)
