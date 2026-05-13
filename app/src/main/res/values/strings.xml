@@ -359,6 +359,44 @@
     <string name="place_edit_radius_label">Радиус, м</string>
     <string name="place_edit_error_min_radius">Минимальный радиус 20 м</string>
 
+    <!-- Welcome Wizard -->
+    <string name="welcome_step_indicator">Шаг %1$d из 3</string>
+    <string name="welcome_model_step_title">Какая у тебя модель BYD?</string>
+    <string name="welcome_model_step_description">От этого зависит источник данных о поездках.\nLeopard 3 хранит их во встроенной базе BYD (energydata).\nSong и другие модели - только в DiPlus.</string>
+    <string name="welcome_model_song_label">Song / другая</string>
+    <string name="welcome_model_change_later">Можно поменять позже в настройках.</string>
+    <string name="welcome_next_button">Далее</string>
+    <string name="welcome_battery_section_title">Батарея</string>
+    <string name="welcome_battery_capacity_hint">Leopard 3: 72.9 кВт·ч (BEV) или 31.8 кВт·ч (PHEV)</string>
+    <string name="welcome_tariff_section_title">Тарифы</string>
+    <string name="welcome_tariff_home_label">Домашняя зарядка (%1$s/кВт·ч)</string>
+    <string name="welcome_tariff_dc_label">Быстрая зарядка DC (%1$s/кВт·ч)</string>
+    <string name="welcome_tariff_cost_section_title">Расчёт стоимости поездок</string>
+    <string name="welcome_tariff_home_chip">Домашний</string>
+    <string name="welcome_tariff_custom_chip">Свой</string>
+    <string name="welcome_tariff_cost_note">Стоимость = потребление × тариф. Можно изменить позже в настройках.</string>
+    <string name="welcome_autostart_step_title">Автозапуск на DiLink</string>
+    <string name="welcome_autostart_step_description">Чтобы BYDMate запускался автоматически при включении магнитолы:</string>
+    <string name="welcome_autostart_instruction_1">1. Нажмите кнопку справа</string>
+    <string name="welcome_autostart_instruction_2">2. Найдите BYDMate в списке</string>
+    <string name="welcome_autostart_instruction_3">3. Переключатель должен быть ВЫКЛЮЧЕН (OFF)</string>
+    <string name="welcome_autostart_off_note">OFF = автозапуск РАЗРЕШЁН. Это чёрный список: отключённые в нём приложения МОГУТ запускаться сами.</string>
+    <string name="welcome_autostart_apk_update_warning">После обновления APK проверьте эту настройку!</string>
+    <string name="welcome_autostart_dilink_section_title">Альтернатива: через DiLink+ (Di+)</string>
+    <string name="welcome_autostart_dilink_hint">Если автозапуск не сработал, добавьте в Di+:</string>
+    <string name="welcome_autostart_dilink_instruction">Di+ → Predefined → Startup tasks</string>
+    <string name="welcome_autostart_command_copied_toast">Скопировано!</string>
+    <string name="welcome_autostart_command_explanation">打开应用 = «открыть приложение» + имя пакета.\nДля двух приложений через точку с запятой:\n打开应用ru.yandex.yandexnavi;打开应用com.bydmate.app</string>
+    <string name="welcome_system_settings_section_title">Системные настройки</string>
+    <string name="welcome_autostart_open_settings_button">Открыть настройки автозапуска</string>
+    <string name="welcome_autostart_open_settings_error">Не удалось открыть настройки автозапуска DiLink. Открыты настройки приложения.</string>
+    <string name="welcome_loading_default">Загрузка...</string>
+    <string name="welcome_back_button">Назад</string>
+    <string name="welcome_done_button">Запустить BYDMate</string>
+    <string name="welcome_saving_settings_status">Сохранение настроек...</string>
+    <string name="welcome_updating_data_status">Обновление данных...</string>
+    <string name="welcome_importing_trips_status">Импорт поездок...</string>
+
     <!-- Dashboard -->
     <!-- Top bar -->
     <string name="dashboard_diplus_offline">DiPlus не отвечает</string>
