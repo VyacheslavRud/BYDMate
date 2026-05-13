@@ -413,7 +413,6 @@
 
     <!-- Floating widget -->
     <string name="widget_unit_km">км</string>
-    <string name="widget_unit_volts">В</string>
     <!-- Duration compact formats: hours mode and minutes-only mode -->
     <string name="widget_duration_hours">%1$dч %2$dм</string>
     <string name="widget_duration_minutes">%1$d мин</string>

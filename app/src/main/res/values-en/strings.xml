@@ -302,7 +302,7 @@
     <string name="welcome_autostart_dilink_hint">If autostart did not work, add this in Di+:</string>
     <string name="welcome_autostart_dilink_instruction">Di+ -> Predefined -> Startup tasks</string>
     <string name="welcome_autostart_command_copied_toast">Copied!</string>
-    <string name="welcome_autostart_command_explanation">打开应用 = «открыть приложение» + имя пакета.\nДля двух приложений через точку с запятой:\n打开应用ru.yandex.yandexnavi;打开应用com.bydmate.app</string>
+    <string name="welcome_autostart_command_explanation">打开应用 = \"open app\" + package name.\nFor two apps separated by semicolon:\n打开应用ru.yandex.yandexnavi;打开应用com.bydmate.app</string>
     <string name="welcome_system_settings_section_title">System settings</string>
     <string name="welcome_autostart_open_settings_button">Open autostart settings</string>
     <string name="welcome_autostart_open_settings_error">Could not open DiLink autostart settings. App settings were opened.</string>
@@ -320,7 +320,6 @@
     <string name="service_confirm_action_yes">Run</string>
     <string name="service_confirm_action_no">Cancel</string>
     <string name="widget_unit_km">km</string>
-    <string name="widget_unit_volts">V</string>
     <string name="widget_duration_hours">%1$dh %2$dmin</string>
     <string name="widget_duration_minutes">%1$d min</string>
     <string name="widget_trip_km_value">%1$.1f km</string>
