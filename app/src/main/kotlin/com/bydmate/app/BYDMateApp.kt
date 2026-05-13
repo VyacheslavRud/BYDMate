@@ -18,6 +18,7 @@ import com.bydmate.app.data.local.HistoryImporter
 import com.bydmate.app.data.local.LocalePreferences
 import com.bydmate.app.data.local.decideLanguage
 import com.bydmate.app.data.local.dao.ChargeDao
+import com.bydmate.app.data.remote.InsightsManager
 import com.bydmate.app.data.repository.SettingsRepository
 import com.bydmate.app.ui.widget.WidgetController
 import com.bydmate.app.ui.widget.WidgetPreferences
@@ -40,6 +41,7 @@ class BYDMateApp : Application(), Configuration.Provider {
     @Inject lateinit var settingsRepository: SettingsRepository
     @Inject lateinit var chargeDao: ChargeDao
     @Inject lateinit var localePreferences: LocalePreferences
+    @Inject lateinit var insightsManager: InsightsManager
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -53,6 +55,10 @@ class BYDMateApp : Application(), Configuration.Provider {
         bootstrapLocale()
         initOsmdroid()
         appScope.launch {
+            if (!settingsRepository.isInsightCacheV2MigrationDone()) {
+                insightsManager.migrateLegacyCache()
+                settingsRepository.setInsightCacheV2MigrationDone()
+            }
             // One-shot migration: remove phantom autoservice rows created by the
             // lifetime_kwh driving-counter bug in v2.4.15/v2.4.16.
             if (!settingsRepository.isMigrationV2_4_17Done()) {

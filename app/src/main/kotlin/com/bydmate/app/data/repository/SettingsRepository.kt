@@ -55,6 +55,7 @@ open class SettingsRepository @Inject constructor(
         // runCatchUp can compute a real SOC delta on cold start.
         const val KEY_CHARGING_BASELINE_SOC = "charging_baseline_soc"
         const val KEY_MIGRATION_V2_4_17 = "migration_v2_4_17_done"
+        const val KEY_INSIGHT_CACHE_V2_MIGRATION_DONE = "insight_cache_v2_migration_done"
 
         const val DEFAULT_BATTERY_CAPACITY = "72.9"
         const val DEFAULT_HOME_TARIFF = "0.20"
@@ -226,4 +227,10 @@ open class SettingsRepository @Inject constructor(
 
     suspend fun setMigrationV2_4_17Done() =
         setString(KEY_MIGRATION_V2_4_17, "true")
+
+    suspend fun isInsightCacheV2MigrationDone(): Boolean =
+        getString(KEY_INSIGHT_CACHE_V2_MIGRATION_DONE, "false") == "true"
+
+    suspend fun setInsightCacheV2MigrationDone() =
+        setString(KEY_INSIGHT_CACHE_V2_MIGRATION_DONE, "true")
 }
