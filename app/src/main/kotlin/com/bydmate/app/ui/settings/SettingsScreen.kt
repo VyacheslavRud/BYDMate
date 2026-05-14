@@ -590,7 +590,7 @@ private fun IntegrationsSection(state: SettingsUiState, viewModel: SettingsViewM
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = AccentBlue,
-                    contentColor = Color.White
+                    contentColor = NavyDark
                 )
             ) {
                 Text(
@@ -612,7 +612,7 @@ private fun IntegrationsSection(state: SettingsUiState, viewModel: SettingsViewM
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = AccentGreen,
-                    contentColor = Color.White
+                    contentColor = NavyDark
                 )
             ) {
                 Text(
@@ -956,7 +956,7 @@ private fun AppSection(state: SettingsUiState, viewModel: SettingsViewModel) {
                 onClick = { viewModel.exportCsv() },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = PrimaryColor, contentColor = Color.White)
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryColor, contentColor = NavyDark)
             ) {
                 Text(stringResource(R.string.settings_export_csv_button), fontSize = 14.sp, fontWeight = FontWeight.Medium)
             }
@@ -979,7 +979,7 @@ private fun AppSection(state: SettingsUiState, viewModel: SettingsViewModel) {
                 shape = RoundedCornerShape(8.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (state.isRecordingLogs) SocRed else AccentPurple,
-                    contentColor = Color.White
+                    contentColor = NavyDark
                 )
             ) {
                 Text(
@@ -1064,7 +1064,7 @@ private fun AppSection(state: SettingsUiState, viewModel: SettingsViewModel) {
                 onClick = { viewModel.showUpdateDialog() },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = AccentBlue, contentColor = Color.White)
+                colors = ButtonDefaults.buttonColors(containerColor = AccentBlue, contentColor = NavyDark)
             ) {
                 Text(stringResource(R.string.settings_update_check_button), fontSize = 14.sp, fontWeight = FontWeight.Medium)
             }

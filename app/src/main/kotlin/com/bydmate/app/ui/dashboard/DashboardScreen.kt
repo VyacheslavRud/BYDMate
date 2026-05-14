@@ -387,7 +387,7 @@ fun DashboardScreen(
                                         shape = RoundedCornerShape(8.dp),
                                         colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                                             containerColor = insightDialogColor,
-                                            contentColor = Color.White
+                                            contentColor = NavyDark
                                         )
                                     ) {
                                         Text(
