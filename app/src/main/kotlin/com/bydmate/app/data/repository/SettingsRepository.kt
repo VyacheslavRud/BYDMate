@@ -9,6 +9,12 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
+// Russian numeric keyboards emit "71,8" — bare toDoubleOrNull() returns null
+// on the comma and we fall back to the default. That made ABRP / Charges /
+// SoH read the default 72.9 instead of the user's setting (issue #19).
+internal fun String.parseNumericSetting(): Double? =
+    replace(',', '.').trim().toDoubleOrNull()
+
 @Singleton
 open class SettingsRepository @Inject constructor(
     private val settingsDao: SettingsDao,
@@ -89,13 +95,13 @@ open class SettingsRepository @Inject constructor(
         settingsDao.set(SettingEntity(key, value))
 
     suspend fun getBatteryCapacity(): Double =
-        getString(KEY_BATTERY_CAPACITY, DEFAULT_BATTERY_CAPACITY).toDoubleOrNull() ?: 72.9
+        getString(KEY_BATTERY_CAPACITY, DEFAULT_BATTERY_CAPACITY).parseNumericSetting() ?: 72.9
 
     suspend fun getHomeTariff(): Double =
-        getString(KEY_HOME_TARIFF, DEFAULT_HOME_TARIFF).toDoubleOrNull() ?: 0.20
+        getString(KEY_HOME_TARIFF, DEFAULT_HOME_TARIFF).parseNumericSetting() ?: 0.20
 
     suspend fun getDcTariff(): Double =
-        getString(KEY_DC_TARIFF, DEFAULT_DC_TARIFF).toDoubleOrNull() ?: 0.73
+        getString(KEY_DC_TARIFF, DEFAULT_DC_TARIFF).parseNumericSetting() ?: 0.73
 
     suspend fun getCurrency(): Currency {
         val code = getString(KEY_CURRENCY, DEFAULT_CURRENCY)
@@ -109,7 +115,7 @@ open class SettingsRepository @Inject constructor(
         return when (raw) {
             "home" -> getHomeTariff()
             "dc" -> getDcTariff()
-            else -> raw.toDoubleOrNull() ?: getHomeTariff()
+            else -> raw.parseNumericSetting() ?: getHomeTariff()
         }
     }
 
@@ -117,18 +123,18 @@ open class SettingsRepository @Inject constructor(
         getString(KEY_TRIP_COST_TARIFF, "home")
 
     suspend fun getConsumptionGoodThreshold(): Double =
-        getString(KEY_CONSUMPTION_GOOD, DEFAULT_CONSUMPTION_GOOD).toDoubleOrNull() ?: 20.0
+        getString(KEY_CONSUMPTION_GOOD, DEFAULT_CONSUMPTION_GOOD).parseNumericSetting() ?: 20.0
 
     suspend fun getConsumptionBadThreshold(): Double =
-        getString(KEY_CONSUMPTION_BAD, DEFAULT_CONSUMPTION_BAD).toDoubleOrNull() ?: 30.0
+        getString(KEY_CONSUMPTION_BAD, DEFAULT_CONSUMPTION_BAD).parseNumericSetting() ?: 30.0
 
     /** Live (good, bad) pair for UI coloring. Emits on every Settings edit. */
     fun observeConsumptionThresholds(): Flow<Pair<Double, Double>> = combine(
         observeString(KEY_CONSUMPTION_GOOD).map {
-            it?.toDoubleOrNull() ?: DEFAULT_CONSUMPTION_GOOD.toDouble()
+            it?.parseNumericSetting() ?: DEFAULT_CONSUMPTION_GOOD.toDouble()
         },
         observeString(KEY_CONSUMPTION_BAD).map {
-            it?.toDoubleOrNull() ?: DEFAULT_CONSUMPTION_BAD.toDouble()
+            it?.parseNumericSetting() ?: DEFAULT_CONSUMPTION_BAD.toDouble()
         },
     ) { good, bad -> good to bad }
 
