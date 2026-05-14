@@ -2,6 +2,7 @@ package com.bydmate.app.data.local
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -219,11 +220,18 @@ class EnergyDataReader @Inject constructor(
 
     suspend fun readTripsSince(sinceTimestampSec: Long): List<BydTripRecord> = withContext(Dispatchers.IO) {
         val energyDir = File(ENERGY_DIR_PATH)
-        if (!energyDir.exists()) return@withContext emptyList()
+        if (!energyDir.exists()) {
+            Log.i(TAG, "readTripsSince($sinceTimestampSec): directory $ENERGY_DIR_PATH missing — empty")
+            return@withContext emptyList()
+        }
 
         val sourceDb = findDbViaListFiles(energyDir)
             ?: findDbViaKnownNames(energyDir)
-            ?: return@withContext emptyList()
+            ?: run {
+                Log.i(TAG, "readTripsSince: no .db files in $ENERGY_DIR_PATH (Song / non-Leopard?) — empty")
+                return@withContext emptyList()
+            }
+        Log.i(TAG, "readTripsSince($sinceTimestampSec): source=${sourceDb.name} size=${sourceDb.length()}B")
 
         val localDb = copyToLocal(sourceDb)
         val db = SQLiteDatabase.openDatabase(localDb.absolutePath, null, SQLiteDatabase.OPEN_READONLY)
@@ -248,6 +256,8 @@ class EnergyDataReader @Inject constructor(
                     ))
                 }
             }
+            val zeroKm = results.count { it.tripKm <= 0.0 }
+            Log.i(TAG, "readTripsSince: ${results.size} rows (${zeroKm} zero-km / idle drain)")
             results
         }
     }
@@ -255,15 +265,23 @@ class EnergyDataReader @Inject constructor(
     suspend fun readTrips(): List<BydTripRecord> = withContext(Dispatchers.IO) {
         val energyDir = File(ENERGY_DIR_PATH)
         if (!energyDir.exists()) {
+            Log.w(TAG, "readTrips: directory $ENERGY_DIR_PATH missing — throwing")
             throw EnergyDataException("Директория energydata не найдена: $ENERGY_DIR_PATH")
         }
 
         val sourceDb = findDbViaListFiles(energyDir)
             ?: findDbViaKnownNames(energyDir)
-            ?: throw EnergyDataException("Не найдены файлы БД в $ENERGY_DIR_PATH")
+            ?: run {
+                Log.w(TAG, "readTrips: no .db files in $ENERGY_DIR_PATH — throwing")
+                throw EnergyDataException("Не найдены файлы БД в $ENERGY_DIR_PATH")
+            }
+        Log.i(TAG, "readTrips: source=${sourceDb.name} size=${sourceDb.length()}B")
 
         val localDb = copyToLocal(sourceDb)
-        readTripsFromDb(localDb)
+        val results = readTripsFromDb(localDb)
+        val zeroKm = results.count { it.tripKm <= 0.0 }
+        Log.i(TAG, "readTrips: ${results.size} rows (${zeroKm} zero-km / idle drain)")
+        results
     }
 
     private fun findDbViaListFiles(dir: File): File? {

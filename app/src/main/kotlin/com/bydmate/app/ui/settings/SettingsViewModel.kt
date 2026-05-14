@@ -744,6 +744,82 @@ class SettingsViewModel @Inject constructor(
         private const val LOG_MAX_SIZE_BYTES = 50 * 1024 * 1024L // 50 MB max
     }
 
+    /**
+     * Writes a diagnostic header to the recording file before piping logcat.
+     * Captures app / device / setting context that issue reports (e.g. #19)
+     * routinely lack: which battery capacity the user typed (raw + parsed,
+     * which surfaces the comma-decimal bug immediately), which data source mode
+     * is selected, whether autoservice / ABRP are configured, and whether the
+     * underlying BYD energydata / DiPlus databases are reachable.
+     */
+    private suspend fun writeDiagnosticHeader(file: File) = withContext(Dispatchers.IO) {
+        try {
+            val pkg = appContext.packageName
+            val pi = appContext.packageManager.getPackageInfo(pkg, 0)
+            val versionName = pi.versionName ?: "?"
+            val versionCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P)
+                pi.longVersionCode.toString()
+            else
+                @Suppress("DEPRECATION") pi.versionCode.toString()
+
+            val dataSource = runCatching { settingsRepository.getDataSource().name }.getOrDefault("?")
+            val capacityRaw = runCatching {
+                settingsRepository.getString(SettingsRepository.KEY_BATTERY_CAPACITY, "")
+            }.getOrDefault("?")
+            val capacityParsed = runCatching { settingsRepository.getBatteryCapacity() }.getOrDefault(-1.0)
+            val autoservice = runCatching { settingsRepository.isAutoserviceEnabled() }.getOrDefault(false)
+            val abrpEnabled = runCatching {
+                settingsRepository.getString(SettingsRepository.KEY_ABRP_ENABLED, "false") == "true"
+            }.getOrDefault(false)
+            val abrpTokenLen = runCatching {
+                settingsRepository.getString(SettingsRepository.KEY_ABRP_USER_TOKEN, "").length
+            }.getOrDefault(0)
+            val abrpCarModel = runCatching {
+                settingsRepository.getString(SettingsRepository.KEY_ABRP_CAR_MODEL, "")
+            }.getOrDefault("")
+            val locale = Locale.getDefault().toLanguageTag()
+            val appLang = localePreferences.getLanguage() ?: "(unset)"
+
+            val energyDb = File("/storage/emulated/0/energydata")
+            val diplusDb = File("/storage/emulated/0/vandiplus/db/van_bm_db")
+
+            val header = buildString {
+                appendLine("=== BYDMate diagnostic dump ===")
+                appendLine("timestamp: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
+                appendLine("app: $pkg v$versionName (code=$versionCode)")
+                appendLine("device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+                appendLine("android: ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT})")
+                appendLine("fingerprint: ${android.os.Build.FINGERPRINT}")
+                appendLine("locale: jvm=$locale app=$appLang")
+                appendLine("--- settings ---")
+                appendLine("data_source: $dataSource")
+                appendLine("battery_capacity: raw=\"$capacityRaw\" parsed=$capacityParsed")
+                appendLine("autoservice_enabled: $autoservice")
+                appendLine("abrp_enabled: $abrpEnabled token_len=$abrpTokenLen car_model=\"$abrpCarModel\"")
+                appendLine("--- vehicle data sources ---")
+                appendLine("energydata dir: exists=${energyDb.exists()} isDir=${energyDb.isDirectory}")
+                if (energyDb.exists() && energyDb.isDirectory) {
+                    val files = energyDb.listFiles()
+                    if (files == null) {
+                        appendLine("  listFiles: null (permission?)")
+                    } else {
+                        files.forEach { appendLine("  ${it.name} (${it.length()}B, mtime=${it.lastModified()})") }
+                    }
+                }
+                appendLine("DiPlus van_bm_db: exists=${diplusDb.exists()} size=${if (diplusDb.exists()) diplusDb.length() else 0}B mtime=${if (diplusDb.exists()) diplusDb.lastModified() else 0}")
+                appendLine("===============================")
+                appendLine()
+            }
+            FileWriter(file, false).use { it.write(header) }
+        } catch (e: Exception) {
+            try {
+                FileWriter(file, false).use {
+                    it.write("=== diag header failed: ${e.message} ===\n\n")
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     fun startLogRecording() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -765,6 +841,11 @@ class SettingsViewModel @Inject constructor(
 
                 logFile = File(saveDir, fileName)
 
+                // Diagnostic header — written directly to the file before the
+                // logcat pipe so issue #19-style reports include device / setting
+                // context up front instead of being buried in logcat noise.
+                writeDiagnosticHeader(logFile!!)
+
                 // Clear logcat buffer and start continuous recording
                 Runtime.getRuntime().exec(arrayOf("logcat", "-c")).waitFor()
 
@@ -773,7 +854,10 @@ class SettingsViewModel @Inject constructor(
                     "-s", "BootReceiver:*",
                     "DiParsClient:*", "TrackingService:*", "TripTracker:*",
                     "DiPlusDbReader:*",
-                    "HistoryImporter:*", "EnergyDataReader:*"
+                    "HistoryImporter:*", "EnergyDataReader:*",
+                    "AutoserviceClient:*", "AdbOnDeviceClient:*",
+                    "IternioTelemetryClient:*", "BatteryHealthRepository:*",
+                    "ChargesViewModel:*", "ChargeRepository:*"
                 ))
 
                 // Background thread to pipe logcat to file with size limit
