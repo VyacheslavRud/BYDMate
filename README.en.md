@@ -15,7 +15,7 @@
 
 **Real consumption, GPS routes, automation, AI analytics. Local-only, no cloud.**
 
-**English** | [Русский](README.md)
+**English** | [中文](README.zh.md) | [Русский](README.md)
 
 [Features](#features) | [Screenshots](#screenshots) | [Automation](#automation) | [AI Insights](#ai-insights) | [ABRP](#abrp--live-telemetry) | [Install](#install) | [Build](#build-from-source) | [Sponsor](SUPPORT.md)
 
@@ -25,7 +25,7 @@
 
 ## About
 
-BYDMate is an Android app for the BYD DiLink 5.0 head unit (Leopard 3 / Fangchengbao Bao 3). It logs trips, GPS routes, real energy consumption from the BMS, charging sessions, and provides AI-driven driving analytics. Everything runs locally on the head unit. No cloud, no Google Play Services required.
+BYDMate is an Android app for the BYD DiLink 5.0 head unit (Leopard 3 / Fangchengbao Tai 3). It logs trips, GPS routes, real energy consumption from the BMS, charging sessions, and provides AI-driven driving analytics. Everything runs locally on the head unit. No cloud, no Google Play Services required.
 
 The stock onboard computer **underestimates consumption by 10-30%**. BYDMate reads data directly from the BMS (energydata SQLite) and shows the real figure. Plus data the stock system does not surface: idle drain, cell balance, trip cost, AI insights.
 
@@ -220,10 +220,10 @@ BYDMate supports two trip-data backends, switchable in **Settings → Trip data 
 
 <img src="docs/screenshots/data-source-toggle.jpg" alt="Trip data source toggle" width="800">
 
-| Mode | For which cars | What is read |
-|------|-----------------|--------------|
-| **BYD energydata** | Leopard 3 (Fangchengbao Bao 3) and other models with the built-in BMS `energydata` database | BYD SQLite: precise consumption (BMS), mileage, duration, charges |
-| **DiPlus TripInfo** | Song and other models **without** built-in energydata | DiPlus database: trip list, SOC start/end, average speed |
+| Mode | For which cars                                                                              | What is read |
+|------|---------------------------------------------------------------------------------------------|--------------|
+| **BYD energydata** | Leopard 3 (Fangchengbao Tai 3) and other models with the built-in BMS `energydata` database | BYD SQLite: precise consumption (BMS), mileage, duration, charges |
+| **DiPlus TripInfo** | Song and other models **without** built-in energydata                                       | DiPlus database: trip list, SOC start/end, average speed |
 
 **How to choose:** if the Trips list stays empty after 2–3 drives — switch the mode. Leopard 3 needs energydata (more accurate); Song and similar models use TripInfo (the only available source).
 
@@ -235,7 +235,7 @@ In `DiPlus TripInfo` mode, consumption is computed from the SOC delta — it is 
 
 SoH (State of Health) is the percent "health" of the traction battery, computed by the car's onboard system with its internal algorithms.
 
-On **BYD Leopard 3 (Fangchengbao Bao 3)** BYDMate reads this value directly from the onboard system and shows it in the "Battery health" card. This is the **real SoH from the car**, not an estimate from SoC delta: BYDMate simply reads what the car writes to itself.
+On **BYD Leopard 3 (Fangchengbao Tai 3)** BYDMate reads this value directly from the onboard system and shows it in the "Battery health" card. This is the **real SoH from the car**, not an estimate from SoC delta: BYDMate simply reads what the car writes to itself.
 
 On other BYD models access to this value is not yet confirmed, so SoH is hidden there. The rest of the card (battery temperature, 12V, cell balance, min/max voltage) works on every model that has DiPlus.
 
@@ -259,7 +259,7 @@ If you do not enable this mode, the rest of BYDMate (trips, consumption, floatin
 
 ## If you don't have a Leopard 3
 
-BYDMate is developed and tested on BYD Leopard 3 (Fangchengbao Bao 3). On other BYD models most features still work, with some differences. Before the first launch, check:
+BYDMate is developed and tested on BYD Leopard 3 (Fangchengbao Tai 3). On other BYD models most features still work, with some differences. Before the first launch, check:
 
 - **Trip data source**: for models without the built-in BMS `energydata` (Song, Yuan and similar) switch to **DiPlus TripInfo** in Settings or in the first-run wizard. See the "Trip data source" section above.
 - **Battery capacity**: defaults to 72.9 kWh (Leopard 3). Go to **Settings → Battery** and set your own. For example: Atto 3 = 60.5 kWh, Seal AWD = 82.5 kWh, Han EV = 85.4 kWh. Without this, range and trip-cost calculations will be off.
@@ -279,7 +279,7 @@ If something does not work or shows strange values, open an [Issue](https://gith
 | SoC | Snapdragon 780G |
 | Screen | 15.6" landscape, 1920x1200 |
 | GMS | No (AOSP without Google Play Services) |
-| Tested on | BYD Leopard 3 (Fangchengbao Bao 3) |
+| Tested on | BYD Leopard 3 (Fangchengbao Tai 3) |
 
 ---
 
