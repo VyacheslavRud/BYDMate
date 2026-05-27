@@ -84,7 +84,7 @@ open class SettingsRepository @Inject constructor(
 
     data class Currency(val code: String, val symbol: String)
 
-    enum class DataSource { ENERGYDATA, DIPLUS }
+    enum class DataSource { ENERGYDATA }
 
     suspend fun getString(key: String, default: String): String =
         settingsDao.get(key) ?: default
@@ -187,14 +187,7 @@ open class SettingsRepository @Inject constructor(
     suspend fun setIdleDrainV2CleanupDone() =
         setString(KEY_IDLE_DRAIN_V2_CLEANUP, "true")
 
-    suspend fun getDataSource(): DataSource =
-        when (getString(KEY_DATA_SOURCE, "ENERGYDATA")) {
-            "DIPLUS" -> DataSource.DIPLUS
-            else -> DataSource.ENERGYDATA
-        }
-
-    suspend fun setDataSource(source: DataSource) =
-        setString(KEY_DATA_SOURCE, source.name)
+    suspend fun getDataSource(): DataSource = DataSource.ENERGYDATA
 
     fun observeDataSource(): Flow<String?> = observeString(KEY_DATA_SOURCE)
 

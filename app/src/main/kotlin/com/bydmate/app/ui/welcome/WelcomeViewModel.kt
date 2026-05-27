@@ -66,9 +66,6 @@ class WelcomeViewModel @Inject constructor(
 
             // Save all settings
             val state = _uiState.value
-            val dataSource = runCatching { SettingsRepository.DataSource.valueOf(state.dataSource) }
-                .getOrDefault(SettingsRepository.DataSource.ENERGYDATA)
-            settingsRepository.setDataSource(dataSource)
             settingsRepository.setString(SettingsRepository.KEY_BATTERY_CAPACITY, state.batteryCapacity)
             settingsRepository.setString(SettingsRepository.KEY_CURRENCY, state.currency)
             settingsRepository.setString(SettingsRepository.KEY_HOME_TARIFF, state.homeTariff)
@@ -92,7 +89,7 @@ class WelcomeViewModel @Inject constructor(
                     appContext.getString(R.string.welcome_importing_trips_status))
             }
 
-            if (isUpgrade && settingsRepository.getDataSource() == SettingsRepository.DataSource.ENERGYDATA) {
+            if (isUpgrade) {
                 historyImporter.deduplicateWithExisting()
             }
             historyImporter.runSync()

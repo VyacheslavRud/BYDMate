@@ -117,8 +117,6 @@ data class SettingsUiState(
     val aliceEnabled: Boolean = false,
     val aliceSaveStatus: String? = null,
     val autoCheckUpdates: Boolean = true,
-    val dataSource: String = "ENERGYDATA",
-    val dataSourceStatus: String? = null,
     val autoserviceEnabled: Boolean = false,
     val autoserviceStatus: AutoserviceStatus = AutoserviceStatus.NotEnabled,
     val abrpTelemetryEnabled: Boolean = false,
@@ -215,8 +213,6 @@ class SettingsViewModel @Inject constructor(
             val aliceApiKey = settingsRepository.getString(SettingsRepository.KEY_ALICE_API_KEY, "")
             val aliceEnabled = settingsRepository.getString(SettingsRepository.KEY_ALICE_ENABLED, "false") == "true"
 
-            val dataSource = settingsRepository.getDataSource().name
-
             val autoserviceEnabled = settingsRepository.isAutoserviceEnabled()
 
             val abrpEnabled = settingsRepository.getString(SettingsRepository.KEY_ABRP_ENABLED, "false") == "true"
@@ -243,7 +239,6 @@ class SettingsViewModel @Inject constructor(
                     aliceEndpoint = aliceEndpoint,
                     aliceApiKey = aliceApiKey,
                     aliceEnabled = aliceEnabled,
-                    dataSource = dataSource,
                     autoserviceEnabled = autoserviceEnabled,
                     abrpTelemetryEnabled = abrpEnabled,
                     abrpApiKey = abrpApiKey,
@@ -289,17 +284,6 @@ class SettingsViewModel @Inject constructor(
                 adbOnDeviceClient.connect()
             }
             loadAutoserviceState()
-        }
-    }
-
-    fun setDataSource(value: String) {
-        if (value == _uiState.value.dataSource) return
-        val target = runCatching { SettingsRepository.DataSource.valueOf(value) }.getOrNull() ?: return
-        _uiState.update { it.copy(dataSource = value, dataSourceStatus = appContext.getString(R.string.settings_datasource_switching)) }
-        viewModelScope.launch {
-            settingsRepository.setDataSource(target)
-            val r = historyImporter.runSync()
-            _uiState.update { it.copy(dataSourceStatus = r.details ?: r.error ?: appContext.getString(R.string.settings_datasource_done)) }
         }
     }
 
