@@ -433,47 +433,6 @@ private fun BatterySection(state: SettingsUiState, viewModel: SettingsViewModel)
 
 @Composable
 private fun TripsSection(state: SettingsUiState, viewModel: SettingsViewModel) {
-    SectionHeader(text = stringResource(R.string.settings_trips_datasource_header))
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = CardSurfaceElevated),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text = stringResource(R.string.settings_trips_datasource_note),
-                color = TextSecondary,
-                fontSize = 11.sp,
-            )
-            DataSourceOption(
-                label = "BYD energydata",
-                selected = state.dataSource == "ENERGYDATA",
-                onClick = { viewModel.setDataSource("ENERGYDATA") },
-            )
-            DataSourceOption(
-                label = "DiPlus TripInfo",
-                selected = state.dataSource == "DIPLUS",
-                onClick = { viewModel.setDataSource("DIPLUS") },
-            )
-            Text(
-                text = stringResource(R.string.settings_trips_datasource_hint),
-                color = TextSecondary,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-            if (state.dataSourceStatus != null) {
-                Text(
-                    state.dataSourceStatus!!,
-                    color = PrimaryColor,
-                    fontSize = 11.sp,
-                )
-            }
-        }
-    }
-
     SectionHeader(text = stringResource(R.string.settings_trips_system_header))
     Card(
         shape = RoundedCornerShape(12.dp),
@@ -1199,32 +1158,6 @@ private fun SectionHeader(text: String) {
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.fillMaxWidth()
     )
-}
-
-@Composable
-private fun DataSourceOption(label: String, selected: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RadioButton(
-            selected = selected,
-            onClick = onClick,
-            colors = RadioButtonDefaults.colors(
-                selectedColor = AccentGreen,
-                unselectedColor = TextMuted,
-            ),
-        )
-        Text(
-            text = label,
-            color = TextPrimary,
-            fontSize = 13.sp,
-            modifier = Modifier.padding(start = 4.dp),
-        )
-    }
 }
 
 @Composable
