@@ -27,7 +27,6 @@ import com.bydmate.app.data.local.entity.TripEntity
 import com.bydmate.app.data.local.entity.TripPointEntity
 import com.bydmate.app.data.nativestack.ParsReader
 import com.bydmate.app.data.remote.DiParsData
-import com.bydmate.app.data.remote.DiPlusDbReader
 import com.bydmate.app.data.remote.InsightsManager
 import com.bydmate.app.data.remote.OpenRouterClient
 import com.bydmate.app.data.repository.BatteryHealthRepository
@@ -218,7 +217,7 @@ class SettingsViewModelTest {
         val energyReader = EnergyDataReader(ctx)
         val historyImporter = HistoryImporter(
             ctx, energyReader, tripRepo, tripDao, tripPointDao, idleDrainDao,
-            DiPlusDbReader(), settingsRepo
+            settingsRepo
         )
 
         val openRouterClient = OpenRouterClient(httpClient)

@@ -62,7 +62,6 @@ class TrackingService : Service(), LocationListener {
     @Inject lateinit var chargeRepository: ChargeRepository
     @Inject lateinit var tripRepository: com.bydmate.app.data.repository.TripRepository
     @Inject lateinit var historyImporter: com.bydmate.app.data.local.HistoryImporter
-    @Inject lateinit var diPlusDbReader: com.bydmate.app.data.remote.DiPlusDbReader
     @Inject lateinit var settingsRepository: com.bydmate.app.data.repository.SettingsRepository
     @Inject lateinit var insightsManager: com.bydmate.app.data.remote.InsightsManager
     @Inject lateinit var automationEngine: AutomationEngine

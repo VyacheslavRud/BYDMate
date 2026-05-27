@@ -7,7 +7,6 @@ import com.bydmate.app.data.local.dao.TripDao
 import com.bydmate.app.data.local.dao.TripPointDao
 import com.bydmate.app.data.local.entity.IdleDrainEntity
 import com.bydmate.app.data.local.entity.TripEntity
-import com.bydmate.app.data.remote.DiPlusDbReader
 import com.bydmate.app.data.repository.SettingsRepository
 import com.bydmate.app.data.repository.TripRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -25,7 +24,6 @@ class HistoryImporter @Inject constructor(
     private val tripDao: TripDao,
     private val tripPointDao: TripPointDao,
     private val idleDrainDao: IdleDrainDao,
-    private val diPlusDbReader: DiPlusDbReader,
     private val settingsRepository: SettingsRepository
 ) {
     companion object {
@@ -169,40 +167,6 @@ class HistoryImporter @Inject constructor(
             idleDrains = idleDrainsImported,
             details = "+$tripsImported поездок, +$idleDrainsImported стоянок, $skippedDuplicate дублей"
         )
-    }
-
-    /**
-     * Enrich trips that lack SOC data with DiPlus TripInfo matches.
-     */
-    suspend fun enrichWithDiPlus() {
-        try {
-            val diplusTrips = diPlusDbReader.readTripInfo()
-            if (diplusTrips.isEmpty()) {
-                Log.d(TAG, "enrichWithDiPlus: no DiPlus trips available")
-                return
-            }
-
-            val tripsWithoutSoc = tripDao.getTripsWithoutSoc()
-
-            var enriched = 0
-            for (trip in tripsWithoutSoc) {
-                val endTs = trip.endTs ?: continue
-                val match = diPlusDbReader.findMatchingTrip(diplusTrips, trip.startTs, endTs) ?: continue
-
-                // DiPlus provides SOC + avgSpeed only.
-                // kwhConsumed/kwhPer100km stay from energydata (BMS — more accurate than SOC delta).
-                tripRepository.updateTrip(trip.copy(
-                    socStart = match.socStart.toInt(),
-                    socEnd = match.socEnd.toInt(),
-                    avgSpeedKmh = if (match.avgSpeed > 0) match.avgSpeed else trip.avgSpeedKmh
-                ))
-                enriched++
-            }
-
-            Log.d(TAG, "enrichWithDiPlus: enriched $enriched/${tripsWithoutSoc.size} trips")
-        } catch (e: Exception) {
-            Log.e(TAG, "enrichWithDiPlus failed", e)
-        }
     }
 
     /**
@@ -448,88 +412,15 @@ class HistoryImporter @Inject constructor(
     }
 
     /**
-     * Import trips from DiPlus TripInfo (fallback for models without BYD energydata).
-     * Unlike energydata: no zero-km idle records, no BYD-native ID.
-     * Dedup by start_ts ±5 min against existing trips.
-     */
-    suspend fun syncFromDiPlus(): ImportResult {
-        if (!syncMutex.tryLock()) {
-            Log.d(TAG, "syncFromDiPlus: already running, skipping")
-            return ImportResult(trips = 0, details = "Синхронизация уже идёт")
-        }
-        return try {
-            val diplusTrips = diPlusDbReader.readTripInfo()
-            if (diplusTrips.isEmpty()) {
-                return ImportResult(trips = 0, details = "DiPlus: нет записей")
-            }
-
-            var imported = 0
-            var skippedShort = 0
-            var skippedDup = 0
-
-            for (d in diplusTrips) {
-                // Match energydata behavior: keep zero-km rows too (shown as "ignition on" trips)
-                if (d.travelTime < MIN_TRIP_DURATION_SEC) { skippedShort++; continue }
-
-                val existing = tripDao.getByStartTsRange(
-                    d.timeStart - DEDUP_WINDOW_MS,
-                    d.timeStart + DEDUP_WINDOW_MS
-                )
-                if (existing != null) { skippedDup++; continue }
-
-                val kwhPer100km = if (d.kwhConsumed > 0 && d.mileage > 0) {
-                    d.kwhConsumed / d.mileage * 100.0
-                } else null
-
-                tripRepository.insertTrip(
-                    TripEntity(
-                        startTs = d.timeStart,
-                        endTs = d.timeEnd,
-                        distanceKm = d.mileage,
-                        kwhConsumed = if (d.kwhConsumed > 0) d.kwhConsumed else null,
-                        kwhPer100km = kwhPer100km,
-                        socStart = d.socStart.toInt(),
-                        socEnd = d.socEnd.toInt(),
-                        avgSpeedKmh = if (d.avgSpeed > 0) d.avgSpeed else null,
-                        source = "diplus",
-                        bydId = null
-                    )
-                )
-                imported++
-            }
-
-            Log.d(TAG, "syncFromDiPlus: imported=$imported, skippedShort=$skippedShort, dups=$skippedDup")
-            ImportResult(
-                trips = imported,
-                details = "+$imported поездок (DiPlus), $skippedDup дублей, $skippedShort коротких"
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "syncFromDiPlus failed", e)
-            ImportResult(trips = 0, error = e.message ?: e.toString())
-        } finally {
-            syncMutex.unlock()
-        }
-    }
-
-    /**
-     * Unified sync entry point — picks pipeline by configured DataSource.
+     * Unified sync entry point — always uses energydata pipeline.
      */
     suspend fun runSync(): ImportResult {
-        val source = settingsRepository.getDataSource()
-        return if (source == SettingsRepository.DataSource.DIPLUS) {
-            val r = syncFromDiPlus()
-            calculateMissingCosts(settingsRepository.getTripCostTariff())
-            attachGpsPoints()
-            r
-        } else {
-            cleanupIdleDrainV2()
-            val r = syncFromEnergyData()
-            enrichWithDiPlus()
-            recalculateConsumptionFromEnergyData()
-            calculateMissingCosts(settingsRepository.getTripCostTariff())
-            attachGpsPoints()
-            r
-        }
+        cleanupIdleDrainV2()
+        val r = syncFromEnergyData()
+        recalculateConsumptionFromEnergyData()
+        calculateMissingCosts(settingsRepository.getTripCostTariff())
+        attachGpsPoints()
+        return r
     }
 
 }
