@@ -91,7 +91,7 @@ fun DashboardScreen(
             .background(Brush.verticalGradient(listOf(NavyDark, NavyDeep)))
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        TopBar(isServiceRunning = state.isServiceRunning, diPlusConnected = state.diPlusConnected, adbConnected = state.adbConnected)
+        TopBar(isServiceRunning = state.isServiceRunning, vehicleDataConnected = state.vehicleDataConnected, adbConnected = state.adbConnected)
         Spacer(modifier = Modifier.height(4.dp))
 
         Row(
@@ -512,7 +512,7 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun TopBar(isServiceRunning: Boolean, diPlusConnected: Boolean, adbConnected: Boolean? = null) {
+private fun TopBar(isServiceRunning: Boolean, vehicleDataConnected: Boolean, adbConnected: Boolean? = null) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -529,9 +529,9 @@ private fun TopBar(isServiceRunning: Boolean, diPlusConnected: Boolean, adbConne
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (isServiceRunning && !diPlusConnected) {
+            if (isServiceRunning && !vehicleDataConnected) {
                 Text(
-                    text = stringResource(R.string.dashboard_diplus_offline),
+                    text = stringResource(R.string.dashboard_vehicle_data_offline),
                     color = SocYellow,
                     fontSize = 12.sp
                 )

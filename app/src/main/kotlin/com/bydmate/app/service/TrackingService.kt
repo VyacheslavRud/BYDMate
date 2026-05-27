@@ -187,8 +187,8 @@ class TrackingService : Service(), LocationListener {
         private val _isRunning = MutableStateFlow(false)
         val isRunning: StateFlow<Boolean> = _isRunning
 
-        private val _diPlusConnected = MutableStateFlow(true)
-        val diPlusConnected: StateFlow<Boolean> = _diPlusConnected
+        private val _vehicleDataConnected = MutableStateFlow(true)
+        val vehicleDataConnected: StateFlow<Boolean> = _vehicleDataConnected
 
         /**
          * True while the BYD built-in camera surface (`com.byd.avc`) is in
@@ -632,7 +632,7 @@ class TrackingService : Service(), LocationListener {
                     if (data != null) {
                         consecutiveNullCount = 0
                         currentPollIntervalMs = POLL_INTERVAL_MS
-                        _diPlusConnected.value = true
+                        _vehicleDataConnected.value = true
                         _lastData.value = data
 
                         // Feed DiPlus data to Alice for real device states
@@ -751,7 +751,7 @@ class TrackingService : Service(), LocationListener {
                     } else {
                         consecutiveNullCount++
                         if (consecutiveNullCount >= NULL_WARNING_THRESHOLD) {
-                            _diPlusConnected.value = false
+                            _vehicleDataConnected.value = false
                             currentPollIntervalMs = (currentPollIntervalMs * 1.5).toLong()
                                 .coerceAtMost(MAX_POLL_INTERVAL_MS)
                             Log.w(TAG, "Vehicle data silent ($consecutiveNullCount nulls), backoff=${currentPollIntervalMs}ms")
