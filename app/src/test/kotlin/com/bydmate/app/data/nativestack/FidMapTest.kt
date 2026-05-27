@@ -1,4 +1,4 @@
-package com.bydmate.app.data.native
+package com.bydmate.app.data.nativestack
 
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue

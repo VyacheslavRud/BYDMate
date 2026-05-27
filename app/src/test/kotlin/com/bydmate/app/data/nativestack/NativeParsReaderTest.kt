@@ -1,4 +1,4 @@
-package com.bydmate.app.data.`native`
+package com.bydmate.app.data.nativestack
 
 import com.bydmate.app.data.autoservice.AutoserviceClient
 import com.bydmate.app.data.repository.SettingsRepository

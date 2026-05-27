@@ -1,4 +1,4 @@
-package com.bydmate.app.data.native
+package com.bydmate.app.data.nativestack
 
 data class FidEntry(
     val field: String,      // matches DiParsData property name

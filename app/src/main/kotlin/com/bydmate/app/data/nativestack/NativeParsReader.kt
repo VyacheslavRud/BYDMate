@@ -1,8 +1,10 @@
-package com.bydmate.app.data.`native`
+package com.bydmate.app.data.nativestack
 
 import com.bydmate.app.data.autoservice.AutoserviceClient
 import com.bydmate.app.data.remote.DiParsData
 import com.bydmate.app.data.repository.SettingsRepository
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * ParsReader implementation that fetches live vehicle params from the system
@@ -10,14 +12,9 @@ import com.bydmate.app.data.repository.SettingsRepository
  *
  * Returns null if autoservice is not available (ADB disconnected, firmware
  * without autoservice, or all probe fids return sentinel).
- *
- * @Singleton/@Inject deferred to Task 21 (AppModule binding): the `native`
- * package name is a reserved keyword in Java, which causes the Hilt KSP
- * Java factory generator to fail. Task 21 will add the annotations once
- * the module binding is in place (Hilt generates Kotlin, not Java stubs,
- * when the binding is provided via @Provides).
  */
-class NativeParsReader(
+@Singleton
+class NativeParsReader @Inject constructor(
     private val autoservice: AutoserviceClient,
     private val settings: SettingsRepository,
 ) : ParsReader {

@@ -1,4 +1,4 @@
-package com.bydmate.app.data.native
+package com.bydmate.app.data.nativestack
 
 import com.bydmate.app.data.remote.DiParsData
 
