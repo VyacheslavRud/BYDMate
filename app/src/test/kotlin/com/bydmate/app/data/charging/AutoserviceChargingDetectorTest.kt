@@ -7,7 +7,7 @@ import com.bydmate.app.data.local.dao.ChargeDao
 import com.bydmate.app.data.local.dao.ChargeSummary
 import com.bydmate.app.data.local.entity.ChargeEntity
 import com.bydmate.app.data.local.entity.ChargePointEntity
-import com.bydmate.app.data.remote.DiParsClient
+import com.bydmate.app.data.nativestack.ParsReader
 import com.bydmate.app.data.remote.DiParsData
 import com.bydmate.app.data.repository.BatteryHealthRepository
 import com.bydmate.app.data.repository.ChargeRepository
@@ -101,9 +101,9 @@ class AutoserviceChargingDetectorTest {
             flowOf(emptyList())
     }
 
-    private class FakeDiParsClient(
+    private class FakeParsReader(
         private val data: DiParsData? = null
-    ) : DiParsClient(okhttp3.OkHttpClient()) {
+    ) : ParsReader {
         override suspend fun fetch(): DiParsData? = data
     }
 
@@ -179,7 +179,7 @@ class AutoserviceChargingDetectorTest {
             stateStore = stateStore,
             classifier = classifier,
             settings = settings,
-            diParsClient = FakeDiParsClient(diParsData)
+            parsReader = FakeParsReader(diParsData)
         )
         return TestSetup(detector, dao, snapshotDao, stateStore, auto)
     }
