@@ -12,15 +12,18 @@ ADB_TARGET="${2:?adb target required}"
 if ! command -v python3 >/dev/null; then echo "python3 required" >&2; exit 2; fi
 if ! command -v adb >/dev/null; then echo "adb required" >&2; exit 2; fi
 
-python3 <<EOF
-import sys, yaml, subprocess, json, re, time
+ADB_TARGET="$ADB_TARGET" YAML="$YAML" python3 <<'EOF'
+import os, yaml, subprocess, json, re, time
 
-ADB = "adb -s ${ADB_TARGET}".split()
+ADB_TARGET = os.environ["ADB_TARGET"]
+YAML_PATH = os.environ["YAML"]
+
+ADB = ["adb", "-s", ADB_TARGET]
 PARCEL_RE = re.compile(r"Parcel\(00000000\s+([0-9a-fA-F]{8})")
 ALLOWED_TX = {5, 7}  # READ-ONLY guarantee. tx=6 (setInt) is FORBIDDEN in Phase 1.
 RATE_LIMIT_SEC = 0.25  # ≤4 req/sec, under spec's 5 req/sec ceiling.
 
-entries = yaml.safe_load(open("${YAML}"))
+entries = yaml.safe_load(open(YAML_PATH))
 out = {}
 for e in entries:
     p = e["param"]
@@ -38,7 +41,7 @@ for e in entries:
         m = PARCEL_RE.search(r.stdout)
         if not m:
             out[p] = {"raw_parcel": r.stdout.strip(), "raw_int": None,
-                      "error": "no parcel match"}
+                      "error": "no parcel match", "stderr": r.stderr.strip()[:200]}
         else:
             ri = int(m.group(1), 16)
             if ri >= 0x80000000:
