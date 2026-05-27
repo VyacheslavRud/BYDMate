@@ -55,6 +55,10 @@ class BYDMateApp : Application(), Configuration.Provider {
         bootstrapLocale()
         initOsmdroid()
         appScope.launch {
+            // v2.8.1: clear stale "DIPLUS" data_source value from pre-native-stack
+            // builds. One-shot, gated by its own flag.
+            settingsRepository.migrateDataSourceIfNeeded()
+
             if (!settingsRepository.isInsightCacheV2MigrationDone()) {
                 insightsManager.migrateLegacyCache()
                 settingsRepository.setInsightCacheV2MigrationDone()
