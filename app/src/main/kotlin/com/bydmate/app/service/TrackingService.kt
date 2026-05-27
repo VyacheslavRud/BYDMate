@@ -22,7 +22,7 @@ import com.bydmate.app.MainActivity
 import com.bydmate.app.R
 import com.bydmate.app.data.automation.AutomationEngine
 import com.bydmate.app.data.remote.AlicePollingManager
-import com.bydmate.app.data.remote.DiParsClient
+import com.bydmate.app.data.nativestack.ParsReader
 import com.bydmate.app.data.remote.DiParsData
 import com.bydmate.app.data.remote.IternioIntervalPolicy
 import com.bydmate.app.data.remote.IternioRateLimitException
@@ -57,7 +57,7 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class TrackingService : Service(), LocationListener {
 
-    @Inject lateinit var diParsClient: DiParsClient
+    @Inject lateinit var parsReader: ParsReader
     @Inject lateinit var tripTracker: TripTracker
     @Inject lateinit var chargeRepository: ChargeRepository
     @Inject lateinit var tripRepository: com.bydmate.app.data.repository.TripRepository
@@ -633,7 +633,7 @@ class TrackingService : Service(), LocationListener {
         pollingJob = serviceScope.launch {
             while (true) {
                 try {
-                    val data = diParsClient.fetch()
+                    val data = parsReader.fetch()
                     if (data != null) {
                         consecutiveNullCount = 0
                         lastDiPlusRelaunchTs = 0L
