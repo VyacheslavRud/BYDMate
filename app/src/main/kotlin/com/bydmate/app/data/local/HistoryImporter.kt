@@ -7,6 +7,7 @@ import com.bydmate.app.data.local.dao.TripDao
 import com.bydmate.app.data.local.dao.TripPointDao
 import com.bydmate.app.data.local.entity.IdleDrainEntity
 import com.bydmate.app.data.local.entity.TripEntity
+import com.bydmate.app.data.repository.LastSessionRepository
 import com.bydmate.app.data.repository.SettingsRepository
 import com.bydmate.app.data.repository.TripRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -24,7 +25,8 @@ class HistoryImporter @Inject constructor(
     private val tripDao: TripDao,
     private val tripPointDao: TripPointDao,
     private val idleDrainDao: IdleDrainDao,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val lastSessionRepository: LastSessionRepository,
 ) {
     companion object {
         private const val TAG = "HistoryImporter"
@@ -78,6 +80,10 @@ class HistoryImporter @Inject constructor(
     private suspend fun doSync(): ImportResult {
         val lastImportTs = settingsRepository.getLastEnergyImportTs()
         val bydRecords = energyDataReader.readTripsSince(lastImportTs)
+        // Snapshot session SOC bookmarks once per sync run so all freshly-imported
+        // trips in this batch share the same snapshot. Null when service is not running
+        // (cold import after app update) — socStart/socEnd stay null in that case.
+        val sessionSnap = lastSessionRepository.snapshot()
 
         if (bydRecords.isEmpty()) {
             return ImportResult(trips = 0, details = "Нет новых записей")
@@ -140,9 +146,20 @@ class HistoryImporter @Inject constructor(
                 byd.electricityKwh / byd.tripKm * 100.0
             } else null
 
+            // avgSpeedKmh: pure computation from energydata distance + duration.
             val avgSpeed = if (byd.duration > 0 && byd.tripKm > 0) {
                 byd.tripKm / (byd.duration / 3600.0)
             } else null
+
+            // SOC enrichment: if this trip's time range falls within the last recorded
+            // session bookmarks, attach socStart/socEnd from the realtime ParsReader
+            // snapshot. Tolerance: session end + 30 sec to cover the post-idle-close window.
+            val sessionStartTs = sessionSnap.startTs
+            val sessionEndTs = sessionSnap.endTs
+            val withinSession = sessionStartTs != null && sessionEndTs != null &&
+                endTsMs >= sessionStartTs && startTsMs <= (sessionEndTs + 30_000L)
+            val socStart = if (withinSession) sessionSnap.startSoc else null
+            val socEnd   = if (withinSession) sessionSnap.endSoc   else null
 
             tripRepository.insertTrip(
                 TripEntity(
@@ -152,6 +169,8 @@ class HistoryImporter @Inject constructor(
                     kwhConsumed = byd.electricityKwh,
                     kwhPer100km = kwhPer100km,
                     avgSpeedKmh = avgSpeed,
+                    socStart = socStart,
+                    socEnd = socEnd,
                     source = "energydata",
                     bydId = byd.id
                 )

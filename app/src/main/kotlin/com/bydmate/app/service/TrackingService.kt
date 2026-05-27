@@ -76,6 +76,7 @@ class TrackingService : Service(), LocationListener {
     @Inject lateinit var cameraStateMonitor: com.bydmate.app.data.camera.CameraStateMonitor
     @Inject lateinit var adbOnDeviceClient: com.bydmate.app.data.autoservice.AdbOnDeviceClient
     @Inject lateinit var iternioTelemetryClient: IternioTelemetryClient
+    @Inject lateinit var lastSessionRepository: com.bydmate.app.data.repository.LastSessionRepository
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pollingJob: Job? = null
@@ -356,6 +357,7 @@ class TrackingService : Service(), LocationListener {
                 _sessionStartedAt.value = now
                 sessionStartMileageKm = data.mileage
                 sessionStartTotalElecKwh = data.totalElecConsumption
+                lastSessionRepository.onSessionStart(soc = data.soc, ts = now)
                 Log.i(TAG, "Widget session START at $now " +
                     "(powerOn=$powerOn, driving=$driving, mileageStart=${data.mileage}, " +
                     "totalElecStart=${data.totalElecConsumption})")
@@ -372,6 +374,7 @@ class TrackingService : Service(), LocationListener {
             val idleFor = now - sessionLastActiveTs
             if (idleFor >= SESSION_IDLE_CLOSE_MS) {
                 Log.i(TAG, "Widget session END (idle ${idleFor / 1000}s, powerOn=$powerOn, driving=$driving)")
+                lastSessionRepository.onSessionEnd(soc = data.soc, ts = now)
                 _sessionStartedAt.value = null
                 sessionStartMileageKm = null
                 sessionStartTotalElecKwh = null
