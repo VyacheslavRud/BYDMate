@@ -72,6 +72,4 @@ object FidMap {
         FidEntry("driveMode",            1006, 555745294,    5, Decoder.INT_ENUM),
         FidEntry("workMode",             1006, 874512420,    5, Decoder.INT_ENUM),
     )
-
-    val byField: Map<String, FidEntry> = entries.associateBy { it.field }
 }

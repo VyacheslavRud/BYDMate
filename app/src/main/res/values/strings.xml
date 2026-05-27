@@ -39,9 +39,6 @@
     <string name="settings_cancel_button">Отмена</string>
 
     <!-- Settings: Trips section -->
-    <string name="settings_trips_datasource_header">Источник данных поездок</string>
-    <string name="settings_trips_datasource_note">Leopard 3 - BYD energydata.\nSong и другие без встроенной базы - DiPlus TripInfo.</string>
-    <string name="settings_trips_datasource_hint">Если после 2-3 поездок список пустой - переключи режим.</string>
     <string name="settings_trips_system_header">Системные данные (экспериментально)</string>
     <string name="settings_trips_system_note">Расширенные данные с машины: SoH батареи, истинный пробег от BMS, статистика зарядок. Только чтение.</string>
     <string name="settings_trips_system_enable_label">Включить</string>
@@ -362,7 +359,6 @@
     <!-- Welcome Wizard -->
     <string name="welcome_step_indicator">Шаг %1$d из 3</string>
     <string name="welcome_model_step_title">Какая у тебя модель BYD?</string>
-    <string name="welcome_model_step_description">От этого зависит источник данных о поездках.\nLeopard 3 хранит их во встроенной базе BYD (energydata).\nSong и другие модели - только в DiPlus.</string>
     <string name="welcome_model_song_label">Song / другая</string>
     <string name="welcome_model_change_later">Можно поменять позже в настройках.</string>
     <string name="welcome_next_button">Далее</string>
@@ -553,8 +549,6 @@
 
     <!-- Settings: ViewModel status strings (user-visible feedback) -->
     <string name="settings_saved">Сохранено</string>
-    <string name="settings_datasource_switching">Переключение...</string>
-    <string name="settings_datasource_done">Готово</string>
     <!-- %1$d = trip count -->
     <string name="settings_recalc_done">Пересчитано: %1$d поездок</string>
     <string name="settings_export_in_progress">Экспорт...</string>

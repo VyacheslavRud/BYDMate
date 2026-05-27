@@ -14,7 +14,6 @@ enum class Decoder {
     FLOAT_PERCENT,
     FLOAT_KW,
     FLOAT_KWH,
-    STATIC_USER_SETTING,
 }
 
 object ParamDecoder {

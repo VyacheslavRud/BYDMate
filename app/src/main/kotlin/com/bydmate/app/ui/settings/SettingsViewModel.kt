@@ -459,7 +459,7 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    /** Run full diagnostics: BYD storage, our DB, DiPlus API, permissions. */
+    /** Run full diagnostics: BYD storage, our DB, permissions. */
     fun runDiagnostics() {
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.update { it.copy(diagnosticLog = "Диагностика...") }
@@ -516,32 +516,6 @@ class SettingsViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 sb.appendLine("ОШИБКА: ${e.message}")
-            }
-
-            // 4. DiPlus API
-            sb.appendLine("\n=== DiPlus API ===")
-            try {
-                val testTemplate = "SOC:{电量百分比}|Speed:{车速}|Mileage:{里程}"
-                val httpUrl = okhttp3.HttpUrl.Builder()
-                    .scheme("http").host("127.0.0.1").port(8988)
-                    .addPathSegments("api/getDiPars")
-                    .addQueryParameter("text", testTemplate)
-                    .build()
-                val testClient = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(3, java.util.concurrent.TimeUnit.SECONDS)
-                    .build()
-                val resp = testClient.newCall(
-                    okhttp3.Request.Builder().url(httpUrl).build()
-                ).execute()
-                val body = resp.body?.string() ?: "(пустое тело)"
-                sb.appendLine("HTTP ${resp.code}: $body")
-            } catch (e: java.net.ConnectException) {
-                sb.appendLine("Соединение отклонено — DiPlus не запущен")
-            } catch (e: java.net.SocketTimeoutException) {
-                sb.appendLine("Таймаут соединения")
-            } catch (e: Exception) {
-                sb.appendLine("${e.javaClass.simpleName}: ${e.message}")
             }
 
             _uiState.update { it.copy(diagnosticLog = sb.toString()) }
@@ -732,9 +706,9 @@ class SettingsViewModel @Inject constructor(
      * Writes a diagnostic header to the recording file before piping logcat.
      * Captures app / device / setting context that issue reports (e.g. #19)
      * routinely lack: which battery capacity the user typed (raw + parsed,
-     * which surfaces the comma-decimal bug immediately), which data source mode
-     * is selected, whether autoservice / ABRP are configured, and whether the
-     * underlying BYD energydata / DiPlus databases are reachable.
+     * which surfaces the comma-decimal bug immediately), whether autoservice /
+     * ABRP are configured, and whether the BYD energydata trip source is
+     * reachable.
      */
     private suspend fun writeDiagnosticHeader(file: File) = withContext(Dispatchers.IO) {
         // Build the header. Each piece is independently caught so a single
@@ -779,7 +753,6 @@ class SettingsViewModel @Inject constructor(
             appendLine("--- vehicle data sources ---")
             try {
                 val energyDb = File("/storage/emulated/0/energydata")
-                val diplusDb = File("/storage/emulated/0/vandiplus/db/van_bm_db")
                 appendLine("energydata dir: exists=${energyDb.exists()} isDir=${energyDb.isDirectory}")
                 if (energyDb.exists() && energyDb.isDirectory) {
                     val files = energyDb.listFiles()
@@ -789,7 +762,6 @@ class SettingsViewModel @Inject constructor(
                         files.forEach { appendLine("  ${it.name} (${it.length()}B, mtime=${it.lastModified()})") }
                     }
                 }
-                appendLine("DiPlus van_bm_db: exists=${diplusDb.exists()} size=${if (diplusDb.exists()) diplusDb.length() else 0}B mtime=${if (diplusDb.exists()) diplusDb.lastModified() else 0}")
             } catch (e: Exception) {
                 appendLine("(failed to gather vehicle data sources: ${e.message})")
             }
