@@ -399,13 +399,13 @@
 - param: Sunroof
   diplus_key: Sunroof
   device: 1001
-  fid: 1101004832
+  fid: 1101004848
   transact: 5
-  decoder: int_enum
-  unit: ""
+  decoder: int_percent
+  unit: "%"
   status: candidate
-  source: autoservice-catalog
-  note: "Closed=1. Alternative 1101004848 (sunroof_pos) candidate if percent needed."
+  source: reference-catalog
+  note: "sunroof_pos = 0-100%. Swapped from old 1101004832 (binary closed=1). Percent gives finer UX."
 
 - param: SunshadePos
   diplus_key: null
