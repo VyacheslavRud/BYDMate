@@ -1,5 +1,6 @@
 package com.bydmate.app.data.repository
 
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -12,6 +13,9 @@ import javax.inject.Singleton
  * drops the bookmarks; HistoryImporter falls back to null socStart/socEnd for
  * that trip (same as before the native-stack migration). This is acceptable:
  * the SOC enrichment is best-effort and only benefits the current session.
+ *
+ * Thread safety: single AtomicReference<Snapshot?> guarantees that snapshot()
+ * always returns a consistent view — no mix of fields from different sessions.
  */
 @Singleton
 class LastSessionRepository @Inject constructor() {
@@ -23,22 +27,25 @@ class LastSessionRepository @Inject constructor() {
         val endTs: Long?,
     )
 
-    @Volatile private var startSoc: Int? = null
-    @Volatile private var endSoc: Int? = null
-    @Volatile private var startTs: Long? = null
-    @Volatile private var endTs: Long? = null
+    private val state = AtomicReference<Snapshot?>(null)
 
     fun onSessionStart(soc: Int?, ts: Long) {
-        startSoc = soc
-        endSoc = null
-        startTs = ts
-        endTs = null
+        state.set(Snapshot(startSoc = soc, endSoc = null, startTs = ts, endTs = null))
     }
 
     fun onSessionEnd(soc: Int?, ts: Long) {
-        endSoc = soc
-        endTs = ts
+        // CAS loop: preserve start fields written by onSessionStart.
+        while (true) {
+            val cur = state.get()
+            val next = Snapshot(
+                startSoc = cur?.startSoc,
+                endSoc   = soc,
+                startTs  = cur?.startTs,
+                endTs    = ts,
+            )
+            if (state.compareAndSet(cur, next)) return
+        }
     }
 
-    fun snapshot(): Snapshot = Snapshot(startSoc, endSoc, startTs, endTs)
+    fun snapshot(): Snapshot? = state.get()
 }

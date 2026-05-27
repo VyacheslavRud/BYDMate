@@ -154,12 +154,13 @@ class HistoryImporter @Inject constructor(
             // SOC enrichment: if this trip's time range falls within the last recorded
             // session bookmarks, attach socStart/socEnd from the realtime ParsReader
             // snapshot. Tolerance: session end + 30 sec to cover the post-idle-close window.
-            val sessionStartTs = sessionSnap.startTs
-            val sessionEndTs = sessionSnap.endTs
+            // sessionSnap is Snapshot? — null when no session was recorded this process lifetime.
+            val sessionStartTs = sessionSnap?.startTs
+            val sessionEndTs = sessionSnap?.endTs
             val withinSession = sessionStartTs != null && sessionEndTs != null &&
                 endTsMs >= sessionStartTs && startTsMs <= (sessionEndTs + 30_000L)
-            val socStart = if (withinSession) sessionSnap.startSoc else null
-            val socEnd   = if (withinSession) sessionSnap.endSoc   else null
+            val socStart = if (withinSession) sessionSnap?.startSoc else null
+            val socEnd   = if (withinSession) sessionSnap?.endSoc   else null
 
             tripRepository.insertTrip(
                 TripEntity(

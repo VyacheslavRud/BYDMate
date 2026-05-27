@@ -1,19 +1,16 @@
 package com.bydmate.app.data.repository
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class LastSessionRepositoryTest {
 
     @Test
-    fun `snapshot is empty when no session recorded`() {
+    fun `snapshot is null when no session recorded`() {
         val repo = LastSessionRepository()
-        val snap = repo.snapshot()
-        assertNull(snap.startSoc)
-        assertNull(snap.endSoc)
-        assertNull(snap.startTs)
-        assertNull(snap.endTs)
+        assertNull(repo.snapshot())
     }
 
     @Test
@@ -25,7 +22,7 @@ class LastSessionRepositoryTest {
 
         // New session starts — end fields must be cleared
         repo.onSessionStart(soc = 95, ts = 3_000L)
-        val snap = repo.snapshot()
+        val snap = requireNotNull(repo.snapshot())
 
         assertEquals(95, snap.startSoc)
         assertEquals(3_000L, snap.startTs)
@@ -39,7 +36,7 @@ class LastSessionRepositoryTest {
         repo.onSessionStart(soc = 75, ts = 1_000L)
         repo.onSessionEnd(soc = 50, ts = 5_000L)
 
-        val snap = repo.snapshot()
+        val snap = requireNotNull(repo.snapshot())
         assertEquals(75, snap.startSoc)
         assertEquals(1_000L, snap.startTs)
         assertEquals(50, snap.endSoc)
@@ -52,10 +49,29 @@ class LastSessionRepositoryTest {
         repo.onSessionStart(soc = null, ts = 1_000L)
         repo.onSessionEnd(soc = null, ts = 2_000L)
 
-        val snap = repo.snapshot()
+        val snap = requireNotNull(repo.snapshot())
         assertNull(snap.startSoc)
         assertNull(snap.endSoc)
         assertEquals(1_000L, snap.startTs)
         assertEquals(2_000L, snap.endTs)
+    }
+
+    @Test
+    fun `snapshot is non-null after onSessionStart`() {
+        val repo = LastSessionRepository()
+        repo.onSessionStart(soc = 90, ts = 1_000L)
+        assertNotNull(repo.snapshot())
+    }
+
+    @Test
+    fun `onSessionEnd without prior start preserves null start fields`() {
+        val repo = LastSessionRepository()
+        repo.onSessionEnd(soc = 70, ts = 5_000L)
+
+        val snap = requireNotNull(repo.snapshot())
+        assertNull(snap.startSoc)
+        assertNull(snap.startTs)
+        assertEquals(70, snap.endSoc)
+        assertEquals(5_000L, snap.endTs)
     }
 }
