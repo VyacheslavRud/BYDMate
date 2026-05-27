@@ -53,12 +53,25 @@ object FidMap {
         // Lights
         FidEntry("lightLow",             1004, 950009866,    5, Decoder.INT_ENUM),
         FidEntry("drl",                  1004, 1231040528,   5, Decoder.INT_ENUM),
-        // TODO: remaining DiParsData fields added as fid-candidates.yaml entries
-        // graduate to `status: validated` (Phase 1a continues):
-        // maxBatTemp, minBatTemp, avgBatTemp, chargingStatus, batteryCapacityKwh,
-        // powerState, driveMode, workMode, doorFL, doorFR, doorRL, doorRR,
-        // windowFL, windowFR, windowRL, windowRR, sunroof, trunk, lockFL,
-        // autoPark, rain (wiper sensitivity — not a live sensor)
+        // Graduated from yaml status=candidate without formal D+ snap validation.
+        // Smoke on real DiLink will surface sentinel returns or wrong values.
+        // If a field shows sentinel/garbage in UI after upgrade — pull the fid from FidMap.
+        FidEntry("maxBatTemp",           1014, 1148190752,   5, Decoder.INT_TEMP_C),
+        FidEntry("minBatTemp",           1014, 1148190736,   5, Decoder.INT_TEMP_C),
+        FidEntry("powerState",           1023, 315621408,    5, Decoder.INT_ENUM),
+        FidEntry("doorFL",               1001, 692060168,    5, Decoder.INT_ENUM),
+        FidEntry("doorFR",               1001, 692060170,    5, Decoder.INT_ENUM),
+        FidEntry("doorRL",               1001, 692060172,    5, Decoder.INT_ENUM),
+        FidEntry("doorRR",               1001, 692060174,    5, Decoder.INT_ENUM),
+        FidEntry("windowFL",             1001, 947912728,    5, Decoder.INT_PERCENT),
+        FidEntry("windowFR",             1001, 1267728400,   5, Decoder.INT_PERCENT),
+        FidEntry("windowRL",             1001, 947912736,    5, Decoder.INT_PERCENT),
+        FidEntry("windowRR",             1001, 947912752,    5, Decoder.INT_PERCENT),
+        FidEntry("sunroof",              1001, 1101004848,   5, Decoder.INT_PERCENT),
+        FidEntry("trunk",                1001, 1074790416,   5, Decoder.INT_ENUM),
+        FidEntry("lockFL",               1032, 1081081864,   5, Decoder.INT_ENUM),
+        FidEntry("driveMode",            1006, 555745294,    5, Decoder.INT_ENUM),
+        FidEntry("workMode",             1006, 874512420,    5, Decoder.INT_ENUM),
     )
 
     val byField: Map<String, FidEntry> = entries.associateBy { it.field }

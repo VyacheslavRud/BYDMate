@@ -10,11 +10,11 @@ class FidMapTest {
 
     /**
      * Intentionally ignored until all DiParsData fields are validated.
-     * FidMap currently covers 24 of 45 DiParsData fields; the remaining
-     * entries are added field-by-field as Phase 1a validation graduates each
-     * fid-candidates.yaml entry to `status: validated`.
+     * FidMap currently covers 40 of 45 DiParsData fields; the remaining
+     * entries (avgBatTemp, chargingStatus, batteryCapacityKwh, autoPark, rain)
+     * are not live-sensor fids or require separate validation paths.
      */
-    @Ignore("Will pass after remaining 21 fields validated (Phase 1a continues)")
+    @Ignore("Will pass after remaining 5 fields validated (autoPark, rain, avgBatTemp, chargingStatus, batteryCapacityKwh)")
     @Test fun `every DiParsData field has a FidMap entry`() {
         val dataFields = com.bydmate.app.data.remote.DiParsData::class
             .memberProperties.map { it.name }.toSet()
@@ -23,14 +23,14 @@ class FidMapTest {
         assertTrue("Missing FidMap entries for: $missing", missing.isEmpty())
     }
 
-    @Test fun `FidMap coverage at least 24 of DiParsData fields`() {
+    @Test fun `FidMap coverage at least 40 of DiParsData fields`() {
         val dataFields = com.bydmate.app.data.remote.DiParsData::class
             .memberProperties.map { it.name }.toSet()
         val mappedFields = FidMap.entries.map { it.field }.toSet()
         val covered = mappedFields.intersect(dataFields)
         assertTrue(
-            "Expected >= 24 DiParsData fields covered, got ${covered.size}: $covered",
-            covered.size >= 24
+            "Expected >= 40 DiParsData fields covered, got ${covered.size}: $covered",
+            covered.size >= 40
         )
     }
 
