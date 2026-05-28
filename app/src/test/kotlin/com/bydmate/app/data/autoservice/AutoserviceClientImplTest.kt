@@ -26,6 +26,8 @@ class AutoserviceClientImplTest {
             return responses[cmd]
         }
         override suspend fun grantUsageStatsAppop(packageName: String): Boolean = true
+        override suspend fun bootstrapHelper(context: android.content.Context, expectedSha256: String): Boolean = false
+        override suspend fun helperHeartbeat(): Boolean = false
         override suspend fun shutdown() {}
     }
 

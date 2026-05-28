@@ -37,6 +37,22 @@ interface AdbOnDeviceClient {
      * No-op effect if already granted. Returns true on success.
      */
     suspend fun grantUsageStatsAppop(packageName: String): Boolean
+
+    /**
+     * Pushes the bundled helper.dex (SHA-256 verified against the supplied
+     * expected hash) to /data/local/tmp/helper.dex on DiLink, then spawns
+     * the helper daemon via app_process. Returns true if the daemon binds
+     * 127.0.0.1:8765 and responds to ping within 3 s.
+     *
+     * Hardcoded path + cmdline + process name — caller cannot inject. The
+     * write barrier on exec() stays unchanged; this method uses a private
+     * exec path on the underlying protocol object.
+     */
+    suspend fun bootstrapHelper(context: android.content.Context, expectedSha256: String): Boolean
+
+    /** Read-only check: is a process named `bydmate_helper` running? */
+    suspend fun helperHeartbeat(): Boolean
+
     /** Closes any underlying socket. Idempotent. */
     suspend fun shutdown()
 }
@@ -116,6 +132,60 @@ class AdbOnDeviceClientImpl @Inject constructor(
         }
     }
 
+    override suspend fun bootstrapHelper(
+        context: android.content.Context,
+        expectedSha256: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        val p = protocol ?: run {
+            val r = connect()
+            if (r.isFailure) return@withContext false
+            protocol ?: return@withContext false
+        }
+        try {
+            val dexBytes = context.assets.open("helper.dex").use { it.readBytes() }
+            val sha = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(dexBytes).joinToString("") { "%02x".format(it) }
+            if (sha != expectedSha256) {
+                Log.e(TAG, "helper.dex sha mismatch: expected=$expectedSha256 actual=$sha")
+                return@withContext false
+            }
+            val b64 = android.util.Base64.encodeToString(dexBytes, android.util.Base64.NO_WRAP)
+            val pushCmd = "echo $b64 | base64 -d > $HELPER_REMOTE_PATH && chmod 755 $HELPER_REMOTE_PATH"
+            p.exec(pushCmd)
+            val spawnCmd =
+                "nohup sh -c 'CLASSPATH=$HELPER_REMOTE_PATH app_process /system/bin " +
+                "--nice-name=$HELPER_PROCESS_NAME com.bydmate.app.helper.HelperDaemon' " +
+                ">/dev/null 2>&1 &"
+            p.exec(spawnCmd)
+            // Poll for the daemon's ping response (max 3 s).
+            repeat(15) {
+                kotlinx.coroutines.delay(200)
+                val pingOk = runCatching {
+                    java.net.Socket().use { sock ->
+                        sock.connect(java.net.InetSocketAddress("127.0.0.1", 8765), 200)
+                        sock.getOutputStream().apply {
+                            write(("""{"op":"ping"}""" + "\n").toByteArray())
+                            flush()
+                        }
+                        sock.getInputStream().bufferedReader().readLine() != null
+                    }
+                }.getOrDefault(false)
+                if (pingOk) return@withContext true
+            }
+            Log.w(TAG, "helper bootstrap: spawned but ping never responded")
+            false
+        } catch (e: Exception) {
+            Log.w(TAG, "bootstrapHelper failed: ${e.message}")
+            false
+        }
+    }
+
+    override suspend fun helperHeartbeat(): Boolean = withContext(Dispatchers.IO) {
+        val p = protocol ?: return@withContext false
+        val out = runCatching { p.exec("ps -A -o NAME") }.getOrNull() ?: return@withContext false
+        out.lineSequence().any { it.trim() == HELPER_PROCESS_NAME }
+    }
+
     override suspend fun shutdown() {
         withContext(Dispatchers.IO) {
             try {
@@ -135,5 +205,9 @@ class AdbOnDeviceClientImpl @Inject constructor(
 
         // Narrow whitelist for grantUsageStatsAppop — only our own package.
         private val PACKAGE_NAME_REGEX = Regex("""^com\.bydmate\.app$""")
+
+        // Helper daemon — hardcoded so neither caller can inject paths/cmdlines.
+        private const val HELPER_REMOTE_PATH = "/data/local/tmp/helper.dex"
+        private const val HELPER_PROCESS_NAME = "bydmate_helper"
     }
 }
