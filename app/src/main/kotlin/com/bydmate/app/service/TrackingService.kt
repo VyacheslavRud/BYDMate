@@ -47,7 +47,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -77,14 +76,14 @@ class TrackingService : Service(), LocationListener {
     @Inject lateinit var adbOnDeviceClient: com.bydmate.app.data.autoservice.AdbOnDeviceClient
     @Inject lateinit var iternioTelemetryClient: IternioTelemetryClient
     @Inject lateinit var lastSessionRepository: com.bydmate.app.data.repository.LastSessionRepository
+    @Inject lateinit var sharedAdaptiveLoop: com.bydmate.app.data.loop.SharedAdaptiveLoop
+    @Inject lateinit var tripRecorder: com.bydmate.app.data.trips.TripRecorder
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pollingJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var locationManager: LocationManager? = null
-    private var consecutiveNullCount = 0
     private var firstDataReceived = false
-    private var currentPollIntervalMs = POLL_INTERVAL_MS
 
     // Widget session (ignition-on → ignition-off) — decoupled from TripTracker GPS state.
     // Primary signal: DiPars powerState ≥ 1. Fallback when powerState is unreliable:
@@ -148,14 +147,11 @@ class TrackingService : Service(), LocationListener {
         private const val TAG = "TrackingService"
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "bydmate_tracking"
-        private const val POLL_INTERVAL_MS = 3000L // 3 seconds for detailed GPS + charging curve
         // Throttle autoservice gun-state read so we don't hit Binder/ADB on every
-        // 3-second poll. 5 ticks ≈ 15 s — fast enough that the user sees a row
+        // poll tick. 5 ticks ≈ 15 s — fast enough that the user sees a row
         // appear within ~half a minute of unplugging, gentle enough not to
         // contend with battery / charging snapshot reads.
         private const val GUN_STATE_POLL_EVERY_N_TICKS = 5
-        private const val NULL_WARNING_THRESHOLD = 3
-        private const val MAX_POLL_INTERVAL_MS = 60_000L
         // Tolerance between last "session active" tick and the current tick before we
         // consider the session closed. 30 sec survives brief powerState blips and
         // covers the DiLink wind-down after ignition-off.
@@ -624,143 +620,140 @@ class TrackingService : Service(), LocationListener {
     }
 
     private fun startPolling() {
-        Log.i(TAG, "Starting polling with interval=${POLL_INTERVAL_MS}ms")
+        Log.i(TAG, "Starting polling via SharedAdaptiveLoop")
         pollingJob = serviceScope.launch {
-            while (true) {
+            // Cold-start reconciliation BEFORE subscribing — so we never receive
+            // a tick into a stale open trip from a previous session.
+            runCatching { tripRecorder.reconcileColdStart() }
+                .onFailure { Log.w(TAG, "Cold-start reconciliation failed", it) }
+
+            sharedAdaptiveLoop.start(serviceScope)
+
+            launch {
+                sharedAdaptiveLoop.connected.collect { connected ->
+                    _vehicleDataConnected.value = connected
+                }
+            }
+
+            sharedAdaptiveLoop.flow.collect { data ->
                 try {
-                    val data = parsReader.fetch()
-                    if (data != null) {
-                        consecutiveNullCount = 0
-                        currentPollIntervalMs = POLL_INTERVAL_MS
-                        _vehicleDataConnected.value = true
-                        _lastData.value = data
+                    _lastData.value = data
+                    alicePollingManager.latestData = data
 
-                        // Feed DiPlus data to Alice for real device states
-                        alicePollingManager.latestData = data
+                    data.soc?.let { soc ->
+                        settingsRepository.saveLastKnownSoc(soc)
+                    }
 
-                        // Save SOC for retrospective charge detection
-                        data.soc?.let { soc ->
-                            settingsRepository.saveLastKnownSoc(soc)
-                        }
-
-                        // Power accumulator for AC/DC classification. DiPars `power` is
-                        // negative while energy flows IN; we keep the peak |power| seen
-                        // during the session and hand it to runCatchUp on the disconnect
-                        // edge so short sessions don't fall back to the kwh/hours
-                        // heuristic. When DiPlus is in reduced-payload mode (no `Power`
-                        // field), this accumulator simply stays at 0 and the heuristic
-                        // takes over — runCatchUp tolerates a null observedKwAbs.
-                        if ((data.power ?: 0.0) < 0.0) {
-                            val abs = -(data.power ?: 0.0)
-                            synchronized(powerLock) {
-                                if (abs > observedChargingPowerKwAbs) observedChargingPowerKwAbs = abs
-                            }
-                        }
-
-                        // Live end-of-charging via autoservice gun state. Throttled to
-                        // every Nth tick because each Binder/ADB round-trip is heavy.
-                        // We launch the read in its own coroutine so a slow autoservice
-                        // call cannot delay the next DiPars poll. Edge detection state
-                        // lives in gunEdgeDetector; runCatchUp's mutex serializes us
-                        // against the cold-start path.
-                        pollTickCount++
-                        if (pollTickCount % GUN_STATE_POLL_EVERY_N_TICKS == 0L) {
-                            serviceScope.launch {
-                                pollGunStateForEdge()
-                            }
-                        }
-
-                        // On first data after startup: detect offline charging
-                        if (!firstDataReceived) {
-                            firstDataReceived = true
-                            data.soc?.let { currentSoc ->
-                                detectOfflineCharge(currentSoc)
-                            }
-                        }
-                        val loc = _lastLocation.value
-                        tripTracker.onData(data, loc)
-
-                        val nowMs = System.currentTimeMillis()
-                        val sessionId = updateSessionState(nowMs, data)
-
-                        odometerBuffer.onSample(
-                            mileage = data.mileage,
-                            totalElec = data.totalElecConsumption,
-                            socPercent = data.soc,
-                            sessionId = sessionId,
-                        )
-                        liveTripBuffer.onSample(
-                            mileage = data.mileage,
-                            totalElec = data.totalElecConsumption,
-                            sessionId = sessionId,
-                        )
-                        socInterpolator.onSample(
-                            soc = data.soc,
-                            totalElecKwh = data.totalElecConsumption,
-                            sessionId = sessionId,
-                        )
-
-                        val recentAvg = odometerBuffer.recentAvgConsumption()
-                        val shortAvg = odometerBuffer.shortAvgConsumption()
-
-                        // Live trip distance (current odometer minus session-start odometer).
-                        // Odometer regression (rare DiPars glitch) leaves delta negative,
-                        // surface "—" on the widget instead of silent 0 so field diagnosis
-                        // still sees the anomaly. OdometerConsumptionBuffer blocks the same
-                        // regression at insert, so consumption math is unaffected.
-                        val tripDistance = sessionStartMileageKm?.let { start ->
-                            data.mileage?.let { cur -> (cur - start).takeIf { it >= 0.0 } }
-                        }
-                        // Live trip energy (current totalElec minus session-start totalElec).
-                        // BMS recalibration can briefly push totalElec lower than baseline.
-                        // Pass null on negative delta so BigNumberCalculator falls back to
-                        // lastTripAvg instead of computing 0.0 / km and showing "0.0" on the
-                        // widget for the recal tick.
-                        val tripKwhConsumed = sessionStartTotalElecKwh?.let { base ->
-                            data.totalElecConsumption?.let { cur -> (cur - base).takeIf { it >= 0.0 } }
-                        }
-
-                        val displayValue = BigNumberCalculator.computeDisplay(
-                            tripKm = tripDistance,
-                            tripKwh = tripKwhConsumed,
-                            lastTripAvg = cachedLastTripAvg,
-                            recentAvg25km = recentAvg,
-                            sessionActive = sessionId != null,
-                        )
-
-                        ConsumptionAggregator.onSample(
-                            now = nowMs,
-                            displayValue = displayValue,
-                            recentAvg = recentAvg,
-                            shortAvg = shortAvg,
-                        )
-
-                        val rangeKm = rangeCalculator.estimate(soc = data.soc, totalElecKwh = data.totalElecConsumption)
-                        _lastRangeKm.value = rangeKm
-
-                        _tripDistanceKm.value = tripDistance
-
-                        sessionId?.let { sessionPersistence.save(it, sessionLastActiveTs) }
-
-                        // Idle drain tracked via energydata zero-km records only (HistoryImporter).
-                        // Live power integration removed — DiPars 发动机功率 ≠ total battery drain.
-                        automationEngine.evaluate(data, sessionId)
-                        updateNotification(data)
-                        maybeLogSessionSummary(nowMs, data, sessionId)
-                        maybeSendIternioTelemetry(data, nowMs)
-                    } else {
-                        consecutiveNullCount++
-                        if (consecutiveNullCount >= NULL_WARNING_THRESHOLD) {
-                            _vehicleDataConnected.value = false
-                            currentPollIntervalMs = (currentPollIntervalMs * 1.5).toLong()
-                                .coerceAtMost(MAX_POLL_INTERVAL_MS)
-                            Log.w(TAG, "Vehicle data silent ($consecutiveNullCount nulls), backoff=${currentPollIntervalMs}ms")
+                    // Power accumulator for AC/DC classification. Power is
+                    // negative while energy flows IN; we keep the peak |power| seen
+                    // during the session and hand it to runCatchUp on the disconnect
+                    // edge so short sessions don't fall back to the kwh/hours
+                    // heuristic.
+                    if ((data.power ?: 0.0) < 0.0) {
+                        val abs = -(data.power ?: 0.0)
+                        synchronized(powerLock) {
+                            if (abs > observedChargingPowerKwAbs) observedChargingPowerKwAbs = abs
                         }
                     }
+
+                    // Live end-of-charging via autoservice gun state. Throttled to
+                    // every Nth tick because each Binder/ADB round-trip is heavy.
+                    // We launch the read in its own coroutine so a slow autoservice
+                    // call cannot delay the flow subscriber. Edge detection state
+                    // lives in gunEdgeDetector; runCatchUp's mutex serializes us
+                    // against the cold-start path.
+                    pollTickCount++
+                    if (pollTickCount % GUN_STATE_POLL_EVERY_N_TICKS == 0L) {
+                        serviceScope.launch {
+                            pollGunStateForEdge()
+                        }
+                    }
+
+                    // On first data after startup: detect offline charging
+                    if (!firstDataReceived) {
+                        firstDataReceived = true
+                        data.soc?.let { currentSoc ->
+                            detectOfflineCharge(currentSoc)
+                        }
+                    }
+                    val loc = _lastLocation.value
+                    tripTracker.onData(data, loc)
+
+                    val nowMs = System.currentTimeMillis()
+                    val sessionId = updateSessionState(nowMs, data)
+
+                    odometerBuffer.onSample(
+                        mileage = data.mileage,
+                        totalElec = data.totalElecConsumption,
+                        socPercent = data.soc,
+                        sessionId = sessionId,
+                    )
+                    liveTripBuffer.onSample(
+                        mileage = data.mileage,
+                        totalElec = data.totalElecConsumption,
+                        sessionId = sessionId,
+                    )
+                    socInterpolator.onSample(
+                        soc = data.soc,
+                        totalElecKwh = data.totalElecConsumption,
+                        sessionId = sessionId,
+                    )
+
+                    val recentAvg = odometerBuffer.recentAvgConsumption()
+                    val shortAvg = odometerBuffer.shortAvgConsumption()
+
+                    // Live trip distance (current odometer minus session-start odometer).
+                    // Odometer regression (rare DiPars glitch) leaves delta negative,
+                    // surface "—" on the widget instead of silent 0 so field diagnosis
+                    // still sees the anomaly. OdometerConsumptionBuffer blocks the same
+                    // regression at insert, so consumption math is unaffected.
+                    val tripDistance = sessionStartMileageKm?.let { start ->
+                        data.mileage?.let { cur -> (cur - start).takeIf { it >= 0.0 } }
+                    }
+                    // Live trip energy (current totalElec minus session-start totalElec).
+                    // BMS recalibration can briefly push totalElec lower than baseline.
+                    // Pass null on negative delta so BigNumberCalculator falls back to
+                    // lastTripAvg instead of computing 0.0 / km and showing "0.0" on the
+                    // widget for the recal tick.
+                    val tripKwhConsumed = sessionStartTotalElecKwh?.let { base ->
+                        data.totalElecConsumption?.let { cur -> (cur - base).takeIf { it >= 0.0 } }
+                    }
+
+                    val displayValue = BigNumberCalculator.computeDisplay(
+                        tripKm = tripDistance,
+                        tripKwh = tripKwhConsumed,
+                        lastTripAvg = cachedLastTripAvg,
+                        recentAvg25km = recentAvg,
+                        sessionActive = sessionId != null,
+                    )
+
+                    ConsumptionAggregator.onSample(
+                        now = nowMs,
+                        displayValue = displayValue,
+                        recentAvg = recentAvg,
+                        shortAvg = shortAvg,
+                    )
+
+                    val rangeKm = rangeCalculator.estimate(soc = data.soc, totalElecKwh = data.totalElecConsumption)
+                    _lastRangeKm.value = rangeKm
+
+                    _tripDistanceKm.value = tripDistance
+
+                    sessionId?.let { sessionPersistence.save(it, sessionLastActiveTs) }
+
+                    // Idle drain tracked via energydata zero-km records only (HistoryImporter).
+                    // Live power integration removed — motor power ≠ total battery drain.
+                    automationEngine.evaluate(data, sessionId)
+                    updateNotification(data)
+                    maybeLogSessionSummary(nowMs, data, sessionId)
+                    maybeSendIternioTelemetry(data, nowMs)
+
+                    // Native trip recorder (writes only when energydata absent — i.e. Song/Atto/non-Leopard3)
+                    runCatching { tripRecorder.consume(data) }
+                        .onFailure { Log.w(TAG, "TripRecorder.consume failed", it) }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Polling error: ${e.message}", e)
+                    Log.e(TAG, "Downstream consumer threw on tick: ${e.message}", e)
                 }
-                delay(currentPollIntervalMs)
             }
         }
     }

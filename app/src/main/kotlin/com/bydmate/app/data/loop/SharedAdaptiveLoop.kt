@@ -27,7 +27,7 @@ import javax.inject.Singleton
  * fetch() returns null.
  */
 @Singleton
-class SharedAdaptiveLoop @Inject constructor(
+class SharedAdaptiveLoop constructor(
     private val parsReader: ParsReader,
     private val lastStateDao: LastStateDao,
     private val energyDataReader: EnergyDataReader,

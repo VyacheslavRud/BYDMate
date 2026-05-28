@@ -20,6 +20,9 @@ import com.bydmate.app.data.local.EnergyDataReader
 import com.bydmate.app.data.local.LocalePreferences
 import com.bydmate.app.data.local.dao.LastStateDao
 import com.bydmate.app.data.repository.SettingsRepository
+import com.bydmate.app.data.loop.CadenceConfig
+import com.bydmate.app.data.loop.SharedAdaptiveLoop
+import com.bydmate.app.data.nativestack.ParsReader
 import com.bydmate.app.data.trips.TripRecorder
 import com.bydmate.app.domain.calculator.OdometerConsumptionBuffer
 import com.bydmate.app.domain.calculator.RangeAvgSource
@@ -348,6 +351,19 @@ object AppModule {
         adb: com.bydmate.app.data.autoservice.AdbOnDeviceClient
     ): com.bydmate.app.data.autoservice.AutoserviceClient =
         com.bydmate.app.data.autoservice.AutoserviceClientImpl(adb)
+
+    @Provides
+    @Singleton
+    fun provideSharedAdaptiveLoop(
+        parsReader: ParsReader,
+        lastStateDao: LastStateDao,
+        energyDataReader: EnergyDataReader,
+    ): SharedAdaptiveLoop = SharedAdaptiveLoop(
+        parsReader = parsReader,
+        lastStateDao = lastStateDao,
+        energyDataReader = energyDataReader,
+        cadence = CadenceConfig.default(),
+    )
 
     @Provides
     @Singleton
