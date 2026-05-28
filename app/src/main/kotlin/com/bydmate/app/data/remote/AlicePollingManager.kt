@@ -2,6 +2,7 @@ package com.bydmate.app.data.remote
 
 import android.util.Log
 import com.bydmate.app.data.repository.SettingsRepository
+import com.bydmate.app.data.vehicle.VehicleApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -22,9 +23,10 @@ import javax.inject.Singleton
 @Singleton
 class AlicePollingManager @Inject constructor(
     private val httpClient: OkHttpClient,
-    private val controlClient: DiParsControlClient,
+    @Suppress("unused") private val controlClient: DiParsControlClient,
     private val settingsRepository: SettingsRepository,
     private val sharedAdaptiveLoop: com.bydmate.app.data.loop.SharedAdaptiveLoop,
+    private val vehicleApi: VehicleApi,
 ) {
     // Fast client with short timeouts for polling (main httpClient has 15s)
     private val pollClient = OkHttpClient.Builder()
@@ -117,8 +119,9 @@ class AlicePollingManager @Inject constructor(
             val id = cmd.getString("id")
             val command = cmd.getString("command")
             Log.i(TAG, "Executing: '$command' (id=$id)")
-            val success = controlClient.sendCommand(command)
-            Log.i(TAG, "Result: $command → ${if (success) "OK" else "FAIL"}")
+            val result = vehicleApi.dispatch(command)
+            val success = result.isSuccess
+            Log.i(TAG, "Result: $command → ${if (success) "OK" else "FAIL: ${result.exceptionOrNull()?.message}"}")
             ackIds.add(id)
         }
 
