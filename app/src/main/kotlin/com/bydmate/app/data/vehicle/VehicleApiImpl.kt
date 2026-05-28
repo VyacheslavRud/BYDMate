@@ -218,23 +218,30 @@ class VehicleApiImpl @Inject constructor(
         }
     }
 
+    /**
+     * Best-effort audit logger. Wrapped in runCatching so a DAO failure (full
+     * disk, DB locked, etc.) does not surface as VehicleWriteError to the
+     * caller. The "never throws" contract of doWrite depends on this.
+     */
     private suspend fun logWrite(
         action: String, dev: Int, fid: Int, requested: Int, readback: Int?,
         ok: Boolean, error: String?, validated: Boolean,
     ) {
-        writeLogDao.insert(
-            VehicleWriteLogEntity(
-                ts = System.currentTimeMillis(),
-                actionName = action,
-                dev = dev,
-                fid = fid,
-                requested = requested,
-                readback = readback,
-                status = if (ok) 0 else -1,
-                error = error,
-                validated = validated,
+        runCatching {
+            writeLogDao.insert(
+                VehicleWriteLogEntity(
+                    ts = System.currentTimeMillis(),
+                    actionName = action,
+                    dev = dev,
+                    fid = fid,
+                    requested = requested,
+                    readback = readback,
+                    status = if (ok) 0 else -1,
+                    error = error,
+                    validated = validated,
+                )
             )
-        )
+        }.onFailure { Log.w(TAG, "logWrite DAO insert failed: ${it.message}") }
     }
 
     companion object {

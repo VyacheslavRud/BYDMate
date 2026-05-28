@@ -23,6 +23,7 @@ adb shell ps -A | grep -E "bydmate_helper|aps_diplus|diplus"
 **Expected:**
 - `pm uninstall` → `Success`
 - `ps -A` показывает `bydmate_helper` (shell uid). НЕ показывает `com.van.diplus` или `aps_diplus`.
+- `logcat -d | grep HelperBootstrap` → строка `HelperBootstrap.ensureRunning → true` за последние 5 секунд (TrackingService.onCreate стартует daemon перед первым writem).
 
 **Result:** [ ] PASS / [ ] FAIL
 
@@ -67,7 +68,7 @@ adb shell ps -A | grep -E "bydmate_helper|aps_diplus|diplus"
 **Expected:**
 - Новая строка в списке поездок. Длительность, км, kWh заполнены.
 - Тап на строку → откроется TripDetailDialog. Карта показывает трек из GPS-точек.
-- В Room `trip_entity` появилась новая запись (можно проверить через `adb shell run-as com.bydmate.app sqlite3 databases/bydmate.db "SELECT id, distance_km, kwh_consumed FROM trip_entity ORDER BY id DESC LIMIT 1"`).
+- В Room таблица `trips` получила новую запись (можно проверить через `adb shell run-as com.bydmate.app sqlite3 databases/bydmate.db "SELECT id, distanceKm, kwhConsumed FROM trips ORDER BY id DESC LIMIT 1"`).
 
 **Result:** [ ] PASS / [ ] FAIL
 
@@ -82,7 +83,7 @@ adb shell ps -A | grep -E "bydmate_helper|aps_diplus|diplus"
 **Expected:**
 - Новая строка в списке зарядок.
 - `SoC start` < `SoC end`. kWh имеет осмысленное значение.
-- В Room `charging_entity` запись присутствует.
+- В Room таблице `charges` запись присутствует.
 
 **Result:** [ ] PASS / [ ] FAIL
 

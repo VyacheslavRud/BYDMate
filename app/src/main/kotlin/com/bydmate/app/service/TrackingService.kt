@@ -78,6 +78,7 @@ class TrackingService : Service(), LocationListener {
     @Inject lateinit var lastSessionRepository: com.bydmate.app.data.repository.LastSessionRepository
     @Inject lateinit var sharedAdaptiveLoop: com.bydmate.app.data.loop.SharedAdaptiveLoop
     @Inject lateinit var tripRecorder: com.bydmate.app.data.trips.TripRecorder
+    @Inject lateinit var helperBootstrap: com.bydmate.app.data.vehicle.HelperBootstrap
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pollingJob: Job? = null
@@ -259,6 +260,22 @@ class TrackingService : Service(), LocationListener {
         serviceScope.launch {
             cachedLastTripAvg = tripRepository.getLastTripAvgConsumption()
             Log.d(TAG, "Initial cachedLastTripAvg on service start: $cachedLastTripAvg")
+        }
+
+        // Bootstrap the native helper daemon BEFORE polling so the first write
+        // (automation rule, Alice command) lands on a live 127.0.0.1:8765 socket.
+        // Fire-and-forget — reads via autoservice don't depend on the daemon, so
+        // a slow / failed bootstrap must not block trip recording or dashboard.
+        // Writes that race the bootstrap fail-soft via VehicleApi.HelperUnreachable.
+        serviceScope.launch {
+            try {
+                val ok = helperBootstrap.ensureRunning()
+                Log.i(TAG, "HelperBootstrap.ensureRunning → $ok")
+                ChainLog.append(this@TrackingService, "Helper daemon: ${if (ok) "alive" else "unreachable"}")
+            } catch (e: Exception) {
+                Log.w(TAG, "HelperBootstrap.ensureRunning failed: ${e.message}")
+                ChainLog.append(this@TrackingService, "Helper bootstrap failed: ${e.message}")
+            }
         }
 
         // Start the network monitor BEFORE polling so the first evaluate() tick

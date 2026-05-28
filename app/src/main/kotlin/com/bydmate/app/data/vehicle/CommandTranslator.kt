@@ -10,13 +10,17 @@ package com.bydmate.app.data.vehicle
  * Crowd validation strategy: actions not present here OR not in WriteAllowlist will
  * fail-soft at dispatch(). User files issue → we add the mapping in a follow-up.
  *
- * DROPPED (12): commands whose action_name either has no allowlist entry or targets
+ * DROPPED (13): commands whose action_name either has no allowlist entry or targets
  * a banned dev namespace —
  *   前排车窗关闭/全开, 后排车窗关闭/全开 — no aggregate window write (out of scope)
  *   后视镜加热/关闭后视镜加热              — no mirror-heat entry in any source
  *   氛围灯打开/关闭                        — no ambient-light entry in any source
  *   打开日行灯/关闭日行灯                  — drl_on/drl_off target dev=1004 (BANNED)
  *   打开车内灯/关闭车内灯                  — no interior-light entry in any source
+ *   ECO模式                                — drive mode write targets dev=1004 (BANNED).
+ *                                            Default rule "Эко при низком заряде" is
+ *                                            shipped disabled; if user enables it the
+ *                                            dispatch fails-soft via AllowlistMiss.
  *
  * Values for competitor-sourced entries verified against competitor-actions.json
  * (app/src/main/assets/competitor-actions.json). See value comments below.

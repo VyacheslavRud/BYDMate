@@ -1,5 +1,6 @@
 package com.bydmate.app.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -14,5 +15,8 @@ data class VehicleWriteLogEntity(
     val readback: Int?,
     val status: Int,
     val error: String?,
-    val validated: Boolean,
+    // defaultValue keeps the Room-generated schema for v15 in sync with the
+    // MIGRATION_14_15 DDL ("INTEGER NOT NULL DEFAULT 0"). Without this the
+    // schema validator fails on app start.
+    @ColumnInfo(defaultValue = "0") val validated: Boolean,
 )
