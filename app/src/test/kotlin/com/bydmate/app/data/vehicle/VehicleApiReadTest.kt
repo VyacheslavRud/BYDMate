@@ -2,6 +2,7 @@ package com.bydmate.app.data.vehicle
 
 import com.bydmate.app.data.autoservice.AutoserviceClient
 import com.bydmate.app.data.autoservice.BatteryReading
+import com.bydmate.app.data.local.dao.VehicleWriteLogDao
 import com.bydmate.app.data.nativestack.ParsReader
 import com.bydmate.app.data.remote.diParsData
 import io.mockk.coEvery
@@ -18,7 +19,8 @@ class VehicleApiReadTest {
     private val autoservice: AutoserviceClient = mockk()
     private val helper: HelperClient = mockk(relaxed = true)
     private val allowlist = WriteAllowlist.EMPTY
-    private val api: VehicleApi = VehicleApiImpl(parsReader, autoservice, helper, allowlist)
+    private val writeLogDao: VehicleWriteLogDao = mockk(relaxed = true)
+    private val api: VehicleApi = VehicleApiImpl(parsReader, autoservice, helper, allowlist, writeLogDao)
 
     @Test fun `readSnapshot delegates to ParsReader fetch`() = runTest {
         val expected = diParsData(soc = 73, speed = 0)

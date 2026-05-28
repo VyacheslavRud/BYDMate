@@ -1,34 +1,37 @@
 package com.bydmate.app.data.vehicle
 
 import com.bydmate.app.data.autoservice.AutoserviceClient
+import com.bydmate.app.data.local.dao.VehicleWriteLogDao
+import com.bydmate.app.data.local.entity.VehicleWriteLogEntity
 import com.bydmate.app.data.nativestack.ParsReader
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
+import io.mockk.slot
+import org.junit.Assert.assertEquals
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Unit tests for VehicleApi structured write methods (Task C.2).
+ * Unit tests for VehicleApi structured write methods (Task C.2 / C.5).
  *
  * Allowlist built from LIVE_VALIDATED so tests don't depend on competitor JSON asset.
- * VehicleApiImpl constructor has no VehicleWriteLogDao yet (comes in C.5);
- * logWrite falls back to android.util.Log.i which is a no-op in JVM unit tests.
  */
 class VehicleApiWriteTest {
 
     private val parsReader: ParsReader = mockk(relaxed = true)
     private val autoservice: AutoserviceClient = mockk(relaxed = true)
     private val helper: HelperClient = mockk()
+    private val writeLogDao: VehicleWriteLogDao = mockk(relaxed = true)
 
     // Build allowlist from LIVE_VALIDATED — same data VehicleApiImpl uses at runtime.
     private val allowlist = WriteAllowlist(
         WriteAllowlist.LIVE_VALIDATED.associateBy { it.actionName.lowercase() }
     )
 
-    private val api: VehicleApi = VehicleApiImpl(parsReader, autoservice, helper, allowlist)
+    private val api: VehicleApi = VehicleApiImpl(parsReader, autoservice, helper, allowlist, writeLogDao)
 
     // ── Test 1: writeAcOn happy path ──────────────────────────────────────────
 
@@ -81,7 +84,7 @@ class VehicleApiWriteTest {
     // Verified indirectly: EMPTY allowlist causes writeAcOn to hit allowlist_miss path.
 
     @Test fun `write method with EMPTY allowlist returns false without throwing`() = runTest {
-        val emptyApi: VehicleApi = VehicleApiImpl(parsReader, autoservice, helper, WriteAllowlist.EMPTY)
+        val emptyApi: VehicleApi = VehicleApiImpl(parsReader, autoservice, helper, WriteAllowlist.EMPTY, writeLogDao)
         assertFalse(emptyApi.writeAcOn())
         coVerify(exactly = 0) { helper.write(any(), any(), any()) }
     }
@@ -146,5 +149,19 @@ class VehicleApiWriteTest {
         coEvery { helper.write(entry.dev, entry.writeFid, 2) } returns true
         assertTrue(api.writeSunshade(open = false))
         coVerify(exactly = 1) { helper.write(entry.dev, entry.writeFid, 2) }
+    }
+
+    // ── C.5: DAO receives audit entry on write ────────────────────────────────
+
+    @Test fun `writeAcOn persists audit log entry`() = runTest {
+        val captured = slot<VehicleWriteLogEntity>()
+        coEvery { helper.write(1000, 501219364, 2) } returns true
+        coEvery { writeLogDao.insert(capture(captured)) } returns Unit
+        api.writeAcOn()
+        coVerify(exactly = 1) { writeLogDao.insert(any()) }
+        assertEquals("ac_on", captured.captured.actionName)
+        assertEquals(1000, captured.captured.dev)
+        assertEquals(2, captured.captured.requested)
+        assertEquals(0, captured.captured.status)
     }
 }

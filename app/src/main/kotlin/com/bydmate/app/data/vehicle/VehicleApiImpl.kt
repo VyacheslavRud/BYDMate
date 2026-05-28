@@ -3,6 +3,8 @@ package com.bydmate.app.data.vehicle
 import android.util.Log
 import com.bydmate.app.data.autoservice.AutoserviceClient
 import com.bydmate.app.data.autoservice.BatteryReading
+import com.bydmate.app.data.local.dao.VehicleWriteLogDao
+import com.bydmate.app.data.local.entity.VehicleWriteLogEntity
 import com.bydmate.app.data.nativestack.ParsReader
 import com.bydmate.app.data.remote.DiParsData
 import javax.inject.Inject
@@ -14,6 +16,7 @@ class VehicleApiImpl @Inject constructor(
     private val autoservice: AutoserviceClient,
     private val helper: HelperClient,
     private val allowlist: WriteAllowlist,
+    private val writeLogDao: VehicleWriteLogDao,
 ) : VehicleApi {
 
     // Liveness + snapshots — passthroughs.
@@ -122,14 +125,25 @@ class VehicleApiImpl @Inject constructor(
         return ok
     }
 
-    // ─── Audit logger (Logcat fallback — TODO C.5: swap to VehicleWriteLogDao) ─
+    // ─── Audit logger ──────────────────────────────────────────────────────────
 
-    private fun logWrite(
+    private suspend fun logWrite(
         action: String, dev: Int, fid: Int, requested: Int, readback: Int?,
         ok: Boolean, error: String?, validated: Boolean,
     ) {
-        // TODO C.5: swap to VehicleWriteLogDao insert
-        Log.i(TAG, "audit action=$action dev=$dev fid=$fid req=$requested rb=$readback ok=$ok err=$error validated=$validated")
+        writeLogDao.insert(
+            VehicleWriteLogEntity(
+                ts = System.currentTimeMillis(),
+                actionName = action,
+                dev = dev,
+                fid = fid,
+                requested = requested,
+                readback = readback,
+                status = if (ok) 0 else -1,
+                error = error,
+                validated = validated,
+            )
+        )
     }
 
     companion object {

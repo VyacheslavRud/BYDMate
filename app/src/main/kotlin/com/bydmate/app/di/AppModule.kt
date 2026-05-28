@@ -422,8 +422,9 @@ object AppModule {
         autoservice: com.bydmate.app.data.autoservice.AutoserviceClient,
         helper: com.bydmate.app.data.vehicle.HelperClient,
         allowlist: com.bydmate.app.data.vehicle.WriteAllowlist,
+        writeLogDao: VehicleWriteLogDao,
     ): com.bydmate.app.data.vehicle.VehicleApi =
-        com.bydmate.app.data.vehicle.VehicleApiImpl(parsReader, autoservice, helper, allowlist)
+        com.bydmate.app.data.vehicle.VehicleApiImpl(parsReader, autoservice, helper, allowlist, writeLogDao)
 
     @Provides
     @Singleton
