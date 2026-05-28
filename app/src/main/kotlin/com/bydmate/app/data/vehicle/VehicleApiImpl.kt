@@ -39,9 +39,13 @@ class VehicleApiImpl @Inject constructor(
 
     // ─── Writes ────────────────────────────────────────────────────────────────
 
-    // Stub — populated in Group C task C.3.
-    override suspend fun dispatch(commandString: String): Boolean =
-        throw NotImplementedError("populated in Group C task C.3")
+    override suspend fun dispatch(commandString: String): Boolean {
+        val resolved = CommandTranslator.resolve(commandString) ?: run {
+            Log.w(TAG, "dispatch: unknown command '$commandString'")
+            return false
+        }
+        return doWrite(resolved.actionName, resolved.value)
+    }
 
     // Climate
     override suspend fun writeAcOn(): Boolean = doWrite("ac_on", 2)
