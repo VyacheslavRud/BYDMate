@@ -99,4 +99,45 @@ class VehicleApiFailSoftTest {
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is VehicleWriteError.HelperUnreachable)
     }
+
+    // ── Test 6: non-validated sentinel returns Unsupported, DAO row uses "readback_sentinel" ──
+
+    @Test fun `non-validated sentinel returns Unsupported not Sentinel`() = runTest {
+        val customAllowlist = WriteAllowlist(mapOf(
+            "trunk_open" to WriteEntry(
+                actionName = "trunk_open",
+                dev = 1001,
+                writeFid = 999000001,
+                readbackFid = 999000002,
+                valueMin = 1,
+                valueMax = 1,
+                category = "trunk",
+                validated = false,
+                source = "competitor-v80",
+            )
+        ))
+        val customApi = VehicleApiImpl(parsReader, autoservice, helper, customAllowlist, dao)
+        coEvery { helper.write(any(), any(), any()) } returns true
+        coEvery { helper.read(any(), any()) } returns -10011L
+
+        val result = customApi.doWrite("trunk_open", 1)
+        assertTrue(result.isFailure)
+        assertTrue(
+            "Expected Unsupported for non-validated sentinel, got ${result.exceptionOrNull()}",
+            result.exceptionOrNull() is VehicleWriteError.Unsupported
+        )
+        // DAO row must preserve the precise diagnostic reason for analysis
+        coVerify { dao.insert(match { it.error == "readback_sentinel" }) }
+    }
+
+    // ── Test 7: attempt row inserted before helper.write for durability ─────────
+
+    @Test fun `attempt row inserted before helper write for durability`() = runTest {
+        coEvery { helper.write(any(), any(), any()) } returns true
+        api.writeAcOn()
+        // Pending attempt row (status=-2) must exist
+        coVerify { dao.insert(match { it.status == -2 && it.error == "attempt" }) }
+        // Outcome row (status=0) must also exist
+        coVerify { dao.insert(match { it.status == 0 && it.error == null }) }
+    }
 }

@@ -116,6 +116,8 @@ class VehicleApiImpl @Inject constructor(
             return Result.failure(err)
         }
 
+        logAttempt(actionName, entry, value)
+
         val wrote: Boolean = try {
             helper.write(entry.dev, entry.writeFid, value)
         } catch (e: Exception) {
@@ -144,15 +146,19 @@ class VehicleApiImpl @Inject constructor(
         val readback: Long? = entry.readbackFid?.let { helper.read(entry.dev, it) }
 
         if (readback == -10011L) {
+            // For non-validated entries, sentinel is expected (crowd-validation in progress) — surface as Unsupported.
+            // DAO error string stays "readback_sentinel" for diagnostic analysis.
+            val err = if (entry.validated) VehicleWriteError.Sentinel(actionName) else VehicleWriteError.Unsupported(actionName)
             logWrite(actionName, entry.dev, entry.writeFid, value, readback.toInt(), false, "readback_sentinel", entry.validated)
-            val err = VehicleWriteError.Sentinel(actionName)
             maybeReportValidatedFailure(actionName, err, entry)
             return Result.failure(err)
         }
 
         if (readback != null && readback.toInt() != value) {
+            // For non-validated entries, mismatch is expected (crowd-validation in progress) — surface as Unsupported.
+            // DAO error string stays "readback_mismatch" for diagnostic analysis.
+            val err = if (entry.validated) VehicleWriteError.ReadbackMismatch(actionName, "expected=$value got=$readback") else VehicleWriteError.Unsupported(actionName)
             logWrite(actionName, entry.dev, entry.writeFid, value, readback.toInt(), false, "readback_mismatch", entry.validated)
-            val err = VehicleWriteError.ReadbackMismatch(actionName, "expected=$value got=$readback")
             maybeReportValidatedFailure(actionName, err, entry)
             return Result.failure(err)
         }
@@ -179,6 +185,33 @@ class VehicleApiImpl @Inject constructor(
     }
 
     // ─── Audit logger ──────────────────────────────────────────────────────────
+
+    /**
+     * Inserts a "pending" audit row (status=-2) before calling helper.write.
+     * Ensures that if the coroutine is cancelled mid-helper (timeout, shutdown),
+     * the attempted-write record is not lost. Wrapped in runCatching so a DAO
+     * failure does not abort the write itself.
+     *
+     * Callers: doWrite, after range gate passes, BEFORE helper.write.
+     * Skip on AllowlistMiss / OutOfRange — no helper call → no cancellation risk.
+     */
+    private suspend fun logAttempt(action: String, entry: WriteEntry, value: Int) {
+        runCatching {
+            writeLogDao.insert(
+                VehicleWriteLogEntity(
+                    ts = System.currentTimeMillis(),
+                    actionName = action,
+                    dev = entry.dev,
+                    fid = entry.writeFid,
+                    requested = value,
+                    readback = null,
+                    status = -2, // sentinel: attempted, outcome unknown
+                    error = "attempt",
+                    validated = entry.validated,
+                )
+            )
+        }
+    }
 
     private suspend fun logWrite(
         action: String, dev: Int, fid: Int, requested: Int, readback: Int?,

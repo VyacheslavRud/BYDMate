@@ -165,15 +165,21 @@ class VehicleApiWriteTest {
 
     // ── C.5: DAO receives audit entry on write ────────────────────────────────
 
-    @Test fun `writeAcOn persists audit log entry`() = runTest {
-        val captured = slot<VehicleWriteLogEntity>()
+    @Test fun `writeAcOn persists audit log entries (attempt + outcome)`() = runTest {
+        val insertions = mutableListOf<VehicleWriteLogEntity>()
         coEvery { helper.write(1000, 501219364, 2) } returns true
-        coEvery { writeLogDao.insert(capture(captured)) } returns Unit
+        coEvery { writeLogDao.insert(capture(insertions)) } returns Unit
         api.writeAcOn()
-        coVerify(exactly = 1) { writeLogDao.insert(any()) }
-        assertEquals("ac_on", captured.captured.actionName)
-        assertEquals(1000, captured.captured.dev)
-        assertEquals(2, captured.captured.requested)
-        assertEquals(0, captured.captured.status)
+        // Expect 2 rows: attempt (status=-2) + outcome (status=0)
+        coVerify(exactly = 2) { writeLogDao.insert(any()) }
+        val attempt = insertions.first { it.status == -2 }
+        assertEquals("ac_on", attempt.actionName)
+        assertEquals(1000, attempt.dev)
+        assertEquals(2, attempt.requested)
+        assertEquals("attempt", attempt.error)
+        val outcome = insertions.first { it.status == 0 }
+        assertEquals("ac_on", outcome.actionName)
+        assertEquals(1000, outcome.dev)
+        assertEquals(2, outcome.requested)
     }
 }
