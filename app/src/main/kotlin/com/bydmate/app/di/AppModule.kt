@@ -279,6 +279,8 @@ object AppModule {
     @Provides fun provideRuleLogDao(db: AppDatabase): RuleLogDao = db.ruleLogDao()
     @Provides fun providePlaceDao(db: AppDatabase): PlaceDao = db.placeDao()
     @Provides fun provideOdometerSampleDao(db: AppDatabase): OdometerSampleDao = db.odometerSampleDao()
+    @Provides @Singleton
+    fun provideLastStateDao(db: AppDatabase): com.bydmate.app.data.local.dao.LastStateDao = db.lastStateDao()
 
     @Provides
     @Singleton
