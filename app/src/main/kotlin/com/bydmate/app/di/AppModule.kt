@@ -16,7 +16,11 @@ import com.bydmate.app.data.local.dao.SettingsDao
 import com.bydmate.app.data.local.dao.TripDao
 import com.bydmate.app.data.local.dao.TripPointDao
 import com.bydmate.app.data.local.database.AppDatabase
+import com.bydmate.app.data.local.EnergyDataReader
 import com.bydmate.app.data.local.LocalePreferences
+import com.bydmate.app.data.local.dao.LastStateDao
+import com.bydmate.app.data.repository.SettingsRepository
+import com.bydmate.app.data.trips.TripRecorder
 import com.bydmate.app.domain.calculator.OdometerConsumptionBuffer
 import com.bydmate.app.domain.calculator.RangeAvgSource
 import com.bydmate.app.domain.calculator.RangeCalculator
@@ -280,7 +284,7 @@ object AppModule {
     @Provides fun providePlaceDao(db: AppDatabase): PlaceDao = db.placeDao()
     @Provides fun provideOdometerSampleDao(db: AppDatabase): OdometerSampleDao = db.odometerSampleDao()
     @Provides @Singleton
-    fun provideLastStateDao(db: AppDatabase): com.bydmate.app.data.local.dao.LastStateDao = db.lastStateDao()
+    fun provideLastStateDao(db: AppDatabase): LastStateDao = db.lastStateDao()
 
     @Provides
     @Singleton
@@ -307,7 +311,7 @@ object AppModule {
     @Singleton
     fun provideRangeCalculator(
         rangeAvgSource: RangeAvgSource,
-        settingsRepository: com.bydmate.app.data.repository.SettingsRepository,
+        settingsRepository: SettingsRepository,
         socInterpolator: SocInterpolator,
     ): RangeCalculator = RangeCalculator(
         buffer = rangeAvgSource,
@@ -344,5 +348,19 @@ object AppModule {
         adb: com.bydmate.app.data.autoservice.AdbOnDeviceClient
     ): com.bydmate.app.data.autoservice.AutoserviceClient =
         com.bydmate.app.data.autoservice.AutoserviceClientImpl(adb)
+
+    @Provides
+    @Singleton
+    fun provideTripRecorder(
+        tripDao: TripDao,
+        lastStateDao: LastStateDao,
+        energyDataReader: EnergyDataReader,
+        settingsRepository: SettingsRepository,
+    ): TripRecorder = TripRecorder(
+        tripDao = tripDao,
+        lastStateDao = lastStateDao,
+        energyDataReader = energyDataReader,
+        batteryCapacityKwh = { settingsRepository.getBatteryCapacity() },
+    )
 
 }
