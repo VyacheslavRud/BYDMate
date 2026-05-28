@@ -3,9 +3,8 @@ package com.bydmate.app.ui.settings
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.bydmate.app.data.autoservice.AdbOnDeviceClient
-import com.bydmate.app.data.autoservice.AutoserviceClient
 import com.bydmate.app.data.autoservice.BatteryReading
-import com.bydmate.app.data.autoservice.ChargingReading
+import com.bydmate.app.data.vehicle.VehicleApi
 import com.bydmate.app.data.local.LocalePreferences
 import com.bydmate.app.data.local.EnergyDataReader
 import com.bydmate.app.data.local.HistoryImporter
@@ -173,13 +172,28 @@ class SettingsViewModelTest {
     private class FakeAutoservice(
         private val battery: BatteryReading?,
         private val available: Boolean = true
-    ) : AutoserviceClient {
+    ) : VehicleApi {
         override suspend fun isAvailable(): Boolean = available
-        override suspend fun getInt(dev: Int, fid: Int): Int? = null
-        override suspend fun getFloat(dev: Int, fid: Int): Float? = null
         override suspend fun readBatterySnapshot(): BatteryReading? = battery
-        override suspend fun readChargingSnapshot(): ChargingReading? = null
-        override suspend fun getEnginePowerKw(): Int? = null
+        override suspend fun readSnapshot(): com.bydmate.app.data.remote.DiParsData? = null
+        override suspend fun readSoc(): Float? = null
+        override suspend fun readSpeed(): Float? = null
+        override suspend fun readMileageKm(): Float? = null
+        override suspend fun readPowerKw(): Int? = null
+        override suspend fun readAcStatus(): Int? = null
+        override suspend fun readAcTemp(): Int? = null
+        override suspend fun readInsideTemp(): Int? = null
+        override suspend fun readExteriorTemp(): Int? = null
+        override suspend fun readFanLevel(): Int? = null
+        override suspend fun readWindowDriver(): Int? = null
+        override suspend fun readWindowPassenger(): Int? = null
+        override suspend fun readWindowRearLeft(): Int? = null
+        override suspend fun readWindowRearRight(): Int? = null
+        override suspend fun dispatch(commandString: String): Boolean = false
+        override suspend fun writeAcOn(): Boolean = false
+        override suspend fun writeAcOff(): Boolean = false
+        override suspend fun writeSetDriverTemp(celsius: Int): Boolean = false
+        override suspend fun writeWindowDriver(percent: Int): Boolean = false
     }
 
     private class FakeAdbClient : AdbOnDeviceClient {
@@ -194,7 +208,7 @@ class SettingsViewModelTest {
 
     private fun buildViewModel(
         autoserviceEnabled: Boolean,
-        fakeAutoservice: AutoserviceClient
+        fakeAutoservice: VehicleApi
     ): SettingsViewModel {
         val ctx: Context = ApplicationProvider.getApplicationContext()
 
