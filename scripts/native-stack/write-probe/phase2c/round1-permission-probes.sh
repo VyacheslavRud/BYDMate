@@ -47,7 +47,7 @@ run_probe () {
   local tx="$1" dev="$2" fid="$3" val="${4:-}"
   local cmd="CLASSPATH=$DEX_REMOTE app_process /system/bin --nice-name=bydmate_probe com.bydmate.probe.WriteProbe $tx $dev $fid"
   [ -n "$val" ] && cmd="$cmd $val"
-  "$ADB" -s "$SERIAL" shell "$cmd" 2>&1
+  "$ADB" -s "$SERIAL" shell "$cmd" </dev/null 2>&1
 }
 
 # read CSV; skip blank/comment lines

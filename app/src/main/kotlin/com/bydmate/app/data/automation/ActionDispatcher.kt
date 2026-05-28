@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import com.bydmate.app.data.local.entity.ActionDef
 import com.bydmate.app.data.remote.DiParsControlClient
 import com.bydmate.app.data.remote.DiParsData
+import com.bydmate.app.data.vehicle.VehicleApi
 import dagger.hilt.android.qualifiers.ApplicationContext
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicInteger
@@ -21,7 +22,8 @@ data class DispatchResult(val success: Boolean, val reason: String? = null)
 
 @Singleton
 class ActionDispatcher @Inject constructor(
-    private val controlClient: DiParsControlClient,
+    private val vehicleApi: VehicleApi,
+    @Suppress("unused") private val controlClient: DiParsControlClient,
     @ApplicationContext private val context: Context
 ) {
     companion object {
@@ -81,8 +83,12 @@ class ActionDispatcher @Inject constructor(
             Log.w(TAG, "Blocked '${action.command}': $blockReason")
             return DispatchResult(false, blockReason)
         }
-        val success = controlClient.sendCommand(action.command)
-        return DispatchResult(success, if (!success) "sendCmd failed" else null)
+        val result = vehicleApi.dispatch(action.command)
+        val success = result.isSuccess
+        val reason = if (!success) {
+            result.exceptionOrNull()?.message ?: "dispatch failed"
+        } else null
+        return DispatchResult(success, reason)
     }
 
     private fun getBlockReason(command: String, data: DiParsData?): String? {
