@@ -194,6 +194,13 @@ class SettingsViewModelTest {
         override suspend fun writeAcOff(): Boolean = false
         override suspend fun writeSetDriverTemp(celsius: Int): Boolean = false
         override suspend fun writeWindowDriver(percent: Int): Boolean = false
+        override suspend fun writeWindowPassenger(percent: Int): Boolean = false
+        override suspend fun writeWindowRearLeft(percent: Int): Boolean = false
+        override suspend fun writeWindowRearRight(percent: Int): Boolean = false
+        override suspend fun writeLockDoors(): Boolean = false
+        override suspend fun writeUnlockDoors(): Boolean = false
+        override suspend fun writeSunroof(mode: com.bydmate.app.data.vehicle.SunroofMode): Boolean = false
+        override suspend fun writeSunshade(open: Boolean): Boolean = false
     }
 
     private class FakeAdbClient : AdbOnDeviceClient {

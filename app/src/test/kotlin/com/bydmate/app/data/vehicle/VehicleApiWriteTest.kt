@@ -1,0 +1,150 @@
+package com.bydmate.app.data.vehicle
+
+import com.bydmate.app.data.autoservice.AutoserviceClient
+import com.bydmate.app.data.nativestack.ParsReader
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.mockk
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * Unit tests for VehicleApi structured write methods (Task C.2).
+ *
+ * Allowlist built from LIVE_VALIDATED so tests don't depend on competitor JSON asset.
+ * VehicleApiImpl constructor has no VehicleWriteLogDao yet (comes in C.5);
+ * logWrite falls back to android.util.Log.i which is a no-op in JVM unit tests.
+ */
+class VehicleApiWriteTest {
+
+    private val parsReader: ParsReader = mockk(relaxed = true)
+    private val autoservice: AutoserviceClient = mockk(relaxed = true)
+    private val helper: HelperClient = mockk()
+
+    // Build allowlist from LIVE_VALIDATED — same data VehicleApiImpl uses at runtime.
+    private val allowlist = WriteAllowlist(
+        WriteAllowlist.LIVE_VALIDATED.associateBy { it.actionName.lowercase() }
+    )
+
+    private val api: VehicleApi = VehicleApiImpl(parsReader, autoservice, helper, allowlist)
+
+    // ── Test 1: writeAcOn happy path ──────────────────────────────────────────
+
+    @Test fun `writeAcOn calls helper write with dev=1000 fid=501219364 val=2 and returns true`() = runTest {
+        val entry = allowlist.find("ac_on")!!
+        // ac_on has no readbackFid — no helper.read call needed
+        coEvery { helper.write(entry.dev, entry.writeFid, 2) } returns true
+
+        assertTrue(api.writeAcOn())
+        coVerify(exactly = 1) { helper.write(entry.dev, entry.writeFid, 2) }
+        // No readback for ac_on
+        coVerify(exactly = 0) { helper.read(any(), any()) }
+    }
+
+    // ── Test 2: writeSetDriverTemp out of range rejected ──────────────────────
+
+    @Test fun `writeSetDriverTemp with celsius=99 is rejected before calling helper`() = runTest {
+        assertFalse(api.writeSetDriverTemp(99))
+        coVerify(exactly = 0) { helper.write(any(), any(), any()) }
+    }
+
+    @Test fun `writeSetDriverTemp with celsius=5 is rejected before calling helper`() = runTest {
+        assertFalse(api.writeSetDriverTemp(5))
+        coVerify(exactly = 0) { helper.write(any(), any(), any()) }
+    }
+
+    // ── Test 3: writeUnlockDoors calls helper with val=1 ─────────────────────
+
+    @Test fun `writeUnlockDoors calls helper with val=1 and returns true on success`() = runTest {
+        val entry = allowlist.find("doors_unlock")!!
+        coEvery { helper.write(entry.dev, entry.writeFid, 1) } returns true
+        coEvery { helper.read(entry.dev, entry.readbackFid!!) } returns 1L
+
+        assertTrue(api.writeUnlockDoors())
+        coVerify(exactly = 1) { helper.write(entry.dev, entry.writeFid, 1) }
+    }
+
+    // ── Test 4: writeLockDoors calls helper with val=2 ────────────────────────
+
+    @Test fun `writeLockDoors calls helper with val=2 and returns true on success`() = runTest {
+        val entry = allowlist.find("doors_lock")!!
+        coEvery { helper.write(entry.dev, entry.writeFid, 2) } returns true
+        coEvery { helper.read(entry.dev, entry.readbackFid!!) } returns 2L
+
+        assertTrue(api.writeLockDoors())
+        coVerify(exactly = 1) { helper.write(entry.dev, entry.writeFid, 2) }
+    }
+
+    // ── Test 5: allowlist miss returns false without crash ────────────────────
+    // Verified indirectly: EMPTY allowlist causes writeAcOn to hit allowlist_miss path.
+
+    @Test fun `write method with EMPTY allowlist returns false without throwing`() = runTest {
+        val emptyApi: VehicleApi = VehicleApiImpl(parsReader, autoservice, helper, WriteAllowlist.EMPTY)
+        assertFalse(emptyApi.writeAcOn())
+        coVerify(exactly = 0) { helper.write(any(), any(), any()) }
+    }
+
+    // ── Test 6: readback mismatch returns false ───────────────────────────────
+
+    @Test fun `writeLockDoors returns false when readback value does not match requested`() = runTest {
+        val entry = allowlist.find("doors_lock")!!
+        // Write succeeds but readback returns wrong value (1 instead of 2)
+        coEvery { helper.write(entry.dev, entry.writeFid, 2) } returns true
+        coEvery { helper.read(entry.dev, entry.readbackFid!!) } returns 1L
+
+        assertFalse(api.writeLockDoors())
+    }
+
+    // ── Bonus: readback sentinel -10011 returns false ─────────────────────────
+
+    @Test fun `writeLockDoors returns false when readback returns sentinel -10011`() = runTest {
+        val entry = allowlist.find("doors_lock")!!
+        coEvery { helper.write(entry.dev, entry.writeFid, 2) } returns true
+        coEvery { helper.read(entry.dev, entry.readbackFid!!) } returns -10011L
+
+        assertFalse(api.writeLockDoors())
+    }
+
+    // ── Window pos: happy path + helper failure ───────────────────────────────
+
+    @Test fun `writeWindowDriver with 50 percent calls helper write with correct fid and returns true`() = runTest {
+        val entry = allowlist.find("window_driver_pos")!!
+        coEvery { helper.write(entry.dev, entry.writeFid, 50) } returns true
+        // window_driver_pos has no readbackFid
+        assertTrue(api.writeWindowDriver(50))
+        coVerify(exactly = 1) { helper.write(entry.dev, entry.writeFid, 50) }
+    }
+
+    @Test fun `writeWindowDriver returns false when helper write fails`() = runTest {
+        val entry = allowlist.find("window_driver_pos")!!
+        coEvery { helper.write(entry.dev, entry.writeFid, 50) } returns false
+        assertFalse(api.writeWindowDriver(50))
+    }
+
+    // ── writeSunroof: enum maps to correct action name ────────────────────────
+
+    @Test fun `writeSunroof TILT calls helper with sunroof_tilt entry fid and val=3`() = runTest {
+        val entry = allowlist.find("sunroof_tilt")!!
+        coEvery { helper.write(entry.dev, entry.writeFid, 3) } returns true
+        assertTrue(api.writeSunroof(SunroofMode.TILT))
+        coVerify(exactly = 1) { helper.write(entry.dev, entry.writeFid, 3) }
+    }
+
+    // ── writeSunshade: open vs close ──────────────────────────────────────────
+
+    @Test fun `writeSunshade open=true calls sunshade_open entry with val=1`() = runTest {
+        val entry = allowlist.find("sunshade_open")!!
+        coEvery { helper.write(entry.dev, entry.writeFid, 1) } returns true
+        assertTrue(api.writeSunshade(open = true))
+        coVerify(exactly = 1) { helper.write(entry.dev, entry.writeFid, 1) }
+    }
+
+    @Test fun `writeSunshade open=false calls sunshade_close entry with val=2`() = runTest {
+        val entry = allowlist.find("sunshade_close")!!
+        coEvery { helper.write(entry.dev, entry.writeFid, 2) } returns true
+        assertTrue(api.writeSunshade(open = false))
+        coVerify(exactly = 1) { helper.write(entry.dev, entry.writeFid, 2) }
+    }
+}

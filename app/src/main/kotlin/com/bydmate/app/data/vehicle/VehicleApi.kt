@@ -35,10 +35,17 @@ interface VehicleApi {
     suspend fun readWindowRearRight(): Int?
 
     // Write entrypoints — backwards-compat dispatch + structured methods.
-    // All `write*` methods are stubs in Group A; real allowlist + helper wiring lands in Group C.
+    // All `write*` methods wired to WriteAllowlist + HelperClient in Group C (C.2).
     suspend fun dispatch(commandString: String): Boolean
     suspend fun writeAcOn(): Boolean
     suspend fun writeAcOff(): Boolean
-    suspend fun writeSetDriverTemp(celsius: Int): Boolean
-    suspend fun writeWindowDriver(percent: Int): Boolean
+    suspend fun writeSetDriverTemp(celsius: Int): Boolean   // range 16..30
+    suspend fun writeWindowDriver(percent: Int): Boolean    // range 0..100
+    suspend fun writeWindowPassenger(percent: Int): Boolean // range 0..100
+    suspend fun writeWindowRearLeft(percent: Int): Boolean  // range 0..100
+    suspend fun writeWindowRearRight(percent: Int): Boolean // range 0..100
+    suspend fun writeLockDoors(): Boolean
+    suspend fun writeUnlockDoors(): Boolean
+    suspend fun writeSunroof(mode: SunroofMode): Boolean
+    suspend fun writeSunshade(open: Boolean): Boolean
 }
