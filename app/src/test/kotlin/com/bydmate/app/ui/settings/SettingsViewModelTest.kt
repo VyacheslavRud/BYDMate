@@ -25,8 +25,6 @@ import com.bydmate.app.data.local.entity.IdleDrainEntity
 import com.bydmate.app.data.local.entity.SettingEntity
 import com.bydmate.app.data.local.entity.TripEntity
 import com.bydmate.app.data.local.entity.TripPointEntity
-import com.bydmate.app.data.nativestack.ParsReader
-import com.bydmate.app.data.remote.DiParsData
 import com.bydmate.app.data.remote.InsightsManager
 import com.bydmate.app.data.remote.OpenRouterClient
 import com.bydmate.app.data.repository.BatteryHealthRepository
@@ -233,7 +231,6 @@ class SettingsViewModelTest {
             updateChecker = updateChecker,
             historyImporter = historyImporter,
             energyDataReader = energyReader,
-            parsReader = object : ParsReader { override suspend fun fetch(): DiParsData? = null },
             idleDrainDao = idleDrainDao,
             insightsManager = insightsManager,
             adbOnDeviceClient = FakeAdbClient(),
