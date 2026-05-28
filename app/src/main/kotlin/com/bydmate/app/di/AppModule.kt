@@ -399,4 +399,13 @@ object AppModule {
     ): com.bydmate.app.data.vehicle.VehicleApi =
         com.bydmate.app.data.vehicle.VehicleApiImpl(parsReader, autoservice, helper, allowlist)
 
+    @Provides
+    @Singleton
+    fun provideHelperBootstrap(
+        @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context,
+        adb: com.bydmate.app.data.autoservice.AdbOnDeviceClient,
+        helper: com.bydmate.app.data.vehicle.HelperClient,
+    ): com.bydmate.app.data.vehicle.HelperBootstrap =
+        com.bydmate.app.data.vehicle.HelperBootstrap(context, adb, helper)
+
 }
