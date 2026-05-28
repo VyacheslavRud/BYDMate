@@ -386,8 +386,10 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideWriteAllowlist(): com.bydmate.app.data.vehicle.WriteAllowlist =
-        com.bydmate.app.data.vehicle.WriteAllowlist.PRODUCTION
+    fun provideWriteAllowlist(@ApplicationContext context: Context): com.bydmate.app.data.vehicle.WriteAllowlist =
+        com.bydmate.app.data.vehicle.WriteAllowlist.loadProduction {
+            context.assets.open("competitor-actions.json").bufferedReader().use { it.readText() }
+        }
 
     @Provides
     @Singleton
