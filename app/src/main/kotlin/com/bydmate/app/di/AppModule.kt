@@ -15,6 +15,7 @@ import com.bydmate.app.data.local.dao.RuleLogDao
 import com.bydmate.app.data.local.dao.SettingsDao
 import com.bydmate.app.data.local.dao.TripDao
 import com.bydmate.app.data.local.dao.TripPointDao
+import com.bydmate.app.data.local.dao.VehicleWriteLogDao
 import com.bydmate.app.data.local.database.AppDatabase
 import com.bydmate.app.data.local.EnergyDataReader
 import com.bydmate.app.data.local.LocalePreferences
@@ -263,6 +264,26 @@ object AppModule {
         }
     }
 
+    // Internal so Migration14To15Test can reference it directly.
+    internal val MIGRATION_14_15 = object : Migration(14, 15) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS vehicle_write_log (
+                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    ts INTEGER NOT NULL,
+                    actionName TEXT NOT NULL,
+                    dev INTEGER NOT NULL,
+                    fid INTEGER NOT NULL,
+                    requested INTEGER NOT NULL,
+                    readback INTEGER,
+                    status INTEGER NOT NULL,
+                    error TEXT,
+                    validated INTEGER NOT NULL DEFAULT 0
+                )
+            """.trimIndent())
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
@@ -271,7 +292,7 @@ object AppModule {
             AppDatabase::class.java,
             "bydmate.db"
         )
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
             .build()
     }
 
@@ -288,6 +309,9 @@ object AppModule {
     @Provides fun provideOdometerSampleDao(db: AppDatabase): OdometerSampleDao = db.odometerSampleDao()
     @Provides @Singleton
     fun provideLastStateDao(db: AppDatabase): LastStateDao = db.lastStateDao()
+
+    @Provides
+    fun provideVehicleWriteLogDao(db: AppDatabase): VehicleWriteLogDao = db.vehicleWriteLogDao()
 
     @Provides
     @Singleton

@@ -152,6 +152,8 @@ dependencies {
     testImplementation("androidx.arch.core:core-testing:2.2.0")
     testImplementation("app.cash.turbine:turbine:1.0.0")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.1")
+    androidTestImplementation("androidx.room:room-testing:2.6.1")
 
     // ADB-on-device for autoservice access (path H, read-only)
     // com.cgutman:adblib does not exist on MavenCentral (only com.tananaev:adblib does).

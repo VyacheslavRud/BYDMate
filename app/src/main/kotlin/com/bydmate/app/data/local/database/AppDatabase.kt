@@ -14,6 +14,7 @@ import com.bydmate.app.data.local.dao.SettingsDao
 import com.bydmate.app.data.local.dao.TripDao
 import com.bydmate.app.data.local.dao.LastStateDao
 import com.bydmate.app.data.local.dao.TripPointDao
+import com.bydmate.app.data.local.dao.VehicleWriteLogDao
 import com.bydmate.app.data.local.entity.BatterySnapshotEntity
 import com.bydmate.app.data.local.entity.LastStateEntity
 import com.bydmate.app.data.local.entity.ChargeEntity
@@ -26,6 +27,7 @@ import com.bydmate.app.data.local.entity.RuleLogEntity
 import com.bydmate.app.data.local.entity.SettingEntity
 import com.bydmate.app.data.local.entity.TripEntity
 import com.bydmate.app.data.local.entity.TripPointEntity
+import com.bydmate.app.data.local.entity.VehicleWriteLogEntity
 
 @Database(
     entities = [
@@ -40,9 +42,10 @@ import com.bydmate.app.data.local.entity.TripPointEntity
         RuleLogEntity::class,
         PlaceEntity::class,
         OdometerSampleEntity::class,
-        LastStateEntity::class
+        LastStateEntity::class,
+        VehicleWriteLogEntity::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -58,4 +61,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun placeDao(): PlaceDao
     abstract fun odometerSampleDao(): OdometerSampleDao
     abstract fun lastStateDao(): LastStateDao
+    abstract fun vehicleWriteLogDao(): VehicleWriteLogDao
 }
