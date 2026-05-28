@@ -1,3 +1,5 @@
+import java.security.MessageDigest
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -156,3 +158,60 @@ dependencies {
     // Task 4 will use a hand-rolled ADB client fallback.
     // implementation("com.cgutman:adblib:1.0.0")
 }
+
+// Build the helper.dex bundle that ships under assets/. The :helper-dex module
+// produces the JVM bytecode; this task runs d8 over its jar + kotlin-stdlib
+// (needed at runtime inside the shell-uid app_process) and writes both the
+// dex and its sha256 next to it. HelperBootstrap reads the sha256 from
+// assets at runtime, so the two files cannot drift apart.
+evaluationDependsOn(":helper-dex")
+val helperDexJarProvider = project(":helper-dex").tasks.named<Jar>("jar")
+val helperDexRuntimeClasspath = project(":helper-dex").configurations.named("runtimeClasspath")
+
+val helperDexFile = layout.projectDirectory.file("src/main/assets/helper.dex")
+val helperDexShaFile = layout.projectDirectory.file("src/main/assets/helper.dex.sha256")
+
+val buildHelperDex = tasks.register("buildHelperDex") {
+    group = "build"
+    description = "Compiles :helper-dex bytecode + kotlin-stdlib into helper.dex via d8."
+    dependsOn(helperDexJarProvider)
+    inputs.files(helperDexJarProvider.flatMap { it.archiveFile })
+    inputs.files(helperDexRuntimeClasspath)
+    outputs.file(helperDexFile)
+    outputs.file(helperDexShaFile)
+
+    doLast {
+        val d8 = android.sdkDirectory.resolve("build-tools/34.0.0/d8")
+        require(d8.exists()) { "d8 not found at ${d8.absolutePath}" }
+
+        val outDex = helperDexFile.asFile
+        val outSha = helperDexShaFile.asFile
+        outDex.parentFile.mkdirs()
+        val tmpDir = layout.buildDirectory.dir("helper-dex").get().asFile
+        tmpDir.deleteRecursively()
+        tmpDir.mkdirs()
+
+        val inputJars = buildList {
+            addAll(helperDexRuntimeClasspath.get().files)
+            add(helperDexJarProvider.get().archiveFile.get().asFile)
+        }
+
+        exec {
+            commandLine(d8.absolutePath, "--min-api", "29", "--output", tmpDir.absolutePath)
+            args(inputJars.map { it.absolutePath })
+        }
+
+        val classesDex = tmpDir.resolve("classes.dex")
+        require(classesDex.exists()) { "d8 did not produce classes.dex in $tmpDir" }
+        classesDex.copyTo(outDex, overwrite = true)
+
+        val sha = MessageDigest.getInstance("SHA-256")
+            .digest(outDex.readBytes())
+            .joinToString("") { "%02x".format(it) }
+        outSha.writeText(sha)
+
+        logger.lifecycle("helper.dex built: ${outDex.length()} bytes, sha256=$sha")
+    }
+}
+
+tasks.named("preBuild") { dependsOn(buildHelperDex) }

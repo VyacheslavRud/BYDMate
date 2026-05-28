@@ -27,12 +27,14 @@ class HelperBootstrap @Inject constructor(
      *
      * Order of operations:
      *   1. Ping the daemon. If it responds (status == 0), return true immediately.
-     *   2. Push helper.dex (SHA-256 verified) + spawn via app_process.
+     *   2. Push helper.dex (SHA-256 verified against assets/helper.dex.sha256) + spawn via app_process.
      *   3. The bootstrap call internally polls ping for up to 3 s.
      */
     suspend fun ensureRunning(): Boolean {
         if (helper.isAlive()) return true
-        val ok = adb.bootstrapHelper(context, EXPECTED_DEX_SHA256)
+        val expectedSha = expectedDexSha256()
+            ?: run { Log.e(TAG, "helper.dex.sha256 missing from assets — refusing to bootstrap"); return false }
+        val ok = adb.bootstrapHelper(context, expectedSha)
         if (!ok) Log.w(TAG, "bootstrap returned false — helper unreachable")
         return ok
     }
@@ -40,18 +42,12 @@ class HelperBootstrap @Inject constructor(
     /** Cheap reachability check — no side effects. */
     suspend fun isHealthy(): Boolean = helper.isAlive()
 
+    private fun expectedDexSha256(): String? = runCatching {
+        context.assets.open(SHA_ASSET).bufferedReader().use { it.readText().trim() }
+    }.getOrNull()?.takeIf { it.length == 64 }
+
     companion object {
         private const val TAG = "HelperBootstrap"
-
-        /**
-         * SHA-256 of app/src/main/assets/helper.dex. Updated automatically by
-         * scripts/native-stack/helper/build-helper-dex.sh on each rebuild.
-         *
-         * Placeholder until the dex is built (kotlinc not yet available on the
-         * build machine). With this placeholder the SHA verify deliberately
-         * fails — guards against shipping an APK whose dex was never built.
-         */
-        const val EXPECTED_DEX_SHA256 =
-            "0000000000000000000000000000000000000000000000000000000000000000"
+        private const val SHA_ASSET = "helper.dex.sha256"
     }
 }
