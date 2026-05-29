@@ -4,8 +4,10 @@ import android.app.Activity
 import android.app.Application
 import android.app.Application.ActivityLifecycleCallbacks
 import android.content.Context
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import org.lsposed.hiddenapibypass.HiddenApiBypass
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -52,6 +54,11 @@ class BYDMateApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // Allow in-process ServiceManager.getService() on Android 9+ to reach the helper
+        // binder service without hidden-API restrictions (UnsatisfiedLinkError / NoSuchMethodError).
+        if (Build.VERSION.SDK_INT >= 28) {
+            HiddenApiBypass.addHiddenApiExemptions("Landroid/os/ServiceManager;")
+        }
         bootstrapLocale()
         initOsmdroid()
         appScope.launch {

@@ -140,6 +140,10 @@ dependencies {
     // AppCompat (required for AppCompatDelegate.setApplicationLocales per-app language support)
     implementation("androidx.appcompat:appcompat:1.6.1")
 
+    // Hidden-API bypass: allows in-process ServiceManager.getService() on Android 9+
+    // to reach the helper binder without UnsatisfiedLinkError / NoSuchMethodError.
+    implementation("org.lsposed.hiddenapibypass:hiddenapibypass:4.3")
+
     // Testing
     testImplementation("org.jetbrains.kotlin:kotlin-reflect:2.1.0")
     testImplementation("io.mockk:mockk:1.13.10")
