@@ -29,9 +29,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.bydmate.app.service.BootReceiver
@@ -125,6 +127,9 @@ class SettingsViewModel @Inject constructor(
         autoCheckUpdates = UpdateChecker.isAutoCheckEnabled(appContext)
     ))
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+
+    // Tracks the in-flight update download so "Close" can cancel it (issue #23).
+    private var downloadJob: Job? = null
 
     private fun getVersion(): String = try {
         appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName ?: "?"
@@ -806,7 +811,12 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun hideUpdateDialog() {
-        _uiState.update { it.copy(showUpdateDialog = false) }
+        // Cancel any in-flight download so the progress callback stops re-emitting
+        // Downloading (which reopened the dialog) and the finished download no longer
+        // fires the system install prompt after the user closed it (issue #23).
+        downloadJob?.cancel()
+        downloadJob = null
+        _uiState.update { it.copy(showUpdateDialog = false, updateDialogState = UpdateState.Idle) }
     }
 
     fun setAutoCheckUpdates(enabled: Boolean) {
@@ -850,7 +860,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun downloadUpdate() {
-        viewModelScope.launch {
+        downloadJob = viewModelScope.launch {
             try {
                 val update = updateChecker.checkForUpdate(appContext, forceCheck = true)
                 if (update != null) {
@@ -858,11 +868,17 @@ class SettingsViewModel @Inject constructor(
                         it.copy(updateDialogState = UpdateState.Downloading(update.version, appContext.getString(R.string.update_downloading_start)))
                     }
                     updateChecker.downloadAndInstall(appContext, update) { progress ->
-                        _uiState.update {
-                            it.copy(updateDialogState = UpdateState.Downloading(update.version, progress))
+                        // Ignore late progress after the job was cancelled (Close pressed)
+                        // so a closed dialog is never resurrected.
+                        if (isActive) {
+                            _uiState.update {
+                                it.copy(updateDialogState = UpdateState.Downloading(update.version, progress))
+                            }
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e // cooperative cancellation from hideUpdateDialog(); not an error
             } catch (e: Exception) {
                 _uiState.update { it.copy(updateDialogState = UpdateState.Error(e.message ?: "Download failed")) }
             }

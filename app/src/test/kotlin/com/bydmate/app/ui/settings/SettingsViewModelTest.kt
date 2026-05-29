@@ -41,7 +41,10 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import io.mockk.coEvery
 import io.mockk.mockk
+import io.mockk.slot
+import kotlinx.coroutines.delay
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -171,7 +174,7 @@ class SettingsViewModelTest {
 
     // --- Factory ---
 
-    private fun buildViewModel(): SettingsViewModel {
+    private fun buildViewModel(updateChecker: UpdateChecker? = null): SettingsViewModel {
         val ctx: Context = ApplicationProvider.getApplicationContext()
 
         val settingsDao = FakeSettingsDao()
@@ -185,7 +188,7 @@ class SettingsViewModelTest {
         val idleDrainDao = StubIdleDrainDao()
 
         val httpClient = OkHttpClient()
-        val updateChecker = UpdateChecker(httpClient)
+        val resolvedUpdateChecker = updateChecker ?: UpdateChecker(httpClient)
 
         val energyReader = EnergyDataReader(ctx)
         val historyImporter = HistoryImporter(
@@ -201,7 +204,7 @@ class SettingsViewModelTest {
             settingsRepository = settingsRepo,
             tripRepository = tripRepo,
             chargeRepository = chargeRepo,
-            updateChecker = updateChecker,
+            updateChecker = resolvedUpdateChecker,
             historyImporter = historyImporter,
             energyDataReader = energyReader,
             idleDrainDao = idleDrainDao,
@@ -227,5 +230,37 @@ class SettingsViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(SettingsRepository.DEFAULT_HOME_TARIFF, vm.uiState.value.homeTariff)
+    }
+
+    // Issue #23: pressing "Close" while an update is downloading must cancel the
+    // download coroutine and clear the Downloading state. Without cancellation the
+    // progress callback keeps re-emitting Downloading (re-opening the dialog) and
+    // the download eventually fires the system install prompt unexpectedly.
+    @Test
+    fun `closing update dialog during download cancels job and clears downloading state`() = runTest {
+        val uc = mockk<UpdateChecker>(relaxed = true)
+        val info = UpdateChecker.UpdateInfo(
+            version = "9.9.9",
+            downloadUrl = "http://example.invalid/BYDMate.apk",
+            releaseNotes = ""
+        )
+        coEvery { uc.checkForUpdate(any(), any()) } returns info
+        val onProgressSlot = slot<(String) -> Unit>()
+        coEvery { uc.downloadAndInstall(any(), any(), capture(onProgressSlot)) } coAnswers {
+            onProgressSlot.captured.invoke("10%")
+            delay(10_000)                       // still downloading...
+            onProgressSlot.captured.invoke("100%") // must NOT run after the dialog is closed
+        }
+
+        val vm = buildViewModel(updateChecker = uc)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        vm.downloadUpdate()
+        testDispatcher.scheduler.runCurrent() // start download, emit "10%", suspend on delay
+
+        vm.hideUpdateDialog()
+        testDispatcher.scheduler.advanceUntilIdle() // cancelled job must not resurrect state
+
+        assertEquals(UpdateState.Idle, vm.uiState.value.updateDialogState)
     }
 }
