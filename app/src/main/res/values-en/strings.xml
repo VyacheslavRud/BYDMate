@@ -231,7 +231,7 @@
     <string name="automation_delay_10s">10 s</string>
     <string name="automation_delay_display_name">Delay %1$s</string>
     <string name="automation_add_action_button">+ Add action</string>
-    <string name="automation_action_dplus_command">D+ command</string>
+    <string name="automation_action_dplus_command">Vehicle command</string>
     <string name="automation_action_notification_silent">Notification (silent)</string>
     <string name="automation_action_notification_sound">Notification (sound)</string>
     <string name="automation_action_app_launch">Launch app</string>
@@ -331,7 +331,7 @@
     <string name="widget_duration_hours">%1$dh %2$dmin</string>
     <string name="widget_duration_minutes">%1$d min</string>
     <string name="widget_trip_km_value">%1$.1f km</string>
-    <string name="widget_km_per_percent">%1$.1f km/%%</string>
+    <string name="widget_km_per_percent">%1$.1f</string>
     <string name="widget_voltage_value">%1$.1f V</string>
     <string name="widget_toast_hidden">Widget hidden. Open BYDMate - it will return.</string>
     <string name="widget_trash_release">release - widget hidden</string>

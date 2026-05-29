@@ -289,7 +289,7 @@
 
     <!-- Add action button -->
     <string name="automation_add_action_button">+ Добавить действие</string>
-    <string name="automation_action_dplus_command">D+ команда</string>
+    <string name="automation_action_dplus_command">Команда автомобилю</string>
     <string name="automation_action_notification_silent">Уведомление (без звука)</string>
     <string name="automation_action_notification_sound">Уведомление (звук)</string>
     <string name="automation_action_app_launch">Запуск приложения</string>
@@ -425,7 +425,7 @@
     <!-- Trip distance value with unit -->
     <string name="widget_trip_km_value">%1$.1f км</string>
     <!-- Range per 1% SOC: %.1f km per percent -->
-    <string name="widget_km_per_percent">%1$.1f км/%%</string>
+    <string name="widget_km_per_percent">%1$.1f</string>
     <!-- Voltage value with unit: %.1f V -->
     <string name="widget_voltage_value">%1$.1f В</string>
     <!-- Long-press toast -->
