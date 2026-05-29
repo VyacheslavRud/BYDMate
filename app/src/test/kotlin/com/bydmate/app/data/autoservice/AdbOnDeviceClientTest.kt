@@ -148,6 +148,16 @@ class AdbOnDeviceClientTest {
         assertTrue("must contain caller uid", cmd.contains(android.os.Process.myUid().toString()))
         assertTrue("must redirect to bydmate_helper.log", cmd.contains("bydmate_helper.log"))
 
+        // SIGHUP-race fix: the spawning shell must stay alive (poll-loop on the
+        // service registry) until the detached app_process has booted and called
+        // addService. Otherwise the on-device ADB closes the shell stream the
+        // instant the `&` backgrounds the job, adbd SIGHUPs the still-booting JVM,
+        // and the daemon dies before its first println (empty log, no registration).
+        assertTrue(
+            "must keep spawning shell alive until daemon registers (poll-loop)",
+            cmd.contains("service list") && cmd.contains("sleep")
+        )
+
         // Prove no dex push artifacts
         assertFalse("must not contain base64", cmd.contains("base64"))
         assertFalse("must not contain echo", cmd.contains("echo"))

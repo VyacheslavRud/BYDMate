@@ -206,6 +206,52 @@ class CommandTranslatorTest {
         assertEquals(0, r?.value)
     }
 
+    // ── Auto AC must use competitor ac_on value 0 (ctrl_mode AUTO), not 2 ──────
+    @Test fun `auto AC maps to ac_on val 0`() {
+        val r = one("自动空调")
+        assertEquals("ac_on", r?.actionName)
+        assertEquals(0, r?.value)
+    }
+
+    // ── Temperature: dynamic parse over full 16..30 range ────────────────────
+    @Test fun `set temperature 24 maps to ac_temp_main val 24`() {
+        val r = one("设置温度24")
+        assertEquals("ac_temp_main", r?.actionName)
+        assertEquals(24, r?.value)
+    }
+
+    @Test fun `set temperature 16 maps to ac_temp_main val 16`() {
+        val r = one("设置温度16")
+        assertEquals("ac_temp_main", r?.actionName)
+        assertEquals(16, r?.value)
+    }
+
+    // Out-of-range request clamps into the validated 16..30 window.
+    @Test fun `set temperature 35 clamps to ac_temp_main val 30`() {
+        val r = one("设置温度35")
+        assertEquals("ac_temp_main", r?.actionName)
+        assertEquals(30, r?.value)
+    }
+
+    @Test fun `set temperature 5 clamps to ac_temp_main val 16`() {
+        val r = one("设置温度5")
+        assertEquals("ac_temp_main", r?.actionName)
+        assertEquals(16, r?.value)
+    }
+
+    // ── Trunk ── competitor-actions.json (dev=1001, open=1 close=3) ──────────
+    @Test fun `open trunk maps to open_trunk val 1`() {
+        val r = one("开后备箱")
+        assertEquals("open_trunk", r?.actionName)
+        assertEquals(1, r?.value)
+    }
+
+    @Test fun `close trunk maps to close_trunk val 3`() {
+        val r = one("关后备箱")
+        assertEquals("close_trunk", r?.actionName)
+        assertEquals(3, r?.value)
+    }
+
     // ── Test 12: allActions returns non-empty set of unique names ─────────────
     @Test fun `allActions returns non-empty set`() {
         val actions = CommandTranslator.allActions()

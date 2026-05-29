@@ -65,7 +65,7 @@ class VehicleApiImpl @Inject constructor(
     }
 
     // Climate
-    override suspend fun writeAcOn(): Result<Unit> = doWrite("ac_on", 2)
+    override suspend fun writeAcOn(): Result<Unit> = doWrite("ac_on", 0)
     override suspend fun writeAcOff(): Result<Unit> = doWrite("ac_off", 1)
     override suspend fun writeSetDriverTemp(celsius: Int): Result<Unit> =
         doWrite("ac_temp_main", celsius)
@@ -180,6 +180,9 @@ class VehicleApiImpl @Inject constructor(
             return Result.failure(err)
         }
 
+        // INFO so a successful dispatch is visible in logcat (the DAO row is private).
+        // Pair with the HelperClient "status=" line to tell a real action from a no-op.
+        Log.i(TAG, "doWrite OK: action=$actionName dev=${entry.dev} fid=${entry.writeFid} value=$value readback=$readback validated=${entry.validated}")
         logWrite(actionName, entry.dev, entry.writeFid, value, readback?.toInt(), true, null, entry.validated)
         return Result.success(Unit)
     }

@@ -1,6 +1,7 @@
 package com.bydmate.app.ui.automation
 
 import android.content.Context
+import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bydmate.app.data.local.dao.RuleDao
@@ -11,6 +12,7 @@ import com.bydmate.app.data.local.entity.RuleEntity
 import com.bydmate.app.data.local.entity.RuleLogEntity
 import com.bydmate.app.data.local.entity.TriggerDef
 import com.bydmate.app.data.repository.PlaceRepository
+import com.bydmate.app.data.vehicle.VehicleApi
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -135,6 +137,8 @@ val ACTION_COMMANDS = listOf(
     ActionOption("关闭车内灯", "Салонный свет выкл", "Свет"),
     ActionOption("车门上锁", "Заблокировать", "Замки"),
     ActionOption("车门解锁", "Разблокировать", "Замки"),
+    ActionOption("开后备箱", "Открыть багажник", "Багажник"),
+    ActionOption("关后备箱", "Закрыть багажник", "Багажник"),
     ActionOption("天窗打开100", "Люк открыть 100%", "Люк"),
     ActionOption("天窗打开50", "Люк открыть 50%", "Люк"),
     ActionOption("天窗打开0", "Люк закрыть", "Люк"),
@@ -178,6 +182,7 @@ class AutomationViewModel @Inject constructor(
     private val ruleDao: RuleDao,
     private val ruleLogDao: RuleLogDao,
     private val placeRepository: PlaceRepository,
+    private val vehicleApi: VehicleApi,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -209,6 +214,22 @@ class AutomationViewModel @Inject constructor(
 
     fun toggleEnabled(rule: RuleEntity) {
         viewModelScope.launch { ruleDao.setEnabled(rule.id, !rule.enabled) }
+    }
+
+    /**
+     * "Выполнить сейчас" — dispatch a single vehicle command through the native
+     * write channel immediately, for live testing from the rule editor. Result is
+     * surfaced via Toast; the raw autoservice status (real action vs no-op) lands
+     * in logcat via HelperClient. Bypasses the automation edge/cooldown logic by
+     * design — this is a manual, explicit user action.
+     */
+    fun executeNow(command: String) {
+        viewModelScope.launch {
+            val result = vehicleApi.dispatch(command)
+            val msg = if (result.isSuccess) "Отправлено"
+                      else "Ошибка: ${result.exceptionOrNull()?.message ?: "недоступно"}"
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        }
     }
 
     // --- Editor ---

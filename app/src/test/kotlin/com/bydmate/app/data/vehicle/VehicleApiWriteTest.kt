@@ -36,13 +36,13 @@ class VehicleApiWriteTest {
 
     // ── Test 1: writeAcOn happy path ──────────────────────────────────────────
 
-    @Test fun `writeAcOn calls helper write with dev=1000 fid=501219364 val=2 and returns success`() = runTest {
+    @Test fun `writeAcOn calls helper write with dev=1000 fid=501219352 val=0 and returns success`() = runTest {
         val entry = allowlist.find("ac_on")!!
-        // ac_on has no readbackFid — no helper.read call needed
-        coEvery { helper.write(entry.dev, entry.writeFid, 2) } returns true
+        // ac_on = competitor ac_ctrl_mode (501219352) set to 0 (AUTO); no readbackFid
+        coEvery { helper.write(entry.dev, entry.writeFid, 0) } returns true
 
         assertTrue(api.writeAcOn().isSuccess)
-        coVerify(exactly = 1) { helper.write(entry.dev, entry.writeFid, 2) }
+        coVerify(exactly = 1) { helper.write(entry.dev, entry.writeFid, 0) }
         // No readback for ac_on
         coVerify(exactly = 0) { helper.read(any(), any()) }
     }
@@ -200,7 +200,7 @@ class VehicleApiWriteTest {
 
     @Test fun `writeAcOn persists audit log entries (attempt + outcome)`() = runTest {
         val insertions = mutableListOf<VehicleWriteLogEntity>()
-        coEvery { helper.write(1000, 501219364, 2) } returns true
+        coEvery { helper.write(1000, 501219352, 0) } returns true
         coEvery { writeLogDao.insert(capture(insertions)) } returns Unit
         api.writeAcOn()
         // Expect 2 rows: attempt (status=-2) + outcome (status=0)
@@ -208,11 +208,11 @@ class VehicleApiWriteTest {
         val attempt = insertions.first { it.status == -2 }
         assertEquals("ac_on", attempt.actionName)
         assertEquals(1000, attempt.dev)
-        assertEquals(2, attempt.requested)
+        assertEquals(0, attempt.requested)
         assertEquals("attempt", attempt.error)
         val outcome = insertions.first { it.status == 0 }
         assertEquals("ac_on", outcome.actionName)
         assertEquals(1000, outcome.dev)
-        assertEquals(2, outcome.requested)
+        assertEquals(0, outcome.requested)
     }
 }

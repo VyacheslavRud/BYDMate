@@ -146,12 +146,18 @@ class AdbOnDeviceClientImpl @Inject constructor(
         try {
             // Raw protocol exec — bypasses the public exec() write barrier by design
             // (this is not an autoservice GET). Hardcoded, no caller input.
-            // CLASSPATH = the app's own signed base.apk; setsid + redirect detach the
-            // daemon from the ADB exec channel so it survives the shell closing.
+            // CLASSPATH = the app's own signed base.apk; setsid detaches the daemon
+            // into its own session. The trailing poll-loop keeps THIS shell alive until
+            // the daemon registers (or 3s elapse): the on-device ADB closes the exec
+            // stream the instant `&` backgrounds the job, and adbd SIGHUPs the subprocess
+            // — without the loop the still-booting JVM dies before its first println
+            // (empty log, no registration). Mirrors the proven BYD EV Pro / aps_diplus
+            // spawn recipe; see reference_autoservice_write_channel.md.
             val spawnCmd =
                 "CLASSPATH=${ctx.packageCodePath} setsid app_process /system/bin " +
                 "--nice-name=$HELPER_PROCESS_NAME com.bydmate.app.helper.HelperDaemon " +
-                "${android.os.Process.myUid()} </dev/null >$HELPER_LOG_PATH 2>&1 &"
+                "${android.os.Process.myUid()} </dev/null >$HELPER_LOG_PATH 2>&1 & " +
+                "for i in 1 2 3; do service list 2>/dev/null | grep -q $HELPER_PROCESS_NAME && break; sleep 1; done"
             p.exec(spawnCmd)
             true
         } catch (e: Exception) {

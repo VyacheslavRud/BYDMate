@@ -50,14 +50,13 @@ object CommandTranslator {
         "后右打开100" to Resolved("window_rear_right_pos",  100),
         "后右打开0"   to Resolved("window_rear_right_pos",    0),
 
-        // ── Climate ── LIVE_VALIDATED (ac_on/ac_off/ac_temp_main/ac_cycle_*) ──
-        "自动空调"    to Resolved("ac_on",         2),   // LIVE val=2 (on/auto)
+        // ── Climate ── LIVE_VALIDATED (ac_on/ac_off/ac_cycle_*) ──────────────
+        // 自动空调 = competitor ac_on (ac_ctrl_mode AUTO = 0). 设置温度<N> resolves
+        // dynamically over 16..30 in resolve(), so there are no per-temperature
+        // entries here (the old 18/20/22/25-only table missed every other value).
+        "自动空调"    to Resolved("ac_on",         0),   // competitor val=0 (ctrl_mode AUTO)
         "内循环"      to Resolved("ac_cycle_inner", 1),  // LIVE val=1
         "外循环"      to Resolved("ac_cycle_outer", 2),  // LIVE val=2
-        "设置温度18"  to Resolved("ac_temp_main",  18),
-        "设置温度20"  to Resolved("ac_temp_main",  20),
-        "设置温度22"  to Resolved("ac_temp_main",  22),
-        "设置温度25"  to Resolved("ac_temp_main",  25),
 
         // ── Climate ── competitor-actions.json ────────────────────────────────
         "打开空调通风" to Resolved("ac_flow_only_on",   1),  // competitor val=1
@@ -88,6 +87,10 @@ object CommandTranslator {
         // ── Locks ── LIVE_VALIDATED ───────────────────────────────────────────
         "车门上锁"  to Resolved("doors_lock",   2),
         "车门解锁"  to Resolved("doors_unlock", 1),
+
+        // ── Trunk ── competitor-actions.json (dev=1001) ──────────────────────
+        "开后备箱"  to Resolved("open_trunk",  1),  // competitor val=1
+        "关后备箱"  to Resolved("close_trunk", 3),  // competitor val=3
 
         // ── Sunroof ── LIVE_VALIDATED ─────────────────────────────────────────
         "天窗打开100" to Resolved("sunroof_open",  1),  // full open
@@ -144,11 +147,27 @@ object CommandTranslator {
         val stripped = commandString.removePrefix("迪加")
         composite[stripped]?.let { return it }
         table[stripped]?.let { return listOf(it) }
+        // Dynamic temperature: 设置温度<N> → ac_temp_main, clamped to the validated
+        // 16..30 window (allowlist range-gates it anyway; clamping is friendlier).
+        TEMP_REGEX.matchEntire(stripped)?.let { m ->
+            val celsius = m.groupValues[1].toInt().coerceIn(TEMP_MIN, TEMP_MAX)
+            return listOf(Resolved("ac_temp_main", celsius))
+        }
         return emptyList()
     }
 
+    // Dynamic temperature command: 设置温度<N> (e.g. 设置温度24). Range-clamped in resolve().
+    private val TEMP_REGEX = Regex("""设置温度(\d+)""")
+    private const val TEMP_MIN = 16
+    private const val TEMP_MAX = 30
+
+    /** Action names produced only by dynamic resolution (absent from [table]). */
+    private val DYNAMIC_ACTIONS = setOf("ac_temp_main")
+
     /** Set of all action_names referenced by this translator. Used by invariant test. */
     fun allActions(): Set<String> =
-        (table.values.map { it.actionName } + composite.values.flatten().map { it.actionName })
+        (table.values.map { it.actionName } +
+            composite.values.flatten().map { it.actionName } +
+            DYNAMIC_ACTIONS)
             .toMutableSet()
 }

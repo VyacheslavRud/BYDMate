@@ -40,9 +40,17 @@ open class HelperClientImpl @Inject constructor() : HelperClient {
         transact(HelperBinderProtocol.TX_READ) { it.writeInt(tx); it.writeInt(dev); it.writeInt(fid) }
             ?.let { (status, value) -> if (readAccepted(status)) value.toLong() else null }
 
-    override suspend fun write(dev: Int, fid: Int, value: Int): Boolean =
-        transact(HelperBinderProtocol.TX_WRITE) { it.writeInt(dev); it.writeInt(fid); it.writeInt(value) }
-            ?.let { (status, _) -> writeAccepted(status) } ?: false
+    override suspend fun write(dev: Int, fid: Int, value: Int): Boolean {
+        val status = transact(HelperBinderProtocol.TX_WRITE) {
+            it.writeInt(dev); it.writeInt(fid); it.writeInt(value)
+        }?.first
+        // status forwarded from the autoservice setInt return code: 1 = real action,
+        // 0 = accepted no-op (fid ineffective on this trim), <0 = error, null =
+        // daemon unreachable. Logged at INFO so a "green" automation that physically
+        // did nothing (no-op) is distinguishable from one that actually moved the actuator.
+        Log.i(TAG, "write dev=$dev fid=$fid value=$value status=$status accepted=${status != null && writeAccepted(status)}")
+        return status?.let { writeAccepted(it) } ?: false
+    }
 
     override suspend fun isAlive(): Boolean =
         transact(HelperBinderProtocol.TX_PING) { }

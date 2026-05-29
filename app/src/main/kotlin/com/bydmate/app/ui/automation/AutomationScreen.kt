@@ -178,6 +178,7 @@ fun AutomationScreen(
             editorError = state.editorError,
             onUpdate = { viewModel.updateEditing(it) },
             onSave = { viewModel.saveRule() },
+            onTestAction = { viewModel.executeNow(it) },
             onDismiss = { viewModel.closeEditor() }
         )
     }
@@ -338,6 +339,7 @@ private fun EditorDialog(
     editorError: String?,
     onUpdate: (EditingRule.() -> EditingRule) -> Unit,
     onSave: () -> Unit,
+    onTestAction: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     Dialog(
@@ -486,6 +488,7 @@ private fun EditorDialog(
                                     copy(actions = actions.toMutableList().apply { set(idx, newAction) })
                                 }
                             },
+                            onTest = onTestAction,
                             onDelete = {
                                 onUpdate {
                                     copy(actions = actions.toMutableList().apply { removeAt(idx) })
@@ -1072,6 +1075,7 @@ private fun ActionRow(
     action: ActionDef,
     places: List<PlaceEntity>,
     onUpdate: (ActionDef) -> Unit,
+    onTest: (String) -> Unit,
     onDelete: () -> Unit
 ) {
     Row(
@@ -1104,6 +1108,14 @@ private fun ActionRow(
                 ParamActionControls(action = action, onUpdate = onUpdate, modifier = Modifier.weight(1f))
         }
 
+        // "Выполнить сейчас" — fire this vehicle command immediately for live testing.
+        // Only for param (vehicle) actions; result is shown via Toast + logcat status line.
+        if (action.kind == "param" && action.command.isNotBlank()) {
+            Spacer(Modifier.width(4.dp))
+            IconButton(onClick = { onTest(action.command) }, modifier = Modifier.size(24.dp)) {
+                Icon(Icons.Outlined.PlayArrow, "выполнить сейчас", tint = AccentGreen, modifier = Modifier.size(16.dp))
+            }
+        }
         Spacer(Modifier.width(4.dp))
         IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
             Icon(Icons.Outlined.Close, "delete", tint = Color(0xFFEF4444).copy(alpha = 0.5f), modifier = Modifier.size(14.dp))
