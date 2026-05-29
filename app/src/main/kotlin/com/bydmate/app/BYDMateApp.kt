@@ -56,8 +56,15 @@ class BYDMateApp : Application(), Configuration.Provider {
         super.onCreate()
         // Allow in-process ServiceManager.getService() on Android 9+ to reach the helper
         // binder service without hidden-API restrictions (UnsatisfiedLinkError / NoSuchMethodError).
+        // Guarded: under JVM/Robolectric unit tests the HiddenApiBypass static initializer throws
+        // (no Android ART runtime), which would otherwise crash onCreate for every test that
+        // instantiates this Application. Swallow there; on a real device the call succeeds.
         if (Build.VERSION.SDK_INT >= 28) {
-            HiddenApiBypass.addHiddenApiExemptions("Landroid/os/ServiceManager;")
+            runCatching {
+                HiddenApiBypass.addHiddenApiExemptions("Landroid/os/ServiceManager;")
+            }.onFailure {
+                android.util.Log.w("BYDMateApp", "hidden-api exemption unavailable", it)
+            }
         }
         bootstrapLocale()
         initOsmdroid()
