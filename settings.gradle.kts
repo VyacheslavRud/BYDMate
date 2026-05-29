@@ -16,4 +16,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "BYDMate"
 include(":app")
-include(":helper-dex")
