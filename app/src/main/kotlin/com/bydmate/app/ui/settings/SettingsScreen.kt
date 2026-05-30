@@ -101,7 +101,8 @@ private val PrimaryColor = AccentGreen
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
-    onNavigateToPlaces: () -> Unit = {}
+    onNavigateToPlaces: () -> Unit = {},
+    onNavigateToClusterDiagnostic: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -215,7 +216,10 @@ fun SettingsScreen(
                         SettingsSection.BATTERY -> BatterySection(state, viewModel)
                         SettingsSection.INTEGRATIONS -> IntegrationsSection(state, viewModel)
                         SettingsSection.WIDGET -> WidgetSection()
-                        SettingsSection.PLACES -> PlacesSection(onNavigateToPlaces)
+                        SettingsSection.PLACES -> {
+                            PlacesSection(onNavigateToPlaces)
+                            ClusterDiagnosticEntry(onNavigateToClusterDiagnostic)
+                        }
                         SettingsSection.APP -> AppSection(state, viewModel)
                         SettingsSection.SMART_HOME -> SmartHomeSection(state, viewModel)
                     }
@@ -821,6 +825,34 @@ private fun PlacesSection(onNavigateToPlaces: () -> Unit) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(stringResource(R.string.settings_places_entry_title), color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 Text(stringResource(R.string.settings_places_entry_description), color = TextSecondary, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClusterDiagnosticEntry(onNavigate: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = CardSurfaceElevated),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onNavigate() }
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.DirectionsCar,
+                contentDescription = null,
+                tint = AccentGreen,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Диагностика приборки (эксп.)", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text("Проекция экрана и состояние кластера", color = TextSecondary, fontSize = 12.sp)
             }
         }
     }
