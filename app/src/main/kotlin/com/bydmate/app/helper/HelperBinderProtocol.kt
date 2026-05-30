@@ -14,6 +14,12 @@ import android.os.IBinder
  *                                                        -> reply: writeInt(status), writeInt(value)
  *   TX_WRITE : writeInt(dev), writeInt(fid), writeInt(value)
  *                                                        -> reply: writeInt(status), writeInt(value)
+ *   TX_LIST_DISPLAYS : request (no args)
+ *       -> reply: writeInt(status), writeInt(count),
+ *                 then count * { writeInt(id), writeString(name),
+ *                                writeInt(width), writeInt(height), writeInt(densityDpi) }
+ *   TX_GET_INSTRUMENT_FEATURE : writeInt(featureId)
+ *       -> reply: writeInt(status), writeInt(value)   // status 0 = value valid, <0 = no data/error
  *
  * status/value carry the raw autoservice transact result (see HelperDaemon).
  */
@@ -25,4 +31,6 @@ object HelperBinderProtocol {
     const val TX_PING = IBinder.FIRST_CALL_TRANSACTION       // 1
     const val TX_READ = IBinder.FIRST_CALL_TRANSACTION + 1   // 2
     const val TX_WRITE = IBinder.FIRST_CALL_TRANSACTION + 2  // 3
+    const val TX_LIST_DISPLAYS = IBinder.FIRST_CALL_TRANSACTION + 3            // 4
+    const val TX_GET_INSTRUMENT_FEATURE = IBinder.FIRST_CALL_TRANSACTION + 4   // 5
 }
