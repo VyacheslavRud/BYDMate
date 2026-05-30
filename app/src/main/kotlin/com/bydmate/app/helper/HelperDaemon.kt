@@ -164,6 +164,20 @@ fun main(args: Array<String>) {
                     reply?.writeInt(-1); reply?.writeInt(0); true
                 }
 
+                HelperBinderProtocol.TX_GET_INSTRUMENT_FEATURE -> runCatching {
+                    val featureId = data.readInt()
+                    val ctx = systemContext
+                    val value = if (ctx == null) null else readBydAutoFeature(ctx, featureId)
+                    if (value == null) {
+                        reply?.writeInt(-1); reply?.writeInt(0)
+                    } else {
+                        reply?.writeInt(0); reply?.writeInt(value)
+                    }
+                    true
+                }.getOrElse {
+                    reply?.writeInt(-1); reply?.writeInt(0); true
+                }
+
                 else -> super.onTransact(code, data, reply, flags)
             }
         }
@@ -243,5 +257,32 @@ private fun acquireSystemContext(): Context? = try {
     atCls.getMethod("getSystemContext").invoke(activityThread) as? Context
 } catch (e: Throwable) {
     System.err.println("WARN: systemContext unavailable: ${e.message}")
+    null
+}
+
+/**
+ * Reads a BYDAuto feature value by id. Tries the instrument device first, then the
+ * setting device (Phase 0 diagnostics determine which one is live on this trim).
+ * Returns null when neither device yields a value (feature absent / eventValue null /
+ * any reflection failure). A real value of 0 is returned as 0 (NOT null).
+ */
+private fun readBydAutoFeature(ctx: Context, featureId: Int): Int? {
+    readFeatureFrom("android.hardware.bydauto.instrument.BYDAutoInstrumentDevice", ctx, featureId)
+        ?.let { return it }
+    return readFeatureFrom("android.hardware.bydauto.setting.BYDAutoSettingDevice", ctx, featureId)
+}
+
+private fun readFeatureFrom(className: String, ctx: Context, featureId: Int): Int? = try {
+    val cls = Class.forName(className)
+    val device = cls.getMethod("getInstance", Context::class.java).invoke(null, ctx)
+    if (device == null) {
+        null
+    } else {
+        val getMethod = cls.getMethod("get", IntArray::class.java, Class::class.java)
+        val eventValue = getMethod.invoke(device, intArrayOf(featureId), Integer.TYPE)
+        if (eventValue == null) null
+        else eventValue.javaClass.getField("intValue").getInt(eventValue)
+    }
+} catch (e: Throwable) {
     null
 }
