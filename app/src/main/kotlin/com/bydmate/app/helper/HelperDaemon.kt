@@ -2,6 +2,8 @@
 package com.bydmate.app.helper
 
 import android.content.Context
+import android.hardware.display.DisplayManager
+import android.util.DisplayMetrics
 import android.os.Binder
 import android.os.IBinder
 import android.os.Looper
@@ -132,6 +134,31 @@ fun main(args: Array<String>) {
                     val (status, retInt) = autoserviceTransact(svc, autoIface, 6, dev, fid, value, writeValue = true)
                     reply?.writeInt(status)
                     reply?.writeInt(retInt)
+                    true
+                }.getOrElse {
+                    reply?.writeInt(-1); reply?.writeInt(0); true
+                }
+
+                HelperBinderProtocol.TX_LIST_DISPLAYS -> runCatching {
+                    val ctx = systemContext
+                    if (ctx == null) {
+                        reply?.writeInt(-1); reply?.writeInt(0)
+                    } else {
+                        val dm = ctx.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+                        val displays = dm.displays
+                        reply?.writeInt(0)
+                        reply?.writeInt(displays.size)
+                        for (d in displays) {
+                            val m = DisplayMetrics()
+                            @Suppress("DEPRECATION")
+                            d.getRealMetrics(m)
+                            reply?.writeInt(d.displayId)
+                            reply?.writeString(d.name ?: "")
+                            reply?.writeInt(m.widthPixels)
+                            reply?.writeInt(m.heightPixels)
+                            reply?.writeInt(m.densityDpi)
+                        }
+                    }
                     true
                 }.getOrElse {
                     reply?.writeInt(-1); reply?.writeInt(0); true
