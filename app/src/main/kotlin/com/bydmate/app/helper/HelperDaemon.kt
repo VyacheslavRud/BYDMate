@@ -1,6 +1,7 @@
 @file:JvmName("HelperDaemon")
 package com.bydmate.app.helper
 
+import android.content.Context
 import android.os.Binder
 import android.os.IBinder
 import android.os.Looper
@@ -77,6 +78,12 @@ fun main(args: Array<String>) {
     // stack frame is never unwound (loop() blocks forever). The lock stays live.
     @Suppress("UNUSED_VARIABLE") val lockChannel = lockPair.first
     @Suppress("UNUSED_VARIABLE") val lockHandle = lockPair.second
+
+    // Prepare the main looper BEFORE ActivityThread.systemMain (OpenBYD EntryPoint order),
+    // then acquire a system Context for DisplayManager / BYDAutoInstrumentDevice reads.
+    @Suppress("DEPRECATION")
+    Looper.prepareMainLooper()
+    val systemContext: Context? = acquireSystemContext()
 
     // Step 2: resolve autoservice Binder.
     val smCls = Class.forName("android.os.ServiceManager")
@@ -155,8 +162,6 @@ fun main(args: Array<String>) {
     // binder threadpool that app_process starts via ProcessState::startThreadPool() in
     // AppRuntime::onStarted — Looper.loop() plays NO role in transaction dispatch here;
     // it is purely a blocking keepalive for the main thread.
-    @Suppress("DEPRECATION")
-    Looper.prepareMainLooper()
     Looper.loop()
 }
 
@@ -195,4 +200,21 @@ private fun autoserviceTransact(
         data2.recycle()
         reply2.recycle()
     }
+}
+
+/**
+ * Acquires a system Context via ActivityThread, exactly as OpenBYD's EntryPoint does.
+ * Returns null on failure — read paths that need it degrade to an error status rather
+ * than crashing the daemon (autoservice read/write do NOT need a Context and keep working).
+ *
+ * Reflection (no HiddenApiBypass): the daemon runs under app_process, where hidden-API
+ * enforcement is inactive.
+ */
+private fun acquireSystemContext(): Context? = try {
+    val atCls = Class.forName("android.app.ActivityThread")
+    val activityThread = atCls.getMethod("systemMain").invoke(null)
+    atCls.getMethod("getSystemContext").invoke(activityThread) as? Context
+} catch (e: Throwable) {
+    System.err.println("WARN: systemContext unavailable: ${e.message}")
+    null
 }
