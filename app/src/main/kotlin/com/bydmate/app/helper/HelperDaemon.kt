@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap
 import android.os.IBinder
 import android.os.Looper
 import android.os.Parcel
+import android.provider.Settings
 import java.io.RandomAccessFile
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
@@ -263,6 +264,13 @@ fun main(args: Array<String>) {
                     true
                 }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
 
+                HelperBinderProtocol.TX_ENABLE_ACCESSIBILITY -> runCatching {
+                    val ctx = systemContext
+                    val ok = ctx != null && enableAccessibilityService(ctx)
+                    reply?.writeInt(if (ok) 0 else -1); reply?.writeInt(0)
+                    true
+                }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
+
                 else -> super.onTransact(code, data, reply, flags)
             }
         }
@@ -472,6 +480,27 @@ private fun execShell(command: String): String {
         if (out.isNotBlank()) append(out)
         if (err.isNotBlank()) { if (isNotEmpty()) append(" | STDERR: "); append(err) }
     }.ifEmpty { "OK" }
+}
+
+/**
+ * Enables our steering-wheel accessibility service by APPENDING our flattened ComponentName to
+ * Settings.Secure.enabled_accessibility_services (DiLink has no a11y settings UI, so the user
+ * cannot toggle it themselves). Read-modify-write: existing entries are preserved and our own
+ * entry is never duplicated — we never clobber another app's accessibility service. Also sets
+ * accessibility_enabled=1 so the framework actually binds enabled services. App-scoped, reversible
+ * Secure settings only; touches nothing on the vehicle (no autoservice/CAN/firmware).
+ */
+private fun enableAccessibilityService(ctx: Context): Boolean {
+    val resolver = ctx.contentResolver
+    val component = HelperBinderProtocol.ACCESSIBILITY_SERVICE_COMPONENT
+    val current = Settings.Secure.getString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: ""
+    val parts = current.split(':').filter { it.isNotEmpty() }
+    if (!parts.contains(component)) {
+        val updated = (parts + component).joinToString(":")
+        Settings.Secure.putString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, updated)
+    }
+    Settings.Secure.putInt(resolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
+    return true
 }
 
 /**

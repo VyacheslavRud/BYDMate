@@ -65,6 +65,12 @@ interface HelperClient {
     suspend fun grantOverlayPermission(): Boolean
     /** Launches [packageName] on [displayId] and pins it (move+bounds+focus loop). Long-running. */
     suspend fun launchAndForce(packageName: String, displayId: Int, width: Int, height: Int): Boolean
+    /**
+     * Enables our steering-wheel accessibility service via the daemon (appends it to
+     * Settings.Secure enabled_accessibility_services, never clobbering others). DiLink has no
+     * a11y settings screen, so this is the only way to turn the service on without ADB.
+     */
+    suspend fun enableAccessibilityService(): Boolean
 }
 
 @Singleton
@@ -150,6 +156,9 @@ open class HelperClientImpl @Inject constructor() : HelperClient {
 
     override suspend fun grantOverlayPermission(): Boolean =
         statusOk(HelperBinderProtocol.TX_GRANT_OVERLAY_PERMISSION) { }
+
+    override suspend fun enableAccessibilityService(): Boolean =
+        statusOk(HelperBinderProtocol.TX_ENABLE_ACCESSIBILITY) { }
 
     override suspend fun launchAndForce(packageName: String, displayId: Int, width: Int, height: Int): Boolean =
         transactParsed(HelperBinderProtocol.TX_LAUNCH_AND_FORCE, { d ->
