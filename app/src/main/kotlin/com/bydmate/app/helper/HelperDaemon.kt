@@ -465,8 +465,8 @@ private fun createVirtualDisplay(
 /** Runs a shell command (shell uid) and returns combined stdout/stderr. Mirrors CarControlImpl.exec. */
 private fun execShell(command: String): String {
     val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
-    val out = process.inputStream.bufferedReader().readText().trim()
-    val err = process.errorStream.bufferedReader().readText().trim()
+    val out = process.inputStream.bufferedReader().use { it.readText().trim() }
+    val err = process.errorStream.bufferedReader().use { it.readText().trim() }
     process.waitFor()
     return buildString {
         if (out.isNotBlank()) append(out)
