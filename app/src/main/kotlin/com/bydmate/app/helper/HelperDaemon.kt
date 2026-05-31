@@ -500,7 +500,12 @@ private fun enableAccessibilityService(ctx: Context): Boolean {
         Settings.Secure.putString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, updated)
     }
     Settings.Secure.putInt(resolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
-    return true
+    // Verify read-back: putString/putInt return Boolean but report success only if the write
+    // actually stuck — our component is now listed AND accessibility is enabled.
+    val after = (Settings.Secure.getString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: "")
+        .split(':').filter { it.isNotEmpty() }
+    val enabled = Settings.Secure.getInt(resolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0)
+    return after.contains(component) && enabled == 1
 }
 
 /**
