@@ -4,8 +4,11 @@ package com.bydmate.app.helper
 import android.content.Context
 import android.graphics.Rect
 import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
 import android.util.DisplayMetrics
 import android.os.Binder
+import android.view.Surface
+import java.util.concurrent.ConcurrentHashMap
 import android.os.IBinder
 import android.os.Looper
 import android.os.Parcel
@@ -99,6 +102,10 @@ fun main(args: Array<String>) {
             exitProcess(3)
         }
     val autoIface: String = svc.interfaceDescriptor ?: ""
+
+    // Keeps created VirtualDisplays alive (their backing Surface comes from the app overlay).
+    // Keyed by displayId so TX_RELEASE_VIRTUAL_DISPLAY can release the right one.
+    val virtualDisplays = ConcurrentHashMap<Int, VirtualDisplay>()
 
     // Step 3: build our stub Binder.
     val helperBinder = object : Binder() {
@@ -211,6 +218,27 @@ fun main(args: Array<String>) {
                     val taskId = data.readInt(); val mode = data.readInt()
                     setTaskWindowingModeReflect(taskId, mode)
                     reply?.writeInt(0); reply?.writeInt(0)
+                    true
+                }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
+
+                HelperBinderProtocol.TX_CREATE_VIRTUAL_DISPLAY -> runCatching {
+                    val name = data.readString() ?: "BYDMate_VD"
+                    val width = data.readInt(); val height = data.readInt()
+                    val density = data.readInt(); val flags = data.readInt()
+                    val surface = Surface.CREATOR.createFromParcel(data)
+                    val ctx = systemContext
+                    val id = if (ctx == null || !surface.isValid) -1
+                            else createVirtualDisplay(ctx, virtualDisplays, name, width, height, density, surface, flags)
+                    if (id > 0) { reply?.writeInt(0); reply?.writeInt(id) }
+                    else { reply?.writeInt(-1); reply?.writeInt(0) }
+                    true
+                }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
+
+                HelperBinderProtocol.TX_RELEASE_VIRTUAL_DISPLAY -> runCatching {
+                    val displayId = data.readInt()
+                    val vd = virtualDisplays.remove(displayId)
+                    vd?.release()
+                    reply?.writeInt(if (vd != null) 0 else -1); reply?.writeInt(0)
                     true
                 }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
 
@@ -391,4 +419,24 @@ private fun readFeatureFrom(className: String, ctx: Context, featureId: Int): In
     }
 } catch (e: Throwable) {
     null
+}
+
+/**
+ * Creates a VirtualDisplay backed by [surface]. Uses a com.android.shell package Context so the
+ * shell uid's privilege applies to the requested [flags] (incl. TRUSTED / SYSTEM_DECORATIONS).
+ * Returns the new displayId (>0) on success, or -1 (releasing any invalid display). Mirrors
+ * CarControlImpl.createVirtualDisplay.
+ */
+private fun createVirtualDisplay(
+    ctx: Context,
+    store: ConcurrentHashMap<Int, VirtualDisplay>,
+    name: String, width: Int, height: Int, density: Int, surface: Surface, flags: Int,
+): Int {
+    val shellCtx = ctx.createPackageContext("com.android.shell", 0)
+    val dm = shellCtx.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+    val vd = dm.createVirtualDisplay(name, width, height, density, surface, flags) ?: return -1
+    val id = vd.display?.displayId ?: -1
+    if (id <= 0) { vd.release(); return -1 }
+    store[id] = vd
+    return id
 }
