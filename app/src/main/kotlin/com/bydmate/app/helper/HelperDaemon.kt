@@ -230,7 +230,7 @@ fun main(args: Array<String>) {
                     val id = if (ctx == null || !surface.isValid) -1
                             else createVirtualDisplay(ctx, virtualDisplays, name, width, height, density, surface, flags)
                     if (id > 0) { reply?.writeInt(0); reply?.writeInt(id) }
-                    else { reply?.writeInt(-1); reply?.writeInt(0) }
+                    else { surface.release(); reply?.writeInt(-1); reply?.writeInt(0) }
                     true
                 }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
 
