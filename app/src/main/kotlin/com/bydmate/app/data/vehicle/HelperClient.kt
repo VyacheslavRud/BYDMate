@@ -47,6 +47,23 @@ interface HelperClient {
      * (feature absent on this trim) or the channel is unavailable. A real 0 is returned as 0.
      */
     suspend fun getInstrumentFeature(featureId: Int): Int?
+
+    /** Creates a VirtualDisplay backed by [surface]; returns its displayId (>0) or null. */
+    suspend fun createVirtualDisplay(
+        name: String, width: Int, height: Int, density: Int, flags: Int, surface: android.view.Surface,
+    ): Int?
+    suspend fun releaseVirtualDisplay(displayId: Int): Boolean
+    suspend fun launchApp(packageName: String): Boolean
+    /** Task id of [packageName]'s running task, or null if not running / channel unavailable. */
+    suspend fun getTaskId(packageName: String): Int?
+    suspend fun moveTaskToDisplay(taskId: Int, displayId: Int): Boolean
+    suspend fun setTaskBounds(taskId: Int, left: Int, top: Int, right: Int, bottom: Int): Boolean
+    suspend fun setFocusedTask(taskId: Int): Boolean
+    suspend fun setTaskWindowingMode(taskId: Int, windowingMode: Int): Boolean
+    /** Narrow appops grant of SYSTEM_ALERT_WINDOW to our own package. */
+    suspend fun grantOverlayPermission(): Boolean
+    /** Launches [packageName] on [displayId] and pins it (move+bounds+focus loop). Long-running. */
+    suspend fun launchAndForce(packageName: String, displayId: Int, width: Int, height: Int): Boolean
 }
 
 @Singleton
@@ -95,14 +112,65 @@ open class HelperClientImpl @Inject constructor() : HelperClient {
         transact(HelperBinderProtocol.TX_GET_INSTRUMENT_FEATURE) { it.writeInt(featureId) }
             ?.let { (status, value) -> if (readAccepted(status)) value else null }
 
+    override suspend fun createVirtualDisplay(
+        name: String, width: Int, height: Int, density: Int, flags: Int, surface: android.view.Surface,
+    ): Int? = transactParsed(HelperBinderProtocol.TX_CREATE_VIRTUAL_DISPLAY, { d ->
+        d.writeString(name); d.writeInt(width); d.writeInt(height); d.writeInt(density); d.writeInt(flags)
+        surface.writeToParcel(d, 0)
+    }) { reply ->
+        val status = if (reply.dataAvail() >= 4) reply.readInt() else return@transactParsed null
+        val id = if (reply.dataAvail() >= 4) reply.readInt() else -1
+        if (status == 0 && id > 0) id else null
+    }
+
+    override suspend fun releaseVirtualDisplay(displayId: Int): Boolean =
+        statusOk(HelperBinderProtocol.TX_RELEASE_VIRTUAL_DISPLAY) { it.writeInt(displayId) }
+
+    override suspend fun launchApp(packageName: String): Boolean =
+        statusOk(HelperBinderProtocol.TX_LAUNCH_APP) { it.writeString(packageName) }
+
+    override suspend fun getTaskId(packageName: String): Int? =
+        transact(HelperBinderProtocol.TX_GET_TASK_ID) { it.writeString(packageName) }
+            ?.let { (status, value) -> if (status == 0 && value > 0) value else null }
+
+    override suspend fun moveTaskToDisplay(taskId: Int, displayId: Int): Boolean =
+        statusOk(HelperBinderProtocol.TX_MOVE_TASK_TO_DISPLAY) { it.writeInt(taskId); it.writeInt(displayId) }
+
+    override suspend fun setTaskBounds(taskId: Int, left: Int, top: Int, right: Int, bottom: Int): Boolean =
+        statusOk(HelperBinderProtocol.TX_SET_TASK_BOUNDS) {
+            it.writeInt(taskId); it.writeInt(left); it.writeInt(top); it.writeInt(right); it.writeInt(bottom)
+        }
+
+    override suspend fun setFocusedTask(taskId: Int): Boolean =
+        statusOk(HelperBinderProtocol.TX_SET_FOCUSED_TASK) { it.writeInt(taskId) }
+
+    override suspend fun setTaskWindowingMode(taskId: Int, windowingMode: Int): Boolean =
+        statusOk(HelperBinderProtocol.TX_SET_TASK_WINDOWING_MODE) { it.writeInt(taskId); it.writeInt(windowingMode) }
+
+    override suspend fun grantOverlayPermission(): Boolean =
+        statusOk(HelperBinderProtocol.TX_GRANT_OVERLAY_PERMISSION) { }
+
+    override suspend fun launchAndForce(packageName: String, displayId: Int, width: Int, height: Int): Boolean =
+        transactParsed(HelperBinderProtocol.TX_LAUNCH_AND_FORCE, { d ->
+            d.writeString(packageName); d.writeInt(displayId); d.writeInt(width); d.writeInt(height)
+        }, timeoutMs = FORCE_TIMEOUT_MS) { reply ->
+            val status = if (reply.dataAvail() >= 4) reply.readInt() else return@transactParsed false
+            status == 0
+        } ?: false
+
+    /** (status,value) reply; true iff status == 0. Shared by the boolean projection ops. */
+    private suspend fun statusOk(code: Int, writeArgs: (Parcel) -> Unit): Boolean =
+        transact(code, writeArgs)?.let { (status, _) -> status == 0 } ?: false
+
     /** Returns the parsed reply or null on any failure. Retries ONCE on a dead cached binder. */
     private suspend fun <T> transactParsed(
         code: Int,
         writeArgs: (Parcel) -> Unit,
+        timeoutMs: Long = REQ_TIMEOUT_MS,
         parse: (Parcel) -> T?,
     ): T? =
         withContext(Dispatchers.IO) {
-            withTimeoutOrNull(REQ_TIMEOUT_MS) {
+            withTimeoutOrNull(timeoutMs) {
                 mutex.withLock {
                     repeat(2) { attempt ->
                         val binder = ensureBinder() ?: return@withLock null
@@ -168,5 +236,6 @@ open class HelperClientImpl @Inject constructor() : HelperClient {
 
         private const val TAG = "HelperClient"
         private const val REQ_TIMEOUT_MS = 2000L
+        private const val FORCE_TIMEOUT_MS = 15000L
     }
 }
