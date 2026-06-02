@@ -12,7 +12,6 @@ import java.util.concurrent.ConcurrentHashMap
 import android.os.IBinder
 import android.os.Looper
 import android.os.Parcel
-import android.provider.Settings
 import java.io.RandomAccessFile
 import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
@@ -250,9 +249,16 @@ fun main(args: Array<String>) {
                 }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
 
                 HelperBinderProtocol.TX_GRANT_OVERLAY_PERMISSION -> runCatching {
-                    // Narrow, hardcoded — NOT a generic shell passthrough.
-                    val r = execShell("appops set ${HelperBinderProtocol.APP_PACKAGE} SYSTEM_ALERT_WINDOW allow")
-                    reply?.writeInt(if (!r.contains("Error", ignoreCase = true)) 0 else -1); reply?.writeInt(0)
+                    // Narrow, hardcoded — NOT a generic shell passthrough. Two appops:
+                    // SYSTEM_ALERT_WINDOW lets us draw the cluster overlay; PROJECT_MEDIA gates
+                    // third-party access to the fission screen-projection display (without it
+                    // DisplayManager.getDisplay(clusterId) returns null in our process). Mirrors
+                    // OpenBYD AppConstants two-grant.
+                    val pkg = HelperBinderProtocol.APP_PACKAGE
+                    val r1 = execShell("appops set $pkg SYSTEM_ALERT_WINDOW allow")
+                    val r2 = execShell("appops set $pkg PROJECT_MEDIA allow")
+                    val ok = !r1.contains("Error", ignoreCase = true) && !r2.contains("Error", ignoreCase = true)
+                    reply?.writeInt(if (ok) 0 else -1); reply?.writeInt(0)
                     true
                 }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
 
@@ -265,8 +271,7 @@ fun main(args: Array<String>) {
                 }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
 
                 HelperBinderProtocol.TX_ENABLE_ACCESSIBILITY -> runCatching {
-                    val ctx = systemContext
-                    val ok = ctx != null && enableAccessibilityService(ctx)
+                    val ok = enableAccessibilityService()
                     reply?.writeInt(if (ok) 0 else -1); reply?.writeInt(0)
                     true
                 }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
@@ -484,28 +489,31 @@ private fun execShell(command: String): String {
 
 /**
  * Enables our steering-wheel accessibility service by APPENDING our flattened ComponentName to
- * Settings.Secure.enabled_accessibility_services (DiLink has no a11y settings UI, so the user
- * cannot toggle it themselves). Read-modify-write: existing entries are preserved and our own
- * entry is never duplicated — we never clobber another app's accessibility service. Also sets
+ * secure setting enabled_accessibility_services (DiLink has no a11y settings UI, so the user
+ * cannot toggle it themselves). Uses the `settings` binary under shell uid — the in-process
+ * Settings.Secure ContentResolver path does not stick for an app_process-spawned daemon (mirrors
+ * OpenBYD AccessibilitySetupHelper). Safe read-modify-write: existing entries are preserved, our
+ * own entry is never duplicated, we never clobber another app's accessibility service. Also sets
  * accessibility_enabled=1 so the framework actually binds enabled services. App-scoped, reversible
  * Secure settings only; touches nothing on the vehicle (no autoservice/CAN/firmware).
  */
-private fun enableAccessibilityService(ctx: Context): Boolean {
-    val resolver = ctx.contentResolver
+private fun enableAccessibilityService(): Boolean {
     val component = HelperBinderProtocol.ACCESSIBILITY_SERVICE_COMPONENT
-    val current = Settings.Secure.getString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: ""
-    val parts = current.split(':').filter { it.isNotEmpty() }
+    val parts = readSecure("enabled_accessibility_services").split(':').filter { it.isNotEmpty() }
     if (!parts.contains(component)) {
         val updated = (parts + component).joinToString(":")
-        Settings.Secure.putString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, updated)
+        execShell("settings put secure enabled_accessibility_services '$updated'")
     }
-    Settings.Secure.putInt(resolver, Settings.Secure.ACCESSIBILITY_ENABLED, 1)
-    // Verify read-back: putString/putInt return Boolean but report success only if the write
-    // actually stuck — our component is now listed AND accessibility is enabled.
-    val after = (Settings.Secure.getString(resolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: "")
-        .split(':').filter { it.isNotEmpty() }
-    val enabled = Settings.Secure.getInt(resolver, Settings.Secure.ACCESSIBILITY_ENABLED, 0)
-    return after.contains(component) && enabled == 1
+    execShell("settings put secure accessibility_enabled 1")
+    // Verify read-back: our component is now listed AND accessibility is enabled.
+    val after = readSecure("enabled_accessibility_services").split(':').filter { it.isNotEmpty() }
+    return after.contains(component) && readSecure("accessibility_enabled") == "1"
+}
+
+/** Reads a secure setting via the `settings` binary; "" when unset (`settings get` prints "null"). */
+private fun readSecure(key: String): String {
+    val v = execShell("settings get secure $key")
+    return if (v == "null" || v == "OK") "" else v
 }
 
 /**
@@ -544,10 +552,16 @@ private fun launchAndForce(packageName: String, displayId: Int, width: Int, heig
         Thread.sleep(1500L)
     }
     if (taskId <= 0) return false
+    // Each redirect op is best-effort, mirroring CarControlImpl (every reflective call there returns
+    // a status string and swallows its own exception). resizeTask in particular throws "not allowed"
+    // on a fullscreen task — that must NOT abort the move/focus or bubble up as a launchAndForce
+    // failure, otherwise the caller tears down the VirtualDisplay Navi was just moved onto before it
+    // can render. The VD size (mini=640 / full=1280) already sets the geometry, so a resize failure
+    // is harmless.
     repeat(2) {
-        moveTaskToDisplayReflect(taskId, displayId)
-        setTaskBoundsReflect(taskId, 0, 0, width, height)
-        setFocusedTaskReflect(taskId)
+        runCatching { moveTaskToDisplayReflect(taskId, displayId) }
+        runCatching { setTaskBoundsReflect(taskId, 0, 0, width, height) }
+        runCatching { setFocusedTaskReflect(taskId) }
         Thread.sleep(200L)
     }
     return true

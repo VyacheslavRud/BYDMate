@@ -61,7 +61,11 @@ interface HelperClient {
     suspend fun setTaskBounds(taskId: Int, left: Int, top: Int, right: Int, bottom: Int): Boolean
     suspend fun setFocusedTask(taskId: Int): Boolean
     suspend fun setTaskWindowingMode(taskId: Int, windowingMode: Int): Boolean
-    /** Narrow appops grant of SYSTEM_ALERT_WINDOW to our own package. */
+    /**
+     * Narrow appops grant to our own package: SYSTEM_ALERT_WINDOW (draw the cluster overlay)
+     * and PROJECT_MEDIA (third-party access to the fission screen-projection display, else
+     * getDisplay(clusterId) returns null). Returns true only if both grants succeed.
+     */
     suspend fun grantOverlayPermission(): Boolean
     /** Launches [packageName] on [displayId] and pins it (move+bounds+focus loop). Long-running. */
     suspend fun launchAndForce(packageName: String, displayId: Int, width: Int, height: Int): Boolean

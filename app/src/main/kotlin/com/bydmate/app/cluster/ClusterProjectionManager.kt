@@ -60,6 +60,12 @@ object ClusterProjectionManager {
     private const val SWITCH_SETTLE_MS = 500L                 // OpenBYD refresh delay between pull-back and re-cast
     private const val SURFACE_TIMEOUT_MS = 3000L              // give up if the overlay Surface never gets created
 
+    // Manual cluster-display override (mirrors OpenBYD AppPreferences.getOverrideClusterDisplayId).
+    // Lets the diagnostic screen probe display id 2/3/4 live without a rebuild. -1 = auto.
+    const val PREFS_NAME = "cluster_projection"
+    const val KEY_OVERRIDE_DISPLAY_ID = "override_display_id"
+    private const val OVERRIDE_NONE = -1
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val mutex = Mutex()
 
@@ -69,6 +75,9 @@ object ClusterProjectionManager {
 
     private var overlayView: View? = null
     private var remoteDisplayId: Int = -1
+    // PROJECT_MEDIA has no app-side query API (unlike SYSTEM_ALERT_WINDOW / canDrawOverlays),
+    // so we grant both via the daemon once per process the first time we project.
+    private var projectionPermissionsGranted = false
     private var clusterWidth: Int = 1280
     private var clusterHeight: Int = 480
     private var clusterDensityDpi: Int = 320
@@ -158,12 +167,28 @@ object ClusterProjectionManager {
         return true
     }
 
-    /** App-side display lookup (matches OpenBYD getClusterDisplayId). Updates cluster W/H/dpi. */
+    /**
+     * App-side display lookup, ported from OpenBYD getClusterDisplayId: a manual override wins;
+     * otherwise pick the LAST display named "cluster" that is NOT "fission"; else fall back to
+     * id 2 (the primary fission_bg surface on Leopard 3). Updates cluster W/H/dpi.
+     *
+     * The previous predicate matched ANY "fission" display and non-deterministically landed on
+     * id 3 (a shared_fission_bg secondary surface), so Navi was pinned to a VirtualDisplay whose
+     * overlay sat on a surface the panel never renders.
+     */
     private fun resolveClusterDisplay(context: Context): Display? {
         val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-        val match = dm.displays.firstOrNull {
-            it.name.contains("fission", ignoreCase = true) || it.name.contains("cluster", ignoreCase = true)
-        } ?: dm.getDisplay(DEFAULT_CLUSTER_DISPLAY_ID)
+        val override = context
+            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getInt(KEY_OVERRIDE_DISPLAY_ID, OVERRIDE_NONE)
+        val match = if (override != OVERRIDE_NONE) {
+            dm.getDisplay(override)
+        } else {
+            dm.displays.lastOrNull {
+                !it.name.contains("fission", ignoreCase = true) &&
+                    it.name.contains("cluster", ignoreCase = true)
+            } ?: dm.getDisplay(DEFAULT_CLUSTER_DISPLAY_ID)
+        }
         if (match != null) {
             val point = Point()
             @Suppress("DEPRECATION") match.getRealSize(point)
@@ -270,9 +295,15 @@ object ClusterProjectionManager {
     }
 
     private suspend fun ensureOverlayPermission(context: Context, helper: HelperClient): Boolean {
+        // Grant SYSTEM_ALERT_WINDOW + PROJECT_MEDIA via the daemon once per process. We can't gate
+        // on PROJECT_MEDIA (no app-side query), and SYSTEM_ALERT_WINDOW may already be granted, so
+        // the daemon call must run unconditionally — not only when canDrawOverlays is false.
+        if (!projectionPermissionsGranted) {
+            Log.i(TAG, "granting overlay + project_media via daemon")
+            if (helper.grantOverlayPermission()) projectionPermissionsGranted = true
+        }
         if (Settings.canDrawOverlays(context)) return true
-        Log.w(TAG, "SYSTEM_ALERT_WINDOW missing; requesting grant via daemon")
-        helper.grantOverlayPermission()
+        Log.w(TAG, "SYSTEM_ALERT_WINDOW still missing; waiting for grant to apply")
         repeat(10) {
             delay(200)
             if (Settings.canDrawOverlays(context)) return true
