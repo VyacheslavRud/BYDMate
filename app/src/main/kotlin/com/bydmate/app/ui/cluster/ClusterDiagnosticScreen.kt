@@ -128,6 +128,27 @@ fun ClusterDiagnosticScreen(
                     )
                 }
             }
+
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val override by viewModel.clusterOverride.collectAsState()
+                    Text("Дисплей приборки (тест проекции)", fontSize = 16.sp)
+                    Text(
+                        "Override: ${if (override == -1) "Авто (cluster, иначе id=2)" else "id=$override"}",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 13.sp,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(-1 to "Авто", 2 to "2", 3 to "3", 4 to "4").forEach { (id, label) ->
+                            Button(onClick = { viewModel.setClusterOverride(id) }) { Text(label) }
+                        }
+                    }
+                    Text(
+                        "Выбери id и нажми кнопку руля — Навигатор должен появиться на приборке.",
+                        fontSize = 12.sp,
+                    )
+                }
+            }
         }
     }
 }

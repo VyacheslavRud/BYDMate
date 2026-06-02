@@ -1,13 +1,16 @@
 package com.bydmate.app.ui.cluster
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.bydmate.app.cluster.ClusterProjectionManager
 import com.bydmate.app.cluster.KeyCapture
 import com.bydmate.app.cluster.SteeringWheelKeyState
 import com.bydmate.app.data.vehicle.DisplayInfo
 import com.bydmate.app.data.vehicle.HelperBootstrap
 import com.bydmate.app.data.vehicle.HelperClient
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,9 +30,24 @@ data class ClusterDiagnosticState(
 
 @HiltViewModel
 class ClusterDiagnosticViewModel @Inject constructor(
+    @ApplicationContext appContext: Context,
     private val helperClient: HelperClient,
     private val helperBootstrap: HelperBootstrap,
 ) : ViewModel() {
+
+    private val clusterPrefs =
+        appContext.getSharedPreferences(ClusterProjectionManager.PREFS_NAME, Context.MODE_PRIVATE)
+
+    /** Manual cluster-display override: -1 = auto, else a forced display id (probe 2/3/4 on-car). */
+    private val _clusterOverride = MutableStateFlow(
+        clusterPrefs.getInt(ClusterProjectionManager.KEY_OVERRIDE_DISPLAY_ID, -1),
+    )
+    val clusterOverride: StateFlow<Int> = _clusterOverride.asStateFlow()
+
+    fun setClusterOverride(displayId: Int) {
+        clusterPrefs.edit().putInt(ClusterProjectionManager.KEY_OVERRIDE_DISPLAY_ID, displayId).apply()
+        _clusterOverride.value = displayId
+    }
 
     private val _state = MutableStateFlow(ClusterDiagnosticState())
     val state: StateFlow<ClusterDiagnosticState> = _state.asStateFlow()
