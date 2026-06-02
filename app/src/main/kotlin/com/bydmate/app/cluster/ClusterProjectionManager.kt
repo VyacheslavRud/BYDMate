@@ -60,7 +60,7 @@ object ClusterProjectionManager {
     private const val SURFACE_TIMEOUT_MS = 3000L              // give up if the overlay Surface never gets created
 
     const val PREFS_NAME = "cluster_projection"
-    // Master enable for the auto-mirror (settings checkbox). The poller in TrackingService reads it.
+    // Master enable for star-controlled projection (settings switch). Read by SteeringWheelKeyService.
     const val KEY_MIRROR_ENABLED = "mirror_enabled"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -80,25 +80,29 @@ object ClusterProjectionManager {
     private var clusterDensityDpi: Int = 320
 
     /**
-     * Mirror entry point: drive the projection to [mode] read from the native ИПЦ lever, serialized.
-     * Idempotent — a no-op when already in [mode]. For FULLSCREEN we project only if Navi is already
-     * running; we never auto-launch it, so when Navi is absent the call is a no-op and the next poll
-     * retries once the user opens it. OFF always tears the projection down.
+     * Drive the projection to [mode], serialized under [mutex]. Idempotent — a no-op when already
+     * in [mode]. Auto-launch is delegated to the daemon's [launchAndForce] (it [launchApp]s Navi
+     * when its task is absent), so a press with Navi closed launches it onto the cluster.
+     * OFF always tears the projection down.
      */
     fun setMode(context: Context, mode: ClusterMode, helper: HelperClient, bootstrap: HelperBootstrap) {
         val appContext = context.applicationContext
         scope.launch {
             mutex.withLock {
                 if (mode == currentMode) return@withLock
-                if (mode != ClusterMode.OFF && helper.getTaskId(NAVI_PACKAGE) == null) {
-                    Log.d(TAG, "setMode $mode deferred: $NAVI_PACKAGE not running")
-                    return@withLock
-                }
                 Log.i(TAG, "setMode: $currentMode -> $mode")
                 applyModeLocked(appContext, mode, helper, bootstrap)
             }
         }
     }
+
+    /**
+     * Steering-wheel toggle: flip projection приборка ↔ центр. Reads [currentMode] (success-honest —
+     * a failed FULLSCREEN stays OFF, so the next press retries) and drives [setMode] to the other
+     * state. Safe from the a11y key thread: setMode hops to [scope] and serializes under [mutex].
+     */
+    fun toggle(context: Context, helper: HelperClient, bootstrap: HelperBootstrap) =
+        setMode(context, nextMode(currentMode), helper, bootstrap)
 
     /** Caller MUST hold [mutex]. Sets currentMode = mode only on full success, else OFF. */
     private suspend fun applyModeLocked(
