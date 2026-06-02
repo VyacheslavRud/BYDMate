@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings as AndroidSettings
+import com.bydmate.app.cluster.ClusterEntryPoint
 import com.bydmate.app.cluster.ClusterProjectionManager
+import dagger.hilt.android.EntryPointAccessors
 import com.bydmate.app.ui.widget.WidgetController
 import com.bydmate.app.ui.widget.WidgetPreferences
 import androidx.compose.foundation.background
@@ -869,6 +871,13 @@ private fun ClusterMirrorToggle() {
                 onCheckedChange = {
                     enabled = it
                     prefs.edit().putBoolean(ClusterProjectionManager.KEY_MIRROR_ENABLED, it).apply()
+                    // Turning the switch on self-enables our a11y key filter via the daemon, so star
+                    // control works on a clean install with no ADB (DiLink has no a11y settings UI).
+                    if (it) {
+                        val ep = EntryPointAccessors.fromApplication(
+                            context.applicationContext, ClusterEntryPoint::class.java)
+                        ClusterProjectionManager.enableStarControl(ep.helperClient(), ep.helperBootstrap())
+                    }
                 },
                 colors = bydSwitchColors(),
             )

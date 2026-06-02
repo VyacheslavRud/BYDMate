@@ -104,6 +104,22 @@ object ClusterProjectionManager {
     fun toggle(context: Context, helper: HelperClient, bootstrap: HelperBootstrap) =
         setMode(context, nextMode(currentMode), helper, bootstrap)
 
+    /**
+     * Self-enable our steering-wheel accessibility service via the daemon, so star control works on
+     * a clean install with NO ADB (DiLink has no a11y settings UI). Called when the user turns the
+     * settings switch on. [bootstrap] starts the daemon first if it is not up yet; the daemon op is
+     * idempotent (force re-bind of our own Secure-settings entry, never clobbering other apps).
+     */
+    fun enableStarControl(helper: HelperClient, bootstrap: HelperBootstrap) {
+        scope.launch {
+            if (!bootstrap.ensureRunning()) {
+                Log.e(TAG, "helper daemon not running; cannot self-enable a11y"); return@launch
+            }
+            val ok = helper.enableAccessibilityService()
+            Log.i(TAG, "enableStarControl: a11y enabled=$ok")
+        }
+    }
+
     /** Caller MUST hold [mutex]. Sets currentMode = mode only on full success, else OFF. */
     private suspend fun applyModeLocked(
         context: Context, mode: ClusterMode, helper: HelperClient, bootstrap: HelperBootstrap,

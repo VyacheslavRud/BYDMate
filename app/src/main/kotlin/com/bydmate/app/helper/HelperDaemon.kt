@@ -230,6 +230,12 @@ fun main(args: Array<String>) {
                     true
                 }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
 
+                HelperBinderProtocol.TX_ENABLE_ACCESSIBILITY -> runCatching {
+                    val ok = enableAccessibilityService()
+                    reply?.writeInt(if (ok) 0 else -1); reply?.writeInt(0)
+                    true
+                }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
+
                 else -> super.onTransact(code, data, reply, flags)
             }
         }
@@ -431,6 +437,44 @@ private fun shExec(script: String, vararg args: String): CmdResult {
         .start()
     val out = process.inputStream.bufferedReader().use { it.readText().trim() }
     return CmdResult(process.waitFor(), out)
+}
+
+/**
+ * Enables our steering-wheel accessibility service so it starts filtering steering-wheel keys.
+ * DiLink has no a11y settings UI, so the user cannot toggle it; we do it under shell uid via the
+ * `settings` binary (the in-process Settings.Secure ContentResolver does not stick for an
+ * app_process-spawned daemon).
+ *
+ * Force re-bind, mirroring OpenBYD AccessibilitySetupHelper.buildEnableCommands: write the list
+ * WITHOUT our component, pause, then write it back WITH our component, then accessibility_enabled=1.
+ * A plain append does NOT make the framework bind a service that is already listed but not running
+ * (the common case after an APK reinstall/upgrade) — the remove+re-add is what triggers the bind.
+ * Read-modify-write preserves other apps' services (our component is the only one we ever touch).
+ * App-scoped, reversible Secure settings only; touches nothing on the vehicle (no autoservice/CAN).
+ */
+private fun enableAccessibilityService(): Boolean {
+    val component = HelperBinderProtocol.ACCESSIBILITY_SERVICE_COMPONENT
+    // Abort on a failed READ — never write a guessed/garbled list back, that would clobber others.
+    val current = readSecure("enabled_accessibility_services") ?: return false
+    val others = current.split(':').filter { it.isNotEmpty() && it != component }
+    // $1 = the list, passed as argv (not interpolated) — safe even if an existing entry is odd.
+    if (shExec("settings put secure enabled_accessibility_services \"\$1\"", others.joinToString(":")).code != 0) return false
+    Thread.sleep(200L)  // let the framework observe the removal before we re-add (OpenBYD uses 0.2s)
+    if (shExec("settings put secure enabled_accessibility_services \"\$1\"", (others + component).joinToString(":")).code != 0) return false
+    if (shExec("settings put secure accessibility_enabled 1").code != 0) return false
+    // Verify read-back: our component is now listed AND accessibility is enabled.
+    val after = (readSecure("enabled_accessibility_services") ?: return false).split(':').filter { it.isNotEmpty() }
+    return after.contains(component) && readSecure("accessibility_enabled") == "1"
+}
+
+/**
+ * Reads a secure setting via the `settings` binary: "" when unset (`settings get` prints "null"),
+ * or null on a non-zero exit so callers can abort instead of acting on a bad read.
+ */
+private fun readSecure(key: String): String? {
+    val r = shExec("settings get secure \"\$1\"", key)
+    if (r.code != 0) return null
+    return if (r.stdout == "null") "" else r.stdout
 }
 
 /**

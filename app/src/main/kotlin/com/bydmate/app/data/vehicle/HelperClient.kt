@@ -51,6 +51,12 @@ interface HelperClient {
     suspend fun grantOverlayPermission(): Boolean
     /** Launches [packageName] on [displayId] and pins it (move+bounds+focus loop). Long-running. */
     suspend fun launchAndForce(packageName: String, displayId: Int, width: Int, height: Int): Boolean
+    /**
+     * Enables our steering-wheel accessibility service via the daemon (force re-bind of our entry in
+     * Settings.Secure enabled_accessibility_services, never clobbering other apps' services). DiLink
+     * has no a11y settings UI, so this is how the star-control toggle self-enables key filtering.
+     */
+    suspend fun enableAccessibilityService(): Boolean
 }
 
 @Singleton
@@ -122,6 +128,14 @@ open class HelperClientImpl @Inject constructor() : HelperClient {
         }, timeoutMs = FORCE_TIMEOUT_MS) { reply ->
             val status = if (reply.dataAvail() >= 4) reply.readInt() else return@transactParsed false
             readAccepted(status)
+        } ?: false
+
+    // FORCE_TIMEOUT_MS, not the default 2s: the daemon does a 200ms re-bind pause plus several
+    // `settings` process spawns, which can outrun REQ_TIMEOUT_MS on a cold device. status 0 = ok.
+    override suspend fun enableAccessibilityService(): Boolean =
+        transactParsed(HelperBinderProtocol.TX_ENABLE_ACCESSIBILITY, { }, timeoutMs = FORCE_TIMEOUT_MS) { reply ->
+            val status = if (reply.dataAvail() >= 4) reply.readInt() else return@transactParsed false
+            status == 0
         } ?: false
 
     /** (status,value) reply; true iff status == 0. Shared by the boolean projection ops. */
