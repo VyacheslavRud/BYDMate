@@ -492,16 +492,17 @@ private class CmdResult(val code: Int, val stdout: String)
 /**
  * Runs [script] under sh with [args] bound to positional params ($1, $2, …) so untrusted values
  * (e.g. an existing accessibility list read off the device) are passed as argv and NEVER re-parsed
- * by the shell — no injection, no quote-breakage. Keeps stdout SEPARATE from stderr and returns the
- * exit code, unlike [execShell] which merges them (merging would corrupt a value read back from
- * `settings get`). Use this for any command whose success or output actually matters.
+ * by the shell — no injection, no quote-breakage. Returns ONLY stdout + exit code (stderr is sent
+ * to /dev/null, so there is no second pipe to deadlock on and stdout can never be corrupted by an
+ * stderr line — unlike [execShell], which merges them). Use this whenever success/output matters.
  */
 private fun shExec(script: String, vararg args: String): CmdResult {
     val cmd = arrayListOf("sh", "-c", script, "sh")
     cmd.addAll(args)
-    val process = Runtime.getRuntime().exec(cmd.toTypedArray())
+    val process = ProcessBuilder(cmd)
+        .redirectError(ProcessBuilder.Redirect.to(java.io.File("/dev/null")))
+        .start()
     val out = process.inputStream.bufferedReader().use { it.readText().trim() }
-    process.errorStream.bufferedReader().use { it.readText() }  // drain so the process can exit
     return CmdResult(process.waitFor(), out)
 }
 
