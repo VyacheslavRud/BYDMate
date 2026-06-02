@@ -20,11 +20,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.bydmate.app.MainActivity
 import com.bydmate.app.R
-import com.bydmate.app.cluster.ClusterMode
-import com.bydmate.app.cluster.ClusterProjectionManager
-import com.bydmate.app.cluster.IPC_LEVER_DEV
-import com.bydmate.app.cluster.IPC_LEVER_FID
-import com.bydmate.app.cluster.clusterModeFromRaw
 import com.bydmate.app.data.automation.AutomationEngine
 import com.bydmate.app.data.remote.AlicePollingManager
 import com.bydmate.app.data.nativestack.ParsReader
@@ -53,7 +48,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -86,7 +80,6 @@ class TrackingService : Service(), LocationListener {
     @Inject lateinit var sharedAdaptiveLoop: com.bydmate.app.data.loop.SharedAdaptiveLoop
     @Inject lateinit var tripRecorder: com.bydmate.app.data.trips.TripRecorder
     @Inject lateinit var helperBootstrap: com.bydmate.app.data.vehicle.HelperBootstrap
-    @Inject lateinit var helperClient: com.bydmate.app.data.vehicle.HelperClient
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pollingJob: Job? = null
@@ -167,7 +160,6 @@ class TrackingService : Service(), LocationListener {
         private const val SESSION_IDLE_CLOSE_MS = 10_000L
         // Throttle for the periodic INFO summary so logcat doesn't get flooded.
         private const val SUMMARY_LOG_INTERVAL_MS = 60_000L
-        private const val CLUSTER_MIRROR_POLL_MS = 1_000L
         // Startup catch-up retries while the autoservice SOC fid is still
         // sentinel/unavailable during the cold-start window. 4 extra tries × 3 s
         // ≈ 12 s of grace before giving up — enough for the fid cache to warm so
@@ -298,7 +290,6 @@ class TrackingService : Service(), LocationListener {
         networkAvailableMonitor.start()
         startPolling()
         startCameraMonitor()
-        startClusterMirror()
         _isRunning.value = true
         ChainLog.append(this, "TrackingService fully started")
 
@@ -876,37 +867,6 @@ class TrackingService : Service(), LocationListener {
         cameraStateMonitor.start()
         serviceScope.launch {
             cameraStateMonitor.active.collect { _cameraActive.value = it }
-        }
-    }
-
-    /**
-     * Auto-mirror Yandex Navi onto the cluster, tracking the native ИПЦ lever. Polls the lever
-     * (fid [IPC_LEVER_FID], raw autoservice read under shell uid) every [CLUSTER_MIRROR_POLL_MS];
-     * when the settings master switch is on, drives ClusterProjectionManager to OFF/FULLSCREEN
-     * to match (Simple maps to OFF — only Full is projectable). When the switch is off we tear any
-     * live projection down once, then idle (a cheap pref read each tick). Fail-soft: an unreadable
-     * lever or unreachable daemon just skips the tick, and setMode itself defers FULLSCREEN while
-     * Navi is not running (we never auto-launch it).
-     */
-    private fun startClusterMirror() {
-        serviceScope.launch {
-            val prefs = getSharedPreferences(ClusterProjectionManager.PREFS_NAME, Context.MODE_PRIVATE)
-            while (isActive) {
-                try {
-                    if (prefs.getBoolean(ClusterProjectionManager.KEY_MIRROR_ENABLED, false)) {
-                        val mode = helperClient.read(IPC_LEVER_DEV, IPC_LEVER_FID, 5)
-                            ?.toInt()?.let { clusterModeFromRaw(it) }
-                        if (mode != null) {
-                            ClusterProjectionManager.setMode(applicationContext, mode, helperClient, helperBootstrap)
-                        }
-                    } else if (ClusterProjectionManager.currentMode != ClusterMode.OFF) {
-                        ClusterProjectionManager.setMode(applicationContext, ClusterMode.OFF, helperClient, helperBootstrap)
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "cluster mirror tick failed: ${e.message}")
-                }
-                delay(CLUSTER_MIRROR_POLL_MS)
-            }
         }
     }
 
