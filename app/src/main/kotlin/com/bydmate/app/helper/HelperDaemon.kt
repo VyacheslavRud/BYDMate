@@ -255,9 +255,9 @@ fun main(args: Array<String>) {
                     // DisplayManager.getDisplay(clusterId) returns null in our process). Mirrors
                     // OpenBYD AppConstants two-grant.
                     val pkg = HelperBinderProtocol.APP_PACKAGE
-                    val r1 = execShell("appops set $pkg SYSTEM_ALERT_WINDOW allow")
-                    val r2 = execShell("appops set $pkg PROJECT_MEDIA allow")
-                    val ok = !r1.contains("Error", ignoreCase = true) && !r2.contains("Error", ignoreCase = true)
+                    val r1 = shExec("appops set \"\$1\" SYSTEM_ALERT_WINDOW allow", pkg)
+                    val r2 = shExec("appops set \"\$1\" PROJECT_MEDIA allow", pkg)
+                    val ok = r1.code == 0 && r2.code == 0
                     reply?.writeInt(if (ok) 0 else -1); reply?.writeInt(0)
                     true
                 }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
@@ -487,6 +487,24 @@ private fun execShell(command: String): String {
     }.ifEmpty { "OK" }
 }
 
+private class CmdResult(val code: Int, val stdout: String)
+
+/**
+ * Runs [script] under sh with [args] bound to positional params ($1, $2, …) so untrusted values
+ * (e.g. an existing accessibility list read off the device) are passed as argv and NEVER re-parsed
+ * by the shell — no injection, no quote-breakage. Keeps stdout SEPARATE from stderr and returns the
+ * exit code, unlike [execShell] which merges them (merging would corrupt a value read back from
+ * `settings get`). Use this for any command whose success or output actually matters.
+ */
+private fun shExec(script: String, vararg args: String): CmdResult {
+    val cmd = arrayListOf("sh", "-c", script, "sh")
+    cmd.addAll(args)
+    val process = Runtime.getRuntime().exec(cmd.toTypedArray())
+    val out = process.inputStream.bufferedReader().use { it.readText().trim() }
+    process.errorStream.bufferedReader().use { it.readText() }  // drain so the process can exit
+    return CmdResult(process.waitFor(), out)
+}
+
 /**
  * Enables our steering-wheel accessibility service by APPENDING our flattened ComponentName to
  * secure setting enabled_accessibility_services (DiLink has no a11y settings UI, so the user
@@ -499,21 +517,29 @@ private fun execShell(command: String): String {
  */
 private fun enableAccessibilityService(): Boolean {
     val component = HelperBinderProtocol.ACCESSIBILITY_SERVICE_COMPONENT
-    val parts = readSecure("enabled_accessibility_services").split(':').filter { it.isNotEmpty() }
+    // Abort on a failed READ — never write a guessed/garbled list back, that would clobber other
+    // apps' accessibility services.
+    val current = readSecure("enabled_accessibility_services") ?: return false
+    val parts = current.split(':').filter { it.isNotEmpty() }
     if (!parts.contains(component)) {
         val updated = (parts + component).joinToString(":")
-        execShell("settings put secure enabled_accessibility_services '$updated'")
+        // $1 = updated, passed as argv (not interpolated) — safe even if the existing list is odd.
+        if (shExec("settings put secure enabled_accessibility_services \"\$1\"", updated).code != 0) return false
     }
-    execShell("settings put secure accessibility_enabled 1")
+    if (shExec("settings put secure accessibility_enabled 1").code != 0) return false
     // Verify read-back: our component is now listed AND accessibility is enabled.
-    val after = readSecure("enabled_accessibility_services").split(':').filter { it.isNotEmpty() }
+    val after = (readSecure("enabled_accessibility_services") ?: return false).split(':').filter { it.isNotEmpty() }
     return after.contains(component) && readSecure("accessibility_enabled") == "1"
 }
 
-/** Reads a secure setting via the `settings` binary; "" when unset (`settings get` prints "null"). */
-private fun readSecure(key: String): String {
-    val v = execShell("settings get secure $key")
-    return if (v == "null" || v == "OK") "" else v
+/**
+ * Reads a secure setting via the `settings` binary: "" when unset (`settings get` prints "null"),
+ * or null on a non-zero exit so callers can abort instead of acting on a bad read.
+ */
+private fun readSecure(key: String): String? {
+    val r = shExec("settings get secure \"\$1\"", key)
+    if (r.code != 0) return null
+    return if (r.stdout == "null") "" else r.stdout
 }
 
 /**

@@ -5,8 +5,11 @@ import android.view.KeyEvent
 /** Package of the projection target (Yandex Navigator) on the DiLink head unit. */
 const val NAVI_PACKAGE = "ru.yandex.yandexnavi"
 
-/** Right steering-wheel star, short-press keycode (validated on-car, Phase 0). Long-press = 352. */
+/** Right steering-wheel star, short-press keycode (validated on-car, Phase 0). */
 const val RIGHT_STAR_KEYCODE = 351
+
+/** Right steering-wheel star, long-press (удержание) keycode (validated on-car, Phase 0). */
+const val RIGHT_STAR_LONG_KEYCODE = 352
 
 /**
  * Starting width of the MINI projection card on the cluster (Q3 — empirical).
@@ -46,5 +49,12 @@ fun geometryFor(mode: ClusterMode, clusterW: Int, clusterH: Int): ClusterGeometr
 fun isClusterCycleTrigger(keyCode: Int, action: Int, isLongPress: Boolean, repeatCount: Int): Boolean =
     keyCode == RIGHT_STAR_KEYCODE && action == KeyEvent.ACTION_DOWN && !isLongPress && repeatCount == 0
 
-/** True iff this keycode is the one we bind. Long-press of it is passed through to the native menu. */
-fun isMappedButton(keyCode: Int): Boolean = keyCode == RIGHT_STAR_KEYCODE
+/**
+ * True iff this keycode is one we bind to the right star — short [RIGHT_STAR_KEYCODE] or its
+ * separate long-press keycode [RIGHT_STAR_LONG_KEYCODE]. Both are passed through to the native
+ * action-selection menu (the short press is consumed only when it is a cycle trigger). Including
+ * 352 here is what keeps the long-press menu intact even when the diagnostic consume-toggle is on:
+ * otherwise 352 would fall through to the consume fallback and be swallowed.
+ */
+fun isMappedButton(keyCode: Int): Boolean =
+    keyCode == RIGHT_STAR_KEYCODE || keyCode == RIGHT_STAR_LONG_KEYCODE

@@ -47,8 +47,9 @@ class ClusterProjectionStateTest {
         assertFalse(isClusterCycleTrigger(305, action = 0, isLongPress = false, repeatCount = 0))                // other key
     }
 
-    @Test fun `isMappedButton matches only the right star`() {
-        assertTrue(isMappedButton(RIGHT_STAR_KEYCODE))
-        assertFalse(isMappedButton(305))
+    @Test fun `isMappedButton matches both right-star keycodes so long-press passes through`() {
+        assertTrue(isMappedButton(RIGHT_STAR_KEYCODE))       // 351 short press
+        assertTrue(isMappedButton(RIGHT_STAR_LONG_KEYCODE))  // 352 long press → native menu pass-through
+        assertFalse(isMappedButton(305))                     // left star — unrelated
     }
 }

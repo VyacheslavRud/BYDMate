@@ -140,31 +140,45 @@ object ClusterProjectionManager {
         }
         val geo = geometryFor(mode, clusterWidth, clusterHeight) ?: return false
 
-        val surface = withTimeoutOrNull(SURFACE_TIMEOUT_MS) {
-            addOverlayAndAwaitSurface(context, display, geo, helper)
+        return try {
+            val surface = withTimeoutOrNull(SURFACE_TIMEOUT_MS) {
+                addOverlayAndAwaitSurface(context, display, geo, helper)
+            }
+            if (surface == null) {
+                Log.e(TAG, "overlay Surface not ready within ${SURFACE_TIMEOUT_MS}ms")
+                hideOverlay(helper); return false
+            }
+            // Release a stale VD (a prior release that failed) before overwriting the id. If it
+            // fails AGAIN, abort rather than dropping the only handle — otherwise the daemon-side
+            // VirtualDisplay leaks unrecoverably.
+            if (remoteDisplayId != -1) {
+                val staleId = remoteDisplayId
+                if (!helper.releaseVirtualDisplay(staleId)) {
+                    Log.w(TAG, "stale releaseVirtualDisplay($staleId) failed; aborting to keep retry handle")
+                    hideOverlay(helper); return false
+                }
+                remoteDisplayId = -1
+            }
+            val id = helper.createVirtualDisplay(
+                VD_NAME, geo.width, geo.height, clusterDensityDpi, VIRTUAL_DISPLAY_FLAGS, surface,
+            )
+            if (id == null) {
+                Log.e(TAG, "createVirtualDisplay failed"); hideOverlay(helper); return false
+            }
+            remoteDisplayId = id
+            Log.i(TAG, "VirtualDisplay id=$id; launchAndForce $NAVI_PACKAGE")
+            val ok = helper.launchAndForce(NAVI_PACKAGE, id, geo.width, geo.height)
+            if (!ok) {
+                Log.e(TAG, "launchAndForce failed"); hideOverlay(helper); return false
+            }
+            true
+        } catch (e: Exception) {
+            // wm.addView (BadTokenException) or any reflective daemon call can throw — tear the
+            // overlay down and report failure so applyModeLocked falls back to OFF + pull-back,
+            // keeping currentMode honest.
+            Log.e(TAG, "projection threw: ${e.message}", e)
+            hideOverlay(helper); false
         }
-        if (surface == null) {
-            Log.e(TAG, "overlay Surface not ready within ${SURFACE_TIMEOUT_MS}ms")
-            hideOverlay(helper); return false
-        }
-        // Release a stale VD (e.g. a prior release that failed) before overwriting the id,
-        // otherwise that VirtualDisplay would leak on the daemon side.
-        if (remoteDisplayId != -1) {
-            helper.releaseVirtualDisplay(remoteDisplayId); remoteDisplayId = -1
-        }
-        val id = helper.createVirtualDisplay(
-            VD_NAME, geo.width, geo.height, clusterDensityDpi, VIRTUAL_DISPLAY_FLAGS, surface,
-        )
-        if (id == null) {
-            Log.e(TAG, "createVirtualDisplay failed"); hideOverlay(helper); return false
-        }
-        remoteDisplayId = id
-        Log.i(TAG, "VirtualDisplay id=$id; launchAndForce $NAVI_PACKAGE")
-        val ok = helper.launchAndForce(NAVI_PACKAGE, id, geo.width, geo.height)
-        if (!ok) {
-            Log.e(TAG, "launchAndForce failed"); hideOverlay(helper); return false
-        }
-        return true
     }
 
     /**
@@ -234,7 +248,13 @@ object ClusterProjectionManager {
                     Log.d(TAG, "surfaceDestroyed")
                     // Safety net: if the system tore the Surface down outside hideOverlay(), the
                     // VirtualDisplay would render into a dead Surface — release it (mirrors OpenBYD).
-                    scope.launch { mutex.withLock { releaseRemoteDisplayIfAlive(helper) } }
+                    // Identity guard: during a MINI<->FULLSCREEN switch this OLD overlay's callback
+                    // must not release the NEW VirtualDisplay created for the next overlay.
+                    scope.launch {
+                        mutex.withLock {
+                            if (overlayView === container) releaseRemoteDisplayIfAlive(helper)
+                        }
+                    }
                 }
             })
 
