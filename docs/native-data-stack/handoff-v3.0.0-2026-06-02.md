@@ -34,6 +34,7 @@
 - Демон грантит себе `PROJECT_MEDIA` + `SYSTEM_ALERT_WINDOW` appops (иначе `getDisplay(clusterId)`=null у стороннего процесса).
 - План: `docs/superpowers/plans/2026-06-02-cluster-star-control.md`; коммиты `b30eddf..46a6f90`; 615 тестов зелёные, `assembleDebug` OK.
 - Codex pre-build audit пройден 2026-06-02 (SHIP).
+- **Проверено на машине 2026-06-02 (PASS):** Andy подтвердил работу; в системе наш a11y-сервис включён сам (`accessibility_enabled=1`, есть в `enabled_accessibility_services`, запущен в dumpsys), демон `bydmate_helper` жив под uid shell. ADB-шаг не понадобился. (Косметика: на тестовой машине в списке две формы записи нашего компонента — хвост прежних ручных ADB-включений; на чистой установке дубля не будет.)
 
 Детали: memory `[[reference_native_cluster_nav_mechanism]]`, `[[reference_cluster_projection_phase0]]`, `[[reference_openbyd_cluster_projection]]`.
 
