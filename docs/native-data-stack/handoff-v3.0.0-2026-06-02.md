@@ -30,7 +30,7 @@
 
 - Механизм: overlay + VirtualDisplay + launchAndForce под shell-uid демоном.
 - **Финальный подход — управление правой звездой (откат auto-mirror, решение Andy 2026-06-02).** Тумблер гейтит `SteeringWheelKeyService` (AccessibilityService, FLAG_REQUEST_FILTER_KEY_EVENTS). Короткое нажатие правой звезды (keycode 351) → `ClusterProjectionManager.toggle()` OFF↔FULLSCREEN (2 состояния); нажатие consume'ится. Удержание (352), левая звезда, карусель и выключенный тумблер → pass-through, штатное действие/меню цело. Приложение НЕ читает штатный ИПЦ-тумблер (fid 1086337074) — FULL контролирует пользователь; если FULL не включён, toggle — визуальный no-op (state остаётся OFF, следующее нажатие повторит).
-- a11y включается вручную через ADB (`settings put secure enabled_accessibility_services …` + `accessibility_enabled 1`) — на DiLink нет экрана Accessibility; приложение secure settings не пишет.
+- a11y **включается самим приложением, без ADB** (commit `b4f1959`): тумблер ON → `enableStarControl` → демон `enableAccessibilityService` (`TX_ENABLE_ACCESSIBILITY`=16) делает force re-bind через `settings put secure` под shell-uid (убрать → пауза 200мс → добавить → `accessibility_enabled=1`), как OpenBYD `AccessibilitySetupHelper`. Простой append не биндит сервис, который уже в списке но не запущен (после переустановки APK), поэтому нужен re-bind. App-scoped, обратимо; машины не касается.
 - Демон грантит себе `PROJECT_MEDIA` + `SYSTEM_ALERT_WINDOW` appops (иначе `getDisplay(clusterId)`=null у стороннего процесса).
 - План: `docs/superpowers/plans/2026-06-02-cluster-star-control.md`; коммиты `b30eddf..46a6f90`; 615 тестов зелёные, `assembleDebug` OK.
 - Codex pre-build audit пройден 2026-06-02 (SHIP).
@@ -64,12 +64,13 @@
 - `443d145` charging fix (sleep-charge reconstruction).
 - `760faa2` cluster cleanup: убран старый diagnostic/a11y/steering-wheel путь (тогда — в пользу auto-mirror; charging-правки TrackingService приехали этим же коммитом).
 - `b30eddf..46a6f90` — **откат auto-mirror → управление правой звездой** (решение Andy 2026-06-02): возвращены `SteeringWheelKeyService` + `ClusterEntryPoint` + a11y-config, добавлен чистый gate `SteeringWheelKeyDecision`, `ClusterProjectionManager.toggle()`/`nextMode`, снят guard auto-launch, выпилен мёртвый lever-mapper, обновлён тумблер в Настройках.
+- `b4f1959` — **самовключение a11y по тумблеру (без ADB)**: возвращён демонский путь `TX_ENABLE_ACCESSIBILITY` + `enableAccessibilityService` (force re-bind как OpenBYD), `enableStarControl` дёргается из тумблера. Любой пользователь ставит APK → включает тумблер → работает.
 
 Весь набор компилируется и проходит `./gradlew :app:testDebugUnitTest` + `:app:assembleDebug` (BUILD SUCCESSFUL, 615 тестов, 2026-06-02).
 
 ## Release checklist (после личной проверки Andy на машине)
 
-1. Рабочее дерево уже закоммичено (см. «Состояние веток»). Перед сборкой включить a11y на машине через ADB (см. on-car smoke).
+1. Рабочее дерево уже закоммичено (см. «Состояние веток»). a11y включается самим приложением по тумблеру — ADB-шаг больше не нужен.
 2. Bump `versionName 2.9.1 → 3.0.0`, `versionCode 305 → 306` в `app/build.gradle.kts`.
 3. `./gradlew assembleRelease` + подпись keystore (см. CLAUDE.md / `[[reference_keystore_path]]`).
 4. Проверить, что release-сборка НЕ debuggable (`run-as: package not debuggable`).
@@ -80,7 +81,7 @@
 ## On-car smoke — что проверить
 
 - **Зарядка во сне:** приехать на низком SOC, заглушить, зарядить пока спит, выдернуть, завести → ровно ОДНА зарядка с верными SOC и типом (AC/DC).
-- **Я.Навигатор на приборку (правой звездой):** сначала включить a11y через ADB (`settings put secure enabled_accessibility_services com.bydmate.app/com.bydmate.app.cluster.SteeringWheelKeyService` + `settings put secure accessibility_enabled 1`). Включить тумблер «Навигатор на приборку правой звездой» в Настройки → Приборка; в штатной навигации включить полноэкранный режим приборки. Короткое нажатие правой звезды → Навигатор на приборке; повторное → обратно на экран. Удержание правой звезды → штатное меню (цело). Тумблер OFF → звезда работает штатно. Проверить, не просит ли система разрешение overlay/projection (по идее грантится демоном без UI).
+- **Я.Навигатор на приборку (правой звездой):** установить APK, открыть Настройки → Приборка, включить тумблер «Навигатор на приборку правой звездой» (приложение само включит a11y через демон, ADB не нужен). В штатной навигации включить полноэкранный режим приборки. Короткое нажатие правой звезды → Навигатор на приборке; повторное → обратно на экран. Удержание правой звезды → штатное меню (цело). Тумблер OFF → звезда работает штатно. Проверить, не просит ли система разрешение overlay/projection (по идее грантится демоном без UI). Если после включения тумблера звезда не перехватывается сразу — выключить/включить тумблер ещё раз (re-bind) или проверить logcat `SteeringWheelKeySvc`/`ClusterProjection`.
 - **Comfort:** свет (салон/амбиент/ДХО), обогрев зеркал, окна, климат, багажник — реальное действие.
 - **D+ удаляем:** после PASS убедиться, что приложение работает с удалённым `com.van.diplus`.
 - **Апгрейд:** установка поверх старой версии бесшовна (миграции БД аддитивны 12/13 → 15).
