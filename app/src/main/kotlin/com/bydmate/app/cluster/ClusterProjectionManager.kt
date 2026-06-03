@@ -65,6 +65,9 @@ object ClusterProjectionManager {
     // User-tunable window size, % of the cluster panel (MIN_PROJECTION_PCT..MAX, default = full).
     const val KEY_WIDTH_PCT = "width_pct"
     const val KEY_HEIGHT_PCT = "height_pct"
+    // App to project onto the cluster (default Yandex Navi). Label is cached only for the settings row.
+    const val KEY_TARGET_PACKAGE = "target_package"
+    const val KEY_TARGET_LABEL = "target_label"
     // Last VirtualDisplay id we created. Persisted so a fresh app process can release the display
     // a prior (dead) process left orphaned in the long-lived daemon, instead of leaking it.
     private const val KEY_LAST_VD_ID = "last_vd_id"
@@ -189,7 +192,7 @@ object ClusterProjectionManager {
             Log.e(TAG, "resize: createVirtualDisplay failed; keeping current size")
             discardNewOverlayKeepOld(oldOverlay); return true
         }
-        if (!helper.launchAndForce(NAVI_PACKAGE, newVdId, geo.width, geo.height)) {
+        if (!helper.launchAndForce(targetPackage(context), newVdId, geo.width, geo.height)) {
             // Navi may already have been moved onto newVd; release it and let the caller rebuild.
             Log.e(TAG, "resize: launchAndForce failed")
             helper.releaseVirtualDisplay(newVdId)
@@ -232,6 +235,11 @@ object ClusterProjectionManager {
             prefs.getInt(KEY_HEIGHT_PCT, MAX_PROJECTION_PCT)
     }
 
+    /** Package to project — user-selectable in settings, defaults to Yandex Navi. */
+    private fun targetPackage(context: Context): String =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_TARGET_PACKAGE, NAVI_PACKAGE) ?: NAVI_PACKAGE
+
     /** Remember the last VirtualDisplay id so a future process can release it if we die holding it. */
     private fun saveLastVdId(context: Context, id: Int) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -257,7 +265,7 @@ object ClusterProjectionManager {
     ) {
         when (mode) {
             ClusterMode.OFF -> {
-                pullBackToMain(helper, focus = true)
+                pullBackToMain(context, helper, focus = true)
                 hideOverlay(helper)
                 currentMode = ClusterMode.OFF
             }
@@ -268,7 +276,7 @@ object ClusterProjectionManager {
                     // projection failed: keep state honest. project() already tore down the
                     // overlay/VD on its failure paths; make sure Navi is back on the main screen.
                     Log.e(TAG, "projection failed; falling back to OFF")
-                    pullBackToMain(helper, focus = true)
+                    pullBackToMain(context, helper, focus = true)
                     currentMode = ClusterMode.OFF
                 }
             }
@@ -324,8 +332,9 @@ object ClusterProjectionManager {
             }
             remoteDisplayId = id
             saveLastVdId(context, id)
-            Log.i(TAG, "VirtualDisplay id=$id; launchAndForce $NAVI_PACKAGE")
-            val ok = helper.launchAndForce(NAVI_PACKAGE, id, geo.width, geo.height)
+            val pkg = targetPackage(context)
+            Log.i(TAG, "VirtualDisplay id=$id; launchAndForce $pkg")
+            val ok = helper.launchAndForce(pkg, id, geo.width, geo.height)
             if (!ok) {
                 Log.e(TAG, "launchAndForce failed"); hideOverlay(helper); return false
             }
@@ -422,10 +431,10 @@ object ClusterProjectionManager {
         return ready.await()
     }
 
-    /** Move Navi's task back to the main display and (optionally) refocus it. */
-    private suspend fun pullBackToMain(helper: HelperClient, focus: Boolean) {
-        val taskId = helper.getTaskId(NAVI_PACKAGE) ?: run {
-            Log.d(TAG, "pullBackToMain: Navi task not found"); return
+    /** Move the projected app's task back to the main display and (optionally) refocus it. */
+    private suspend fun pullBackToMain(context: Context, helper: HelperClient, focus: Boolean) {
+        val taskId = helper.getTaskId(targetPackage(context)) ?: run {
+            Log.d(TAG, "pullBackToMain: projected task not found"); return
         }
         helper.moveTaskToDisplay(taskId, 0)
         helper.setTaskBounds(taskId, 0, 0, 0, 0)

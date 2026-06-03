@@ -8,6 +8,7 @@ import com.bydmate.app.cluster.ClusterEntryPoint
 import com.bydmate.app.cluster.ClusterProjectionManager
 import com.bydmate.app.cluster.MAX_PROJECTION_PCT
 import com.bydmate.app.cluster.MIN_PROJECTION_PCT
+import com.bydmate.app.cluster.NAVI_PACKAGE
 import dagger.hilt.android.EntryPointAccessors
 import kotlin.math.roundToInt
 import com.bydmate.app.ui.widget.WidgetController
@@ -15,6 +16,7 @@ import com.bydmate.app.ui.widget.WidgetPreferences
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.BatteryChargingFull
 import androidx.compose.material.icons.outlined.DirectionsCar
 import androidx.compose.material.icons.outlined.Home
@@ -853,6 +855,16 @@ private fun DisplaySection() {
     var heightPct by remember {
         mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_HEIGHT_PCT, MAX_PROJECTION_PCT))
     }
+    var targetPkg by remember {
+        mutableStateOf(prefs.getString(ClusterProjectionManager.KEY_TARGET_PACKAGE, NAVI_PACKAGE) ?: NAVI_PACKAGE)
+    }
+    var targetLabel by remember {
+        mutableStateOf(
+            prefs.getString(ClusterProjectionManager.KEY_TARGET_LABEL, null)
+                ?: resolveAppLabel(context, targetPkg)
+        )
+    }
+    var pickingApp by remember { mutableStateOf(false) }
 
     SectionHeader(text = stringResource(R.string.settings_display_mirror_header))
     Card(
@@ -896,6 +908,51 @@ private fun DisplaySection() {
         }
     }
 
+    // App to project — defaults to Yandex Navi. Reuses the Automation app picker. The new app takes
+    // effect on the next star press / projection start, not live (we don't migrate a running task).
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = CardSurfaceElevated),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .clickable { pickingApp = true }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Apps,
+                contentDescription = null,
+                tint = AccentGreen,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(stringResource(R.string.settings_display_app_title), color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(targetLabel, color = TextSecondary, fontSize = 12.sp, maxLines = 1)
+            }
+        }
+    }
+
+    if (pickingApp) {
+        AppLaunchPickerDialog(
+            currentPackage = targetPkg,
+            onDismiss = { pickingApp = false },
+            onSelect = { newPkg, newLabel ->
+                targetPkg = newPkg
+                targetLabel = newLabel
+                prefs.edit()
+                    .putString(ClusterProjectionManager.KEY_TARGET_PACKAGE, newPkg)
+                    .putString(ClusterProjectionManager.KEY_TARGET_LABEL, newLabel)
+                    .apply()
+                pickingApp = false
+            },
+        )
+    }
+
     SectionHeader(text = stringResource(R.string.settings_display_size_header))
     // Persist the new size and re-apply it live. reproject() is a no-op unless we are actively
     // projecting, so a tweak while OFF just lands in prefs and shows on the next star press.
@@ -910,6 +967,15 @@ private fun DisplaySection() {
     ClusterSizeSlider(stringResource(R.string.settings_display_size_width), widthPct, enabled, { widthPct = it }, applySize)
     ClusterSizeSlider(stringResource(R.string.settings_display_size_height), heightPct, enabled, { heightPct = it }, applySize)
 }
+
+/** App label for the cluster picker row; falls back to the package name when not installed/resolvable. */
+private fun resolveAppLabel(context: Context, pkg: String): String =
+    try {
+        val pm = context.packageManager
+        pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+    } catch (e: Exception) {
+        pkg
+    }
 
 @Composable
 private fun ClusterSizeSlider(

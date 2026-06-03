@@ -13,6 +13,7 @@
     <string name="settings_display_mirror_header">Navigator on cluster</string>
     <string name="settings_display_mirror_title">Navigator on cluster via right star</string>
     <string name="settings_display_mirror_desc">A short press of the right steering-wheel star moves Yandex Navigator to the cluster and back. Requires cluster full-screen mode to be on.</string>
+    <string name="settings_display_app_title">App on cluster</string>
     <string name="settings_display_size_header">Cluster window size</string>
     <string name="settings_display_size_width">Width</string>
     <string name="settings_display_size_height">Height</string>

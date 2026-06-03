@@ -18,6 +18,7 @@
     <string name="settings_display_mirror_header">Навигатор на приборку</string>
     <string name="settings_display_mirror_title">Навигатор на приборку правой звездой</string>
     <string name="settings_display_mirror_desc">Короткое нажатие правой звезды руля переносит Яндекс.Навигатор на приборку и обратно на экран. Нужен включённый полноэкранный режим приборки.</string>
+    <string name="settings_display_app_title">Приложение на приборку</string>
     <string name="settings_display_size_header">Размер окна на приборке</string>
     <string name="settings_display_size_width">Ширина</string>
     <string name="settings_display_size_height">Высота</string>
