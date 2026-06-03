@@ -310,6 +310,10 @@ class AutomationViewModel @Inject constructor(
                 "yandex_music" -> {
                     if (a.yandexMusicMode().isBlank()) return "Действие #$n: режим Я.Музыки не выбран"
                 }
+                "media_volume" -> {
+                    val level = a.payload?.toIntOrNull()
+                    if (level == null || level < 0) return "Действие #$n: уровень громкости не задан"
+                }
             }
         }
         return null
