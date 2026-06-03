@@ -81,6 +81,10 @@ object ClusterProjectionManager {
 
     private var overlayView: View? = null
     private var remoteDisplayId: Int = -1
+    // Package actually pinned on the cluster (the one we launchAndForce'd). pullBackToMain tugs THIS
+    // back, not the live settings target — the two differ when the user switches the projection app
+    // mid-projection, and tugging the new target would strand the old app on the cluster.
+    private var projectedPackage: String? = null
     // PROJECT_MEDIA has no app-side query API (unlike SYSTEM_ALERT_WINDOW / canDrawOverlays),
     // so we grant both via the daemon once per process the first time we project.
     private var projectionPermissionsGranted = false
@@ -192,7 +196,8 @@ object ClusterProjectionManager {
             Log.e(TAG, "resize: createVirtualDisplay failed; keeping current size")
             discardNewOverlayKeepOld(oldOverlay); return true
         }
-        if (!helper.launchAndForce(targetPackage(context), newVdId, geo.width, geo.height)) {
+        val pkg = targetPackage(context)
+        if (!helper.launchAndForce(pkg, newVdId, geo.width, geo.height)) {
             // Navi may already have been moved onto newVd; release it and let the caller rebuild.
             Log.e(TAG, "resize: launchAndForce failed")
             helper.releaseVirtualDisplay(newVdId)
@@ -201,6 +206,7 @@ object ClusterProjectionManager {
         // New projection holds Navi. Commit the new id, then drop the old overlay + VirtualDisplay.
         remoteDisplayId = newVdId
         saveLastVdId(context, newVdId)
+        projectedPackage = pkg
         if (oldVdId != -1) helper.releaseVirtualDisplay(oldVdId)
         removeOverlayView(oldOverlay)
         Log.i(TAG, "resize: swapped to ${geo.width}x${geo.height} (vd $oldVdId -> $newVdId)")
@@ -267,6 +273,7 @@ object ClusterProjectionManager {
             ClusterMode.OFF -> {
                 pullBackToMain(context, helper, focus = true)
                 hideOverlay(helper)
+                projectedPackage = null
                 currentMode = ClusterMode.OFF
             }
             ClusterMode.FULLSCREEN -> {
@@ -277,6 +284,7 @@ object ClusterProjectionManager {
                     // overlay/VD on its failure paths; make sure Navi is back on the main screen.
                     Log.e(TAG, "projection failed; falling back to OFF")
                     pullBackToMain(context, helper, focus = true)
+                    projectedPackage = null
                     currentMode = ClusterMode.OFF
                 }
             }
@@ -338,6 +346,7 @@ object ClusterProjectionManager {
             if (!ok) {
                 Log.e(TAG, "launchAndForce failed"); hideOverlay(helper); return false
             }
+            projectedPackage = pkg
             true
         } catch (e: Exception) {
             // wm.addView (BadTokenException) or any reflective daemon call can throw — tear the
@@ -433,8 +442,9 @@ object ClusterProjectionManager {
 
     /** Move the projected app's task back to the main display and (optionally) refocus it. */
     private suspend fun pullBackToMain(context: Context, helper: HelperClient, focus: Boolean) {
-        val taskId = helper.getTaskId(targetPackage(context)) ?: run {
-            Log.d(TAG, "pullBackToMain: projected task not found"); return
+        val pkg = projectedPackage ?: targetPackage(context)
+        val taskId = helper.getTaskId(pkg) ?: run {
+            Log.d(TAG, "pullBackToMain: projected task ($pkg) not found"); return
         }
         helper.moveTaskToDisplay(taskId, 0)
         helper.setTaskBounds(taskId, 0, 0, 0, 0)
