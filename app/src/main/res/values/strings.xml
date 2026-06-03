@@ -22,6 +22,15 @@
     <string name="settings_display_size_header">Размер окна на приборке</string>
     <string name="settings_display_size_width">Ширина</string>
     <string name="settings_display_size_height">Высота</string>
+    <!-- Steering-wheel button names (cluster trigger picker) -->
+    <string name="steering_button_right_star">Правая звезда</string>
+    <string name="steering_button_left_star">Левая звезда</string>
+    <string name="steering_button_carousel">Карусель приборки</string>
+    <string name="steering_button_surround_view">Обзор 360°</string>
+    <string name="steering_button_voice">Голосовой ассистент</string>
+    <string name="steering_button_aux_left">Доп. левая</string>
+    <string name="steering_button_aux_right">Доп. правая</string>
+    <string name="steering_button_unknown">Кнопка (код %1$d)</string>
     <string name="settings_section_places_title">Места</string>
     <string name="settings_section_application_title">Приложение</string>
     <!-- Smart Home section nav label stays Russian per design spec (hidden section) -->
