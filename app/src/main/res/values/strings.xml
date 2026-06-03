@@ -16,8 +16,8 @@
     <string name="settings_section_display_title">Дисплей</string>
     <!-- Settings: Display section (cluster projection) -->
     <string name="settings_display_mirror_header">Навигатор на приборку</string>
-    <string name="settings_display_mirror_title">Навигатор на приборку правой звездой</string>
-    <string name="settings_display_mirror_desc">Короткое нажатие правой звезды руля переносит Яндекс.Навигатор на приборку и обратно на экран. Нужен включённый полноэкранный режим приборки.</string>
+    <string name="settings_display_mirror_title">Навигатор на приборку кнопкой руля</string>
+    <string name="settings_display_mirror_desc">Короткое нажатие выбранной кнопки руля переносит Яндекс.Навигатор на приборку и обратно. Нужен включённый полноэкранный режим приборки.</string>
     <string name="settings_display_app_title">Приложение на приборку</string>
     <string name="settings_display_size_header">Размер окна на приборке</string>
     <string name="settings_display_size_width">Ширина</string>
@@ -31,6 +31,17 @@
     <string name="steering_button_aux_left">Доп. левая</string>
     <string name="steering_button_aux_right">Доп. правая</string>
     <string name="steering_button_unknown">Кнопка (код %1$d)</string>
+    <!-- Cluster trigger-button picker + learn dialog -->
+    <string name="settings_display_button_title">Кнопка запуска</string>
+    <string name="settings_display_button_change">Изменить</string>
+    <string name="learn_button_dialog_title">Назначить кнопку</string>
+    <string name="learn_button_waiting">Нажмите кнопку на руле…</string>
+    <string name="learn_button_rejected">Эту кнопку нельзя назначить. Нажмите другую.</string>
+    <string name="learn_button_captured">Кнопка распознана:</string>
+    <string name="learn_button_timeout">Кнопка не распознана. Возможно, она не передаётся системе. Попробуйте другую.</string>
+    <string name="learn_button_save">Сохранить</string>
+    <string name="learn_button_again">Заново</string>
+    <string name="learn_button_cancel">Отмена</string>
     <string name="settings_section_places_title">Места</string>
     <string name="settings_section_application_title">Приложение</string>
     <!-- Smart Home section nav label stays Russian per design spec (hidden section) -->

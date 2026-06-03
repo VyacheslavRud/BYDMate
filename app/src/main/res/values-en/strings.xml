@@ -12,8 +12,8 @@
     <!-- Settings: Display section (cluster projection) -->
     <string name="cluster_a11y_description">Intercepts steering-wheel buttons to project navigation onto the instrument cluster. Enabled manually, works only when the feature is on.</string>
     <string name="settings_display_mirror_header">Navigator on cluster</string>
-    <string name="settings_display_mirror_title">Navigator on cluster via right star</string>
-    <string name="settings_display_mirror_desc">A short press of the right steering-wheel star moves Yandex Navigator to the cluster and back. Requires cluster full-screen mode to be on.</string>
+    <string name="settings_display_mirror_title">Navigator on cluster via wheel button</string>
+    <string name="settings_display_mirror_desc">A short press of the chosen steering-wheel button moves Yandex Navigator to the cluster and back. Requires the cluster fullscreen mode to be on.</string>
     <string name="settings_display_app_title">App on cluster</string>
     <string name="settings_display_size_header">Cluster window size</string>
     <string name="settings_display_size_width">Width</string>
@@ -27,6 +27,17 @@
     <string name="steering_button_aux_left">Aux left</string>
     <string name="steering_button_aux_right">Aux right</string>
     <string name="steering_button_unknown">Button (code %1$d)</string>
+    <!-- Cluster trigger-button picker + learn dialog -->
+    <string name="settings_display_button_title">Trigger button</string>
+    <string name="settings_display_button_change">Change</string>
+    <string name="learn_button_dialog_title">Assign button</string>
+    <string name="learn_button_waiting">Press a steering-wheel button…</string>
+    <string name="learn_button_rejected">This button can\'t be assigned. Press another.</string>
+    <string name="learn_button_captured">Button recognized:</string>
+    <string name="learn_button_timeout">Button not recognized. It may not reach the system. Try another.</string>
+    <string name="learn_button_save">Save</string>
+    <string name="learn_button_again">Again</string>
+    <string name="learn_button_cancel">Cancel</string>
     <string name="settings_section_places_title">Places</string>
     <string name="settings_section_application_title">Application</string>
     <string name="settings_smart_home_section_title">Smart home</string>
