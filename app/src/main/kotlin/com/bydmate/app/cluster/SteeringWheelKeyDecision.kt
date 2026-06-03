@@ -45,3 +45,23 @@ fun starDecision(keyCode: Int, isDown: Boolean, enabled: Boolean, triggerKeyCode
     if (!enabled || keyCode != triggerKeyCode) return StarDecision.PASS_THROUGH
     return if (isDown) StarDecision.CONSUME_AND_TOGGLE else StarDecision.CONSUME
 }
+
+/**
+ * What the a11y filter should do while LEARNING a new trigger. The service consumes the event in
+ * ALL three cases (so the captured button's native action never fires mid-learn); the difference is
+ * the side effect:
+ * - CAPTURE: an assignable key was pressed — publish it and leave learn mode.
+ * - REJECT:  a blocked key (system / 360-view / carousel) was pressed — surface "can't assign",
+ *            stay in learn mode for another try.
+ * - CONSUME: a non-down edge (UP/MULTIPLE) — swallow silently, no side effect.
+ */
+enum class LearnAction { CAPTURE, REJECT, CONSUME }
+
+/**
+ * Pure learn-mode gate. Called by the service only while learn mode is active.
+ * Only the DOWN edge decides CAPTURE vs REJECT (via [isAssignable]); other edges are CONSUME.
+ */
+fun learnDecision(keyCode: Int, isDown: Boolean): LearnAction {
+    if (!isDown) return LearnAction.CONSUME
+    return if (isAssignable(keyCode)) LearnAction.CAPTURE else LearnAction.REJECT
+}

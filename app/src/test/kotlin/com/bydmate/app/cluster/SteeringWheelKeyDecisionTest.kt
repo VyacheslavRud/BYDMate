@@ -69,4 +69,18 @@ class SteeringWheelKeyDecisionTest {
         assertTrue(isAssignable(321)) // aux left
         assertTrue(isAssignable(383)) // aux right
     }
+
+    @Test fun `learn captures an assignable key on the down edge`() {
+        assertEquals(LearnAction.CAPTURE, learnDecision(305, isDown = true))
+    }
+
+    @Test fun `learn rejects a blocked key on the down edge`() {
+        assertEquals(LearnAction.REJECT, learnDecision(309, isDown = true)) // carousel blocked
+        assertEquals(LearnAction.REJECT, learnDecision(24, isDown = true))  // volume blocked
+    }
+
+    @Test fun `learn consumes the up edge silently`() {
+        assertEquals(LearnAction.CONSUME, learnDecision(305, isDown = false))
+        assertEquals(LearnAction.CONSUME, learnDecision(309, isDown = false))
+    }
 }
