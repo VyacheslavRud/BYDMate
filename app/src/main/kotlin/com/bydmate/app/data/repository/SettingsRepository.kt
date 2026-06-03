@@ -51,7 +51,6 @@ open class SettingsRepository @Inject constructor(
         /** Необязательный код модели автомобиля из библиотеки ABRP. */
         const val KEY_ABRP_CAR_MODEL = "abrp_car_model"
         const val KEY_DATA_SOURCE = "data_source"
-        const val KEY_AUTOSERVICE_ENABLED = "autoservice_enabled"
         const val KEY_LAST_MILEAGE_KM = "last_mileage_km"
         const val KEY_LAST_CAPACITY_KWH = "last_capacity_kwh"
         const val KEY_LAST_STATE_TS = "last_state_ts"
@@ -62,6 +61,10 @@ open class SettingsRepository @Inject constructor(
         const val KEY_CHARGING_BASELINE_SOC = "charging_baseline_soc"
         const val KEY_MIGRATION_V2_4_17 = "migration_v2_4_17_done"
         const val KEY_INSIGHT_CACHE_V2_MIGRATION_DONE = "insight_cache_v2_migration_done"
+        // One-shot migration flag: v2.8.1 — clear stale "DIPLUS" data_source value
+        // left from pre-native-stack versions. The DataSource.DIPLUS enum was removed
+        // in the native-stack migration; getDataSource() now always returns ENERGYDATA.
+        const val KEY_MIGRATION_V281_DATA_SOURCE = "migration_v281_data_source_done"
 
         const val DEFAULT_BATTERY_CAPACITY = "72.9"
         const val DEFAULT_HOME_TARIFF = "0.20"
@@ -84,7 +87,7 @@ open class SettingsRepository @Inject constructor(
 
     data class Currency(val code: String, val symbol: String)
 
-    enum class DataSource { ENERGYDATA, DIPLUS }
+    enum class DataSource { ENERGYDATA }
 
     suspend fun getString(key: String, default: String): String =
         settingsDao.get(key) ?: default
@@ -187,22 +190,9 @@ open class SettingsRepository @Inject constructor(
     suspend fun setIdleDrainV2CleanupDone() =
         setString(KEY_IDLE_DRAIN_V2_CLEANUP, "true")
 
-    suspend fun getDataSource(): DataSource =
-        when (getString(KEY_DATA_SOURCE, "ENERGYDATA")) {
-            "DIPLUS" -> DataSource.DIPLUS
-            else -> DataSource.ENERGYDATA
-        }
-
-    suspend fun setDataSource(source: DataSource) =
-        setString(KEY_DATA_SOURCE, source.name)
+    suspend fun getDataSource(): DataSource = DataSource.ENERGYDATA
 
     fun observeDataSource(): Flow<String?> = observeString(KEY_DATA_SOURCE)
-
-    suspend fun isAutoserviceEnabled(): Boolean =
-        getString(KEY_AUTOSERVICE_ENABLED, "false") == "true"
-
-    suspend fun setAutoserviceEnabled(enabled: Boolean) =
-        setString(KEY_AUTOSERVICE_ENABLED, enabled.toString())
 
     suspend fun getChargingBaselineSoc(): Int? =
         getString(KEY_CHARGING_BASELINE_SOC, "").toIntOrNull()
@@ -239,4 +229,19 @@ open class SettingsRepository @Inject constructor(
 
     suspend fun setInsightCacheV2MigrationDone() =
         setString(KEY_INSIGHT_CACHE_V2_MIGRATION_DONE, "true")
+
+    /**
+     * One-shot: if KEY_DATA_SOURCE is still "DIPLUS" (persisted by a pre-native-stack
+     * version), overwrite it to "ENERGYDATA". The DIPLUS enum value was removed in
+     * the native-stack migration; leaving the stale string in storage is harmless but
+     * confusing for future readers.
+     */
+    suspend fun migrateDataSourceIfNeeded() {
+        if (getString(KEY_MIGRATION_V281_DATA_SOURCE, "false") == "true") return
+        val stored = getString(KEY_DATA_SOURCE, "")
+        if (stored == "DIPLUS") {
+            setString(KEY_DATA_SOURCE, "ENERGYDATA")
+        }
+        setString(KEY_MIGRATION_V281_DATA_SOURCE, "true")
+    }
 }
