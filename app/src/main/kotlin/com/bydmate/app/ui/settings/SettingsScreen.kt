@@ -92,7 +92,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.annotation.StringRes
 import androidx.compose.ui.res.stringResource
 import com.bydmate.app.cluster.DEFAULT_TRIGGER_KEYCODE
+import com.bydmate.app.cluster.SteeringWheelKeyService
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filterNotNull
 import com.bydmate.app.R
 import com.bydmate.app.data.remote.OpenRouterModel
 import com.bydmate.app.data.repository.SettingsRepository
@@ -1054,24 +1056,31 @@ private fun LearnButtonDialog(
     onDismiss: () -> Unit,
 ) {
     var state by remember { mutableStateOf<LearnUiState>(LearnUiState.Waiting) }
-    val capture by com.bydmate.app.cluster.SteeringWheelKeyService.capturedKey.collectAsState()
 
-    // Enter learn mode on open, leave it on close (any path).
+    // Clear learn mode AND the captured value on close, so a later reopen can't latch a stale capture.
     DisposableEffect(Unit) {
-        com.bydmate.app.cluster.SteeringWheelKeyService.capturedKey.value = null
-        com.bydmate.app.cluster.SteeringWheelKeyService.learnMode = true
-        onDispose { com.bydmate.app.cluster.SteeringWheelKeyService.learnMode = false }
+        onDispose {
+            SteeringWheelKeyService.learnMode = false
+            SteeringWheelKeyService.capturedKey.value = null
+        }
     }
 
-    // React to a captured key.
-    LaunchedEffect(capture) {
-        val r = capture ?: return@LaunchedEffect
-        state = if (r.assignable) {
-            com.bydmate.app.cluster.SteeringWheelKeyService.learnMode = false
-            LearnUiState.Captured(r.keyCode)
-        } else {
-            LearnUiState.Rejected(r.keyCode)
-        }
+    // Arm capture, then react ONLY to fresh emissions. The StateFlow replays its current value to a
+    // new collector, so we reset it to null first and filterNotNull() drops both that reset and any
+    // stale value left from a previous session — reopening therefore always starts at Waiting.
+    LaunchedEffect(Unit) {
+        SteeringWheelKeyService.capturedKey.value = null
+        SteeringWheelKeyService.learnMode = true
+        SteeringWheelKeyService.capturedKey
+            .filterNotNull()
+            .collect { r ->
+                state = if (r.assignable) {
+                    SteeringWheelKeyService.learnMode = false
+                    LearnUiState.Captured(r.keyCode)
+                } else {
+                    LearnUiState.Rejected(r.keyCode)
+                }
+            }
     }
 
     // Timeout while still waiting/rejected (no assignable capture yet).
@@ -1079,15 +1088,16 @@ private fun LearnButtonDialog(
         if (state is LearnUiState.Waiting || state is LearnUiState.Rejected) {
             delay(10_000)
             if (state is LearnUiState.Waiting || state is LearnUiState.Rejected) {
-                com.bydmate.app.cluster.SteeringWheelKeyService.learnMode = false
+                SteeringWheelKeyService.learnMode = false
                 state = LearnUiState.TimedOut
             }
         }
     }
 
+    // "Again": re-arm. The collector above keeps running (keyed on Unit), so just reset + Waiting.
     val restart = {
-        com.bydmate.app.cluster.SteeringWheelKeyService.capturedKey.value = null
-        com.bydmate.app.cluster.SteeringWheelKeyService.learnMode = true
+        SteeringWheelKeyService.capturedKey.value = null
+        SteeringWheelKeyService.learnMode = true
         state = LearnUiState.Waiting
     }
 
