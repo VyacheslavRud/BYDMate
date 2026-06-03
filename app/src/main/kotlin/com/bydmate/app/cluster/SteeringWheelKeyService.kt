@@ -3,6 +3,7 @@ package com.bydmate.app.cluster
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.util.Log
 import android.view.KeyEvent
@@ -31,6 +32,7 @@ class SteeringWheelKeyService : AccessibilityService() {
         val info = serviceInfo ?: AccessibilityServiceInfo()
         info.flags = info.flags or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS  // 32
         serviceInfo = info
+        isConnected = true
         Log.d(TAG, "connected; filtering steering-wheel keys")
     }
 
@@ -55,7 +57,28 @@ class SteeringWheelKeyService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) { /* unused */ }
     override fun onInterrupt() { /* no-op */ }
 
-    private companion object {
+    override fun onUnbind(intent: Intent?): Boolean {
+        isConnected = false
+        Log.d(TAG, "unbound; star key filter inactive")
+        return super.onUnbind(intent)
+    }
+
+    override fun onDestroy() {
+        isConnected = false
+        super.onDestroy()
+    }
+
+    companion object {
         const val TAG = "SteeringWheelKeySvc"
+
+        /**
+         * True liveness signal. Set when the framework actually binds + connects this service (the
+         * only moment the key filter is live), cleared on unbind/destroy. The Secure-settings
+         * enabled-list is NOT reliable across boot/wake, so the re-assert watchdog in TrackingService
+         * gates on THIS first. Mirrors OpenBYD's SteeringWheelAccessibilityService.isConnected.
+         */
+        @Volatile
+        var isConnected: Boolean = false
+            private set
     }
 }
