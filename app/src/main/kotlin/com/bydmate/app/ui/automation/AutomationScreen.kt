@@ -33,6 +33,8 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Navigation
@@ -423,6 +425,12 @@ private fun EditorDialog(
                                     copy(triggers = triggers.toMutableList().apply { set(idx, newTrigger) })
                                 }
                             },
+                            onMoveUp = if (idx > 0) {
+                                { onUpdate { copy(triggers = triggers.moveItem(idx, up = true)) } }
+                            } else null,
+                            onMoveDown = if (idx < editing.triggers.lastIndex) {
+                                { onUpdate { copy(triggers = triggers.moveItem(idx, up = false)) } }
+                            } else null,
                             onDelete = {
                                 onUpdate {
                                     copy(triggers = triggers.toMutableList().apply { removeAt(idx) })
@@ -489,6 +497,12 @@ private fun EditorDialog(
                                 }
                             },
                             onTest = onTestAction,
+                            onMoveUp = if (idx > 0) {
+                                { onUpdate { copy(actions = actions.moveItem(idx, up = true)) } }
+                            } else null,
+                            onMoveDown = if (idx < editing.actions.lastIndex) {
+                                { onUpdate { copy(actions = actions.moveItem(idx, up = false)) } }
+                            } else null,
                             onDelete = {
                                 onUpdate {
                                     copy(actions = actions.toMutableList().apply { removeAt(idx) })
@@ -621,12 +635,27 @@ private fun EditorDialog(
 
 // --- Trigger Row ---
 
+/** Up/down reorder arrows shared by trigger and action rows. A null callback = boundary, shown dimmed and disabled. */
+@Composable
+private fun ReorderArrows(onMoveUp: (() -> Unit)?, onMoveDown: (() -> Unit)?) {
+    IconButton(onClick = { onMoveUp?.invoke() }, enabled = onMoveUp != null, modifier = Modifier.size(24.dp)) {
+        Icon(Icons.Outlined.KeyboardArrowUp, "выше",
+            tint = TextSecondary.copy(alpha = if (onMoveUp != null) 1f else 0.25f), modifier = Modifier.size(16.dp))
+    }
+    IconButton(onClick = { onMoveDown?.invoke() }, enabled = onMoveDown != null, modifier = Modifier.size(24.dp)) {
+        Icon(Icons.Outlined.KeyboardArrowDown, "ниже",
+            tint = TextSecondary.copy(alpha = if (onMoveDown != null) 1f else 0.25f), modifier = Modifier.size(16.dp))
+    }
+}
+
 @Composable
 private fun TriggerRow(
     index: Int,
     trigger: TriggerDef,
     places: List<PlaceEntity>,
     onUpdate: (TriggerDef) -> Unit,
+    onMoveUp: (() -> Unit)?,
+    onMoveDown: (() -> Unit)?,
     onDelete: () -> Unit
 ) {
     Row(
@@ -651,6 +680,7 @@ private fun TriggerRow(
 
         Spacer(Modifier.weight(1f))
 
+        ReorderArrows(onMoveUp = onMoveUp, onMoveDown = onMoveDown)
         IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
             Icon(Icons.Outlined.Close, "delete", tint = Color(0xFFEF4444).copy(alpha = 0.5f), modifier = Modifier.size(14.dp))
         }
@@ -1076,6 +1106,8 @@ private fun ActionRow(
     places: List<PlaceEntity>,
     onUpdate: (ActionDef) -> Unit,
     onTest: (String) -> Unit,
+    onMoveUp: (() -> Unit)?,
+    onMoveDown: (() -> Unit)?,
     onDelete: () -> Unit
 ) {
     Row(
@@ -1117,6 +1149,7 @@ private fun ActionRow(
             }
         }
         Spacer(Modifier.width(4.dp))
+        ReorderArrows(onMoveUp = onMoveUp, onMoveDown = onMoveDown)
         IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
             Icon(Icons.Outlined.Close, "delete", tint = Color(0xFFEF4444).copy(alpha = 0.5f), modifier = Modifier.size(14.dp))
         }

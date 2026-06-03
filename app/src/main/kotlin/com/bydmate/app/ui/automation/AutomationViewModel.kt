@@ -638,3 +638,16 @@ fun ActionDef.withYandexMusic(mode: String, minimize: Boolean): ActionDef = copy
         put("minimize", minimize)
     }.toString()
 )
+
+/**
+ * Pure list reorder used by the automation editor's up/down arrows: returns a new
+ * list with the item at [index] swapped with its neighbour. No-op (returns the same
+ * order) when [index] is at the boundary or out of range.
+ */
+internal fun <T> List<T>.moveItem(index: Int, up: Boolean): List<T> {
+    val target = if (up) index - 1 else index + 1
+    if (index !in indices || target !in indices) return this
+    return toMutableList().apply {
+        val tmp = this[index]; this[index] = this[target]; this[target] = tmp
+    }
+}
