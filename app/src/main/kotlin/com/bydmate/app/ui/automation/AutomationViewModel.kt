@@ -134,7 +134,6 @@ val TRIGGER_PARAMS = listOf(
 )
 
 val ACTION_COMMANDS = listOf(
-<<<<<<< HEAD
     ActionOption("车窗通风", "Проветривание", "车窗通风", "Vent Windows", "Окна", "车窗", "Windows"),
     ActionOption("车窗关闭", "Закрыть все окна", "关闭所有车窗", "Close All Windows", "Окна", "车窗", "Windows"),
     ActionOption("车窗全开", "Открыть все окна", "打开所有车窗", "Open All Windows", "Окна", "车窗", "Windows"),
