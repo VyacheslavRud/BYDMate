@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteException
 import android.net.Uri
 import android.os.Environment
+import android.util.Log
 import com.bydmate.app.data.local.database.AppDatabase
 import org.json.JSONArray
 import org.json.JSONObject
@@ -46,6 +47,8 @@ class BackupManager(
 ) {
 
     companion object {
+
+        private const val TAG = "BackupManager"
 
         private const val ENTRY_DB = "bydmate.db"
         private const val ENTRY_PREFS = "prefs.json"
@@ -318,9 +321,14 @@ class BackupManager(
 
         // 4. Swap the validated temp file in via an atomic rename. The live bydmate.db
         //    is never absent: it is replaced atomically. If rename fails the original is
-        //    still in place, so we abort rather than risk destroying it with a non-atomic
-        //    delete+copy. This also closes the race where the foreground TrackingService
-        //    could re-open Room mid-restore and find a missing file.
+        //    still in place and NOTHING has been mutated yet, so we abort (throw) rather
+        //    than risk destroying it with a non-atomic delete+copy. This also closes the
+        //    race where the foreground TrackingService could re-open Room mid-restore and
+        //    find a missing file.
+        //
+        //    A successful rename is the POINT OF NO RETURN: from here the app state is
+        //    already changed, so no later step may throw past the caller's restart. File
+        //    deletes below do not throw, and the prefs loop is best-effort (see below).
         if (!tmpDbFile.renameTo(targetDbFile)) {
             tmpDbFile.delete()
             throw IllegalStateException("Не удалось заменить файл базы данных при восстановлении")
@@ -353,8 +361,12 @@ class BackupManager(
                     }
                 }
             }
-            if (!editor.commit()) { // synchronous write before process restart
-                throw IllegalStateException("Не удалось записать настройки: $fileName")
+            if (!editor.commit()) {
+                // Past the point of no return: the DB is already swapped. A failed prefs
+                // commit (rare, disk-level error) must NOT throw here — that would skip the
+                // caller's restart and freeze the app half-restored. Log and continue so
+                // the remaining files still apply and the process still restarts.
+                Log.w(TAG, "Failed to commit prefs file during restore: $fileName")
             }
         }
         // Caller is responsible for restarting the process after this returns.
