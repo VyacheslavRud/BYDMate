@@ -17,7 +17,7 @@
 
 **English** | [中文](README.zh.md) | [Русский](README.md)
 
-[Features](#features) | [Screenshots](#screenshots) | [Automation](#automation) | [Cluster navigation](#navigation-on-the-cluster) | [AI Insights](#ai-insights) | [ABRP](#abrp--live-telemetry) | [Install](#install) | [Build](#build-from-source) | [Sponsor](SUPPORT.md)
+[Features](#features) | [Screenshots](#screenshots) | [Automation](#automation) | [Projection to cluster](#projection-to-cluster) | [AI Insights](#ai-insights) | [ABRP](#abrp--live-telemetry) | [Install](#install) | [Build](#build-from-source) | [Sponsor](SUPPORT.md)
 
 </div>
 
@@ -39,7 +39,7 @@ A major update. BYDMate moved to its own data stack and learned to mirror naviga
 
 **Own data stack, no D+.** Earlier BYDMate relied on the third-party D+ (迪加) app to reach car data. Now everything is read and every command is sent directly through the car's system service, with no middleman. After installing and verifying BYDMate, D+ can be removed from DiLink. SOC, power, temperatures, capacity, voltage, charge-gun state, SoH and mileage are read from the source. Lights, climate, windows, mirrors and the trunk are controlled directly too.
 
-**Yandex Navigator on the cluster.** The right steering-wheel star moves navigation onto the instrument cluster and back to the center screen. Yandex Navigator is the default, but any app can be picked. See the "Navigation on the cluster" section.
+**Yandex Navigator on the cluster.** The right steering-wheel star moves navigation onto the instrument cluster and back to the center screen. Yandex Navigator is the default, but any app can be picked. See the "Projection to cluster" section.
 
 **Sleep charging.** A charge that finished while the car was fully asleep and the app was off is now reconstructed correctly from two SOC points. Such a session could previously be lost.
 
@@ -59,7 +59,7 @@ A major update. BYDMate moved to its own data stack and learned to mirror naviga
 | **Bat** | Battery health | Temperature, SoH (on Leopard 3), cell balance, 12V |
 | **Map** | Route map | osmdroid (OpenStreetMap) inside trip detail |
 | **Rules** | Automation | WHEN→THEN rules: parameter triggers → vehicle commands |
-| **Cluster** | Cluster navigation | Mirror navigation onto the instrument cluster via the right star |
+| **Cluster** | Projection to cluster | Mirror the selected app onto the instrument cluster via a steering-wheel button (right star by default) |
 | **Widget** | Floating widget | 7-field overlay above other apps: SOC, range, consumption + trend, time, cabin t°, battery t°, 12V |
 | **Auto** | Autostart | WorkManager, starts on boot |
 | **CSV** | Data export | Trips and charges export to CSV |
@@ -144,21 +144,31 @@ Examples:
 
 ---
 
-## Navigation on the cluster
+## Projection to cluster
 
-BYDMate can mirror navigation onto the instrument cluster in front of the driver, so the map and maneuvers are right in your line of sight while the center screen stays free.
+BYDMate can mirror the selected app (navigation by default) onto the instrument cluster in front of the driver, so the map and maneuvers are right in your line of sight while the center screen stays free.
 
-### Right steering-wheel star control
+### Steering-wheel button control
 
-- **A short press of the right star** moves navigation to the cluster.
+- **A short press of the chosen button** moves the app to the cluster.
 - **Another short press** brings it back to the center screen.
 - **Holding the right star** keeps the stock behavior (car menu); BYDMate does not intercept it.
 
 ### Enabling
 
-Open **Settings → Cluster** and turn on "Navigator on cluster via right star". The app enables the required service itself (ADB debugging must be on, see "Install"), no manual setup needed.
+Before the first use, set up the stock navigation output to the cluster once, otherwise the system has nowhere to render the projection.
 
-In the car's stock navigation, enable full-screen cluster mode, otherwise the system has nowhere to render the projection.
+**1.** On the head unit's home screen, tap the cluster-projection icon (bottom-left, below the star icon). The stock navigation map appears on the cluster.
+
+<img src="docs/screenshots/cluster-projection-icon.jpg" alt="Cluster-projection icon on the home screen" width="800">
+
+**2.** On the map that appears, tap the **IPC** button in the bottom bar until the cluster switches to full-screen mode.
+
+<img src="docs/screenshots/cluster-projection-ipc-full.jpg" alt="The IPC button switches the cluster to full-screen mode" width="800">
+
+**3.** In BYDMate, open **Settings → Display** and turn on "Projection to cluster via wheel button". The app enables the required service itself (ADB activation done during install is required, see "Install"), no manual setup needed.
+
+After that, a short press of the chosen steering-wheel button (right star by default) moves the selected app to the cluster and back.
 
 ### Which app to project
 
