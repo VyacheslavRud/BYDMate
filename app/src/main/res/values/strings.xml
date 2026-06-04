@@ -596,8 +596,8 @@
     <!-- %1$d = trip count -->
     <string name="settings_recalc_done">Пересчитано: %1$d поездок</string>
     <string name="settings_export_in_progress">Экспорт...</string>
-    <!-- %1$d = trip count, %2$d = charge count -->
-    <string name="settings_export_done">Экспортировано: %1$d поездок, %2$d зарядок</string>
+    <!-- %1$d = trip count, %2$d = charge count, %3$d = track point count, %4$d = idle drain count -->
+    <string name="settings_export_done">Экспортировано: %1$d поездок, %2$d зарядок, %3$d точек трека, %4$d стоянок</string>
     <!-- Generic error with message: %1$s = error text -->
     <string name="settings_error_with_message">Ошибка: %1$s</string>
     <!-- Error prefix used for color detection in UI (must match start of settings_error_with_message) -->

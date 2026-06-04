@@ -454,7 +454,7 @@
     <string name="settings_saved">Saved</string>
     <string name="settings_recalc_done">Recalculated: %1$d trips</string>
     <string name="settings_export_in_progress">Exporting...</string>
-    <string name="settings_export_done">Exported: %1$d trips, %2$d charging sessions</string>
+    <string name="settings_export_done">Exported: %1$d trips, %2$d charging sessions, %3$d track points, %4$d idle drains</string>
     <string name="settings_error_with_message">Error: %1$s</string>
     <string name="settings_error_prefix">Error</string>
     <string name="settings_log_recording_started">Recording (auto-stop after 2h)... - %1$s</string>

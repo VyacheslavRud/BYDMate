@@ -14,6 +14,7 @@ import com.bydmate.app.data.local.EnergyDataReader
 import com.bydmate.app.data.local.HistoryImporter
 import com.bydmate.app.data.local.LocalePreferences
 import com.bydmate.app.data.local.dao.IdleDrainDao
+import com.bydmate.app.data.local.dao.TripPointDao
 import com.bydmate.app.data.remote.InsightsManager
 import com.bydmate.app.data.remote.OpenRouterModel
 import com.bydmate.app.data.repository.ChargeRepository
@@ -104,6 +105,7 @@ class SettingsViewModel @Inject constructor(
     private val historyImporter: HistoryImporter,
     private val energyDataReader: EnergyDataReader,
     private val idleDrainDao: IdleDrainDao,
+    private val tripPointDao: TripPointDao,
     private val insightsManager: InsightsManager,
     private val adbOnDeviceClient: AdbOnDeviceClient,
     private val localePreferences: LocalePreferences
@@ -350,11 +352,33 @@ class SettingsViewModel @Inject constructor(
                     }
                 }
 
+                // Export GPS track points
+                val tripPoints = tripPointDao.getAll()
+                val pointsFile = File(downloadsDir, "bydmate_trip_points_$timestamp.csv")
+                FileWriter(pointsFile).use { writer ->
+                    writer.append("id,trip_id,timestamp,lat,lon,speed_kmh\n")
+                    for (p in tripPoints) {
+                        writer.append("${p.id},${p.tripId},${p.timestamp},")
+                        writer.append("${p.lat},${p.lon},${p.speedKmh ?: ""}\n")
+                    }
+                }
+
+                // Export idle drains (parked battery drain)
+                val idleDrains = idleDrainDao.getAll()
+                val drainsFile = File(downloadsDir, "bydmate_idle_drains_$timestamp.csv")
+                FileWriter(drainsFile).use { writer ->
+                    writer.append("id,start_ts,end_ts,soc_start,soc_end,kwh_consumed\n")
+                    for (d in idleDrains) {
+                        writer.append("${d.id},${d.startTs},${d.endTs ?: ""},")
+                        writer.append("${d.socStart ?: ""},${d.socEnd ?: ""},${d.kwhConsumed ?: ""}\n")
+                    }
+                }
+
                 val tripCount = trips.size
                 val chargeCount = charges.size
                 _uiState.update {
                     it.copy(
-                        exportStatus = appContext.getString(R.string.settings_export_done, tripCount, chargeCount) + "\n-> ${downloadsDir.absolutePath}"
+                        exportStatus = appContext.getString(R.string.settings_export_done, tripCount, chargeCount, tripPoints.size, idleDrains.size) + "\n-> ${downloadsDir.absolutePath}"
                     )
                 }
             } catch (e: Exception) {
@@ -736,7 +760,12 @@ class SettingsViewModel @Inject constructor(
                     "HistoryImporter:*", "EnergyDataReader:*",
                     "AutoserviceClient:*", "AdbOnDeviceClient:*",
                     "IternioTelemetryClient:*", "BatteryHealthRepository:*",
-                    "ChargesViewModel:*", "ChargeRepository:*"
+                    "ChargesViewModel:*", "ChargeRepository:*",
+                    // v3.0.3: widen coverage to write/daemon/automation subsystems
+                    "HelperClient:*", "HelperBootstrap:*",
+                    "ActionDispatcher:*", "VehicleApiImpl:*",
+                    "AutomationEngine:*", "AutoserviceDetector:*",
+                    "SteeringWheelKeySvc:*"
                 ))
 
                 // Background thread to pipe logcat to file with size limit.
