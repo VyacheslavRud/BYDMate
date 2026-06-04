@@ -300,21 +300,27 @@ class BackupManager(
         targetDbFile.parentFile?.mkdirs()
         targetDbFile.writeBytes(dbBytes!!)
 
-        // 5. Restore SharedPreferences
+        // 5. Restore SharedPreferences.
+        // FULL REPLACE: clear EVERY whitelisted file first, even files absent from the
+        // backup (they were empty at export time). Iterating only over prefsMap would let
+        // stale prefs on the current device survive a "full replace".
         val prefsMap = deserializePrefs(prefsJson!!)
-        for ((fileName, entries) in prefsMap) {
+        for (fileName in prefsFileNames) {
             val editor = context.getSharedPreferences(fileName, Context.MODE_PRIVATE).edit()
             editor.clear()
-            for ((key, value) in entries) {
-                when (value) {
-                    is String -> editor.putString(key, value)
-                    is Int -> editor.putInt(key, value)
-                    is Long -> editor.putLong(key, value)
-                    is Float -> editor.putFloat(key, value)
-                    is Boolean -> editor.putBoolean(key, value)
-                    is Set<*> -> {
-                        @Suppress("UNCHECKED_CAST")
-                        editor.putStringSet(key, value as Set<String>)
+            val entries = prefsMap[fileName]
+            if (entries != null) {
+                for ((key, value) in entries) {
+                    when (value) {
+                        is String -> editor.putString(key, value)
+                        is Int -> editor.putInt(key, value)
+                        is Long -> editor.putLong(key, value)
+                        is Float -> editor.putFloat(key, value)
+                        is Boolean -> editor.putBoolean(key, value)
+                        is Set<*> -> {
+                            @Suppress("UNCHECKED_CAST")
+                            editor.putStringSet(key, value as Set<String>)
+                        }
                     }
                 }
             }
