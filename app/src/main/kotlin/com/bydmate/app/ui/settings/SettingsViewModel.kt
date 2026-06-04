@@ -9,7 +9,10 @@ import androidx.core.content.ContextCompat
 import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Intent
+import android.net.Uri
 import com.bydmate.app.data.autoservice.AdbOnDeviceClient
+import com.bydmate.app.data.backup.BackupManager
 import com.bydmate.app.data.local.EnergyDataReader
 import com.bydmate.app.data.local.HistoryImporter
 import com.bydmate.app.data.local.LocalePreferences
@@ -93,6 +96,8 @@ data class SettingsUiState(
     val abrpUserToken: String = "",
     val abrpCarModel: String = "",
     val abrpSaveStatus: String? = null,
+    /** Status of the last config backup/restore operation. Red if starts with error prefix. */
+    val configStatus: String? = null,
 )
 
 @HiltViewModel
@@ -108,7 +113,8 @@ class SettingsViewModel @Inject constructor(
     private val tripPointDao: TripPointDao,
     private val insightsManager: InsightsManager,
     private val adbOnDeviceClient: AdbOnDeviceClient,
-    private val localePreferences: LocalePreferences
+    private val localePreferences: LocalePreferences,
+    private val backupManager: BackupManager,
 ) : ViewModel() {
 
     private val _appLanguage = MutableStateFlow(localePreferences.getLanguage() ?: "ru")
@@ -886,6 +892,70 @@ class SettingsViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Config backup / restore
+    // -------------------------------------------------------------------------
+
+    /**
+     * Export the full app state (DB + prefs) to a zip file in Downloads.
+     * Updates configStatus with a success path or an error message.
+     */
+    fun exportConfig() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(configStatus = appContext.getString(R.string.settings_export_in_progress)) }
+            try {
+                val file = backupManager.export()
+                _uiState.update {
+                    it.copy(configStatus = appContext.getString(R.string.settings_config_export_done, file.absolutePath))
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(configStatus = appContext.getString(R.string.settings_error_with_message, e.message ?: "?"))
+                }
+            }
+        }
+    }
+
+    /**
+     * Restore the full app state from a user-picked backup zip.
+     * On success the process is immediately restarted so Room re-opens the replaced DB.
+     * On failure configStatus is set to the error message.
+     */
+    fun restoreConfig(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(configStatus = appContext.getString(R.string.settings_export_in_progress)) }
+            try {
+                backupManager.restore(uri)
+                restartApp()
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(configStatus = appContext.getString(R.string.settings_error_with_message, e.message ?: "?"))
+                }
+            }
+        }
+    }
+
+    /** Dismiss the config backup/restore status message. */
+    fun clearConfigStatus() {
+        _uiState.update { it.copy(configStatus = null) }
+    }
+
+    /**
+     * Relaunch the app from scratch so Room re-opens the freshly restored DB file.
+     * FLAG_ACTIVITY_CLEAR_TASK terminates all existing activities before the new launch.
+     */
+    private fun restartApp() {
+        val intent = appContext.packageManager
+            .getLaunchIntentForPackage(appContext.packageName)
+            ?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            }
+        if (intent != null) {
+            appContext.startActivity(intent)
+        }
+        Runtime.getRuntime().exit(0)
     }
 
     fun downloadUpdate() {

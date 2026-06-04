@@ -58,6 +58,8 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
@@ -1193,6 +1195,51 @@ private fun AppSection(state: SettingsUiState, viewModel: SettingsViewModel) {
     val lang by viewModel.appLanguage.collectAsState()
     LanguageBlock(currentLang = lang, onLanguageChange = viewModel::setAppLanguage)
 
+    // SAF picker for restore — must be declared at composable top level
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) viewModel.restoreConfig(uri)
+    }
+    var showRestoreConfirm by remember { mutableStateOf(false) }
+
+    // Confirm dialog for destructive restore operation
+    if (showRestoreConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRestoreConfirm = false },
+            title = {
+                Text(
+                    stringResource(R.string.settings_config_restore_confirm_title),
+                    color = TextPrimary,
+                )
+            },
+            text = {
+                Text(
+                    stringResource(R.string.settings_config_restore_confirm_body),
+                    color = TextSecondary,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRestoreConfirm = false
+                    restoreLauncher.launch(arrayOf("application/zip"))
+                }) {
+                    Text(
+                        stringResource(R.string.settings_config_restore_confirm_ok),
+                        color = SocRed,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRestoreConfirm = false }) {
+                    Text(
+                        stringResource(R.string.settings_config_restore_confirm_cancel),
+                        color = TextSecondary,
+                    )
+                }
+            },
+            containerColor = CardSurfaceElevated,
+        )
+    }
+
     SectionHeader(text = stringResource(R.string.settings_app_units_header))
     Card(
         shape = RoundedCornerShape(12.dp),
@@ -1277,6 +1324,42 @@ private fun AppSection(state: SettingsUiState, viewModel: SettingsViewModel) {
                     state.logSaveStatus!!,
                     color = if (state.logSaveStatus!!.startsWith(errorPrefix)) SocRed else PrimaryColor,
                     fontSize = 12.sp
+                )
+            }
+
+            // Export full config backup (DB + prefs) as a zip to Downloads
+            Button(
+                onClick = { viewModel.exportConfig() },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = PrimaryColor, contentColor = NavyDark)
+            ) {
+                Text(
+                    stringResource(R.string.settings_config_export_button),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+
+            // Restore config backup: confirm dialog then SAF zip picker
+            Button(
+                onClick = { showRestoreConfirm = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AccentPurple, contentColor = NavyDark)
+            ) {
+                Text(
+                    stringResource(R.string.settings_config_restore_button),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+
+            if (state.configStatus != null) {
+                Text(
+                    state.configStatus!!,
+                    color = if (state.configStatus!!.startsWith(errorPrefix)) SocRed else PrimaryColor,
+                    fontSize = 12.sp,
                 )
             }
         }

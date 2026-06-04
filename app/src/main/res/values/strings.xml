@@ -655,4 +655,15 @@
     <string name="insight_idle_prev">%1$s кВтч</string>
     <string name="insight_idle_minutes">%1$s мин</string>
     <string name="insight_idle_hours">%1$s ч</string>
+
+    <!-- Config backup / restore -->
+    <string name="settings_config_export_button">Экспорт конфигурации</string>
+    <string name="settings_config_restore_button">Восстановить конфигурацию</string>
+    <!-- %1$s = full file path -->
+    <string name="settings_config_export_done">Бэкап сохранён: %1$s</string>
+    <string name="settings_config_restore_done">Конфигурация восстановлена. Перезапуск...</string>
+    <string name="settings_config_restore_confirm_title">Восстановить конфигурацию?</string>
+    <string name="settings_config_restore_confirm_body">Текущие данные и настройки будут полностью заменены содержимым бэкапа. Отменить это действие невозможно.</string>
+    <string name="settings_config_restore_confirm_ok">Восстановить</string>
+    <string name="settings_config_restore_confirm_cancel">Отмена</string>
 </resources>

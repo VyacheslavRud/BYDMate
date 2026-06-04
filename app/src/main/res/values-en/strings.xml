@@ -500,4 +500,15 @@
     <string name="insight_idle_prev">%1$s kWh</string>
     <string name="insight_idle_minutes">%1$s min</string>
     <string name="insight_idle_hours">%1$s h</string>
+
+    <!-- Config backup / restore -->
+    <string name="settings_config_export_button">Export config</string>
+    <string name="settings_config_restore_button">Restore config</string>
+    <!-- %1$s = full file path -->
+    <string name="settings_config_export_done">Backup saved: %1$s</string>
+    <string name="settings_config_restore_done">Config restored. Restarting...</string>
+    <string name="settings_config_restore_confirm_title">Restore config?</string>
+    <string name="settings_config_restore_confirm_body">All current data and settings will be replaced with the backup contents. This cannot be undone.</string>
+    <string name="settings_config_restore_confirm_ok">Restore</string>
+    <string name="settings_config_restore_confirm_cancel">Cancel</string>
 </resources>
