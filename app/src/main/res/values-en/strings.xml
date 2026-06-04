@@ -11,9 +11,9 @@
     <string name="settings_section_display_title">Display</string>
     <!-- Settings: Display section (cluster projection) -->
     <string name="cluster_a11y_description">Intercepts steering-wheel buttons to project navigation onto the instrument cluster. Enabled manually, works only when the feature is on.</string>
-    <string name="settings_display_mirror_header">Navigator on cluster</string>
-    <string name="settings_display_mirror_title">Navigator on cluster via wheel button</string>
-    <string name="settings_display_mirror_desc">A short press of the chosen steering-wheel button moves Yandex Navigator to the cluster and back. Requires the cluster fullscreen mode to be on.</string>
+    <string name="settings_display_mirror_header">Projection to cluster</string>
+    <string name="settings_display_mirror_title">Projection to cluster via wheel button</string>
+    <string name="settings_display_mirror_desc">A short press of the chosen steering-wheel button moves the selected app to the cluster and back.</string>
     <string name="settings_display_app_title">App on cluster</string>
     <string name="settings_display_size_header">Cluster window size</string>
     <string name="settings_display_size_width">Width</string>

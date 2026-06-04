@@ -15,9 +15,9 @@
     <string name="settings_section_widget_title">Виджет</string>
     <string name="settings_section_display_title">Дисплей</string>
     <!-- Settings: Display section (cluster projection) -->
-    <string name="settings_display_mirror_header">Навигатор на приборку</string>
-    <string name="settings_display_mirror_title">Навигатор на приборку кнопкой руля</string>
-    <string name="settings_display_mirror_desc">Короткое нажатие выбранной кнопки руля переносит Яндекс.Навигатор на приборку и обратно. Нужен включённый полноэкранный режим приборки.</string>
+    <string name="settings_display_mirror_header">Вывод на приборку</string>
+    <string name="settings_display_mirror_title">Вывод на приборку кнопкой руля</string>
+    <string name="settings_display_mirror_desc">Короткое нажатие выбранной кнопки руля переносит выбранное приложение на приборку и обратно.</string>
     <string name="settings_display_app_title">Приложение на приборку</string>
     <string name="settings_display_size_header">Размер окна на приборке</string>
     <string name="settings_display_size_width">Ширина</string>

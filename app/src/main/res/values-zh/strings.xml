@@ -15,9 +15,9 @@
     <string name="settings_section_widget_title">小组件</string>
     <string name="settings_section_display_title">显示</string>
     <!-- Settings: Display section (cluster projection) -->
-    <string name="settings_display_mirror_header">导航投射到仪表盘</string>
-    <string name="settings_display_mirror_title">方向盘右星键导航投射到仪表盘</string>
-    <string name="settings_display_mirror_desc">短按方向盘右星键可将 Yandex 导航投射到仪表盘或返回屏幕。需要开启全屏仪表盘模式。</string>
+    <string name="settings_display_mirror_header">投射到仪表盘</string>
+    <string name="settings_display_mirror_title">方向盘按键投射到仪表盘</string>
+    <string name="settings_display_mirror_desc">短按所选方向盘按键，将所选应用投射到仪表盘或返回屏幕。</string>
     <string name="settings_display_app_title">投射到仪表盘的应用</string>
     <string name="settings_display_size_header">仪表盘窗口大小</string>
     <string name="settings_display_size_width">宽度</string>
@@ -440,7 +440,7 @@
     <string name="widget_toast_hidden">小组件已隐藏。打开 BYDMate 即可恢复。</string>
     <string name="widget_trash_release">松手 - 隐藏小组件</string>
     <string name="widget_trash_hint">拖到这里隐藏</string>
-    <string name="widget_km_per_percent">%1$.1f 公里/%%</string>
+    <string name="widget_km_per_percent">%1$.1f</string>
 
     <!-- Dashboard -->
     <string name="dashboard_vehicle_data_offline">未收到车辆数据</string>
