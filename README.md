@@ -13,7 +13,7 @@
 [![GitHub release](https://img.shields.io/github/v/release/AndyShaman/BYDMate?style=flat-square)](https://github.com/AndyShaman/BYDMate/releases)
 [![Sponsor](https://img.shields.io/badge/Поддержать-FF69B4?style=flat-square&logo=githubsponsors&logoColor=white)](SUPPORT.md)
 
-[English](README.en.md) | **Русский**
+[English](README.en.md) | [中文](README.zh.md) | **Русский**
 
 **Реальный расход, GPS-маршруты, автоматизация, AI-аналитика — локально, без облака.**
 

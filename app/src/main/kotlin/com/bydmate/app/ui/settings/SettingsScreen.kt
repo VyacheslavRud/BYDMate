@@ -1269,6 +1269,12 @@ private fun AppSection(state: SettingsUiState, viewModel: SettingsViewModel) {
                     )
                 }
             }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(stringResource(R.string.settings_map_tile_source_label), color = TextSecondary, fontSize = 14.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                UnitChip("OpenStreetMap", state.mapTileSource == "osm") { viewModel.saveMapTileSource("osm") }
+                UnitChip("Amap", state.mapTileSource == "amap") { viewModel.saveMapTileSource("amap") }
+            }
         }
     }
 
@@ -1525,6 +1531,11 @@ private fun LanguageBlock(
                 label = "English",
                 selected = currentLang == "en",
                 onClick = { applyLang("en") },
+            )
+            LanguageOption(
+                label = "简体中文",
+                selected = currentLang == "zh",
+                onClick = { applyLang("zh") },
             )
         }
     }

@@ -98,6 +98,7 @@ data class SettingsUiState(
     val abrpSaveStatus: String? = null,
     /** Status of the last config backup/restore operation. Red if starts with error prefix. */
     val configStatus: String? = null,
+    val mapTileSource: String = SettingsRepository.DEFAULT_MAP_TILE_SOURCE,
 )
 
 @HiltViewModel
@@ -124,6 +125,10 @@ class SettingsViewModel @Inject constructor(
         localePreferences.setLanguage(lang)
         AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(lang))
         _appLanguage.value = lang
+        // Auto-select CNY when switching to Chinese
+        if (lang == "zh") {
+            saveCurrency("CNY")
+        }
         // Force overlay teardown so the next attach picks up the new locale.
         // applicationContext keeps a stale Configuration after setApplicationLocales,
         // which leaves the floating widget rendering against the old language.
@@ -194,6 +199,7 @@ class SettingsViewModel @Inject constructor(
             val abrpApiKey = settingsRepository.getString(SettingsRepository.KEY_ABRP_API_KEY, "")
             val abrpUserToken = settingsRepository.getString(SettingsRepository.KEY_ABRP_USER_TOKEN, "")
             val abrpCarModel = settingsRepository.getString(SettingsRepository.KEY_ABRP_CAR_MODEL, "")
+            val mapTileSource = settingsRepository.getMapTileSource()
 
             _uiState.update {
                 it.copy(
@@ -218,6 +224,7 @@ class SettingsViewModel @Inject constructor(
                     abrpApiKey = abrpApiKey,
                     abrpUserToken = abrpUserToken,
                     abrpCarModel = abrpCarModel,
+                    mapTileSource = mapTileSource,
                 )
             }
         }
@@ -634,6 +641,13 @@ class SettingsViewModel @Inject constructor(
             }
             delay(2000)
             _uiState.update { it.copy(abrpSaveStatus = null) }
+        }
+    }
+
+    fun saveMapTileSource(source: String) {
+        _uiState.update { it.copy(mapTileSource = source) }
+        viewModelScope.launch {
+            settingsRepository.setMapTileSource(source)
         }
     }
 
