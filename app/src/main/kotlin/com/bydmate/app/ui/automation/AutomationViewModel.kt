@@ -93,6 +93,8 @@ val TRIGGER_PARAMS = listOf(
     TriggerParamOption("PowerState", "电源状态", "Питание", "Power State", "", "Энергия", "能源", "Energy",
         enumValues = listOf("0" to "OFF", "1" to "ON", "2" to "DRIVE")),
     TriggerParamOption("Voltage12V", "蓄电池电压", "12V аккумулятор", "12V Battery", "В", "Энергия", "能源", "Energy"),
+    TriggerParamOption("MinCellVoltage", "单体最低电压", "Напряжение банки (min)", "Min Cell Voltage", "В", "Энергия", "能源", "Energy"),
+    TriggerParamOption("MaxCellVoltage", "单体最高电压", "Напряжение банки (max)", "Max Cell Voltage", "В", "Энергия", "能源", "Energy"),
     TriggerParamOption("ExtTemp", "车外温度", "Темп. снаружи", "Outside Temp", "°C", "Температура", "温度", "Temperature"),
     TriggerParamOption("InsideTemp", "车内温度", "Темп. салона", "Cabin Temp", "°C", "Температура", "温度", "Temperature"),
     TriggerParamOption("AvgBatTemp", "平均电池温度", "Темп. батареи", "Battery Temp", "°C", "Температура", "温度", "Temperature"),

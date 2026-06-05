@@ -227,7 +227,12 @@ fun DashboardScreen(
                                         fontSize = 18.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         fontFamily = FontFamily.Monospace,
-                                        color = if (effectiveTrend == Trend.NONE) TextMuted else trendColor,
+                                        // Number colour is decoupled from the trend: it always reflects
+                                        // the consumption magnitude (consumptionColor). Trend direction is
+                                        // conveyed solely by the arrow above, which hides on Trend.NONE.
+                                        // Fixes the mid-trip "grey number" report where a momentary
+                                        // Trend.NONE greyed out a number that was still updating.
+                                        color = state.consumption?.let { consumptionColor(it) } ?: TextMuted,
                                     )
                                 }
                             }
@@ -422,6 +427,8 @@ fun DashboardScreen(
                         com.bydmate.app.ui.battery.BatteryHealthDialog(
                             liveSoc = state.soc,
                             liveCellDelta = state.cellVoltageDelta,
+                            liveCellVoltageMin = state.cellVoltageMin,
+                            liveCellVoltageMax = state.cellVoltageMax,
                             liveBatTemp = state.avgBatTemp,
                             liveVoltage12v = state.voltage12v,
                             liveSoh = state.currentSoh,

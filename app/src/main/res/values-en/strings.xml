@@ -446,6 +446,8 @@
     <string name="battery_health_lifetime_header">Lifetime (system data)</string>
     <string name="battery_health_cell_delta_label">Cell delta</string>
     <string name="battery_health_cell_delta_value">%1$.3f V</string>
+    <string name="battery_health_banks_header">Banks</string>
+    <string name="battery_health_cell_voltage_value">%1$.3f V</string>
     <string name="battery_health_bat_temp_label">battery temp.</string>
     <string name="battery_health_12v_label">12V system</string>
     <string name="battery_health_12v_value">%1$.1f V</string>

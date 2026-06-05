@@ -368,6 +368,8 @@ class AutomationEngine @Inject constructor(
         "Power" -> data.power
         "Mileage" -> data.mileage
         "Voltage12V" -> data.voltage12v
+        "MinCellVoltage" -> data.minCellVoltage
+        "MaxCellVoltage" -> data.maxCellVoltage
         else -> null
     }
 

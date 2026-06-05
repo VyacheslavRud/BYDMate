@@ -576,6 +576,9 @@
     <string name="battery_health_cell_delta_label">Δ ячеек</string>
     <!-- %1$.3f = delta volts -->
     <string name="battery_health_cell_delta_value">%1$.3f В</string>
+    <string name="battery_health_banks_header">Банки</string>
+    <!-- %1$.3f = cell voltage volts -->
+    <string name="battery_health_cell_voltage_value">%1$.3f В</string>
     <string name="battery_health_bat_temp_label">темп. батареи</string>
     <string name="battery_health_12v_label">бортовая сеть</string>
     <!-- %1$.1f = 12V voltage -->
