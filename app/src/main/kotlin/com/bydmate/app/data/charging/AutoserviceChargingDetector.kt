@@ -106,6 +106,10 @@ class AutoserviceChargingDetector @Inject constructor(
         // fids answer is unsupported firmware — stop deferring so charge
         // logging is not permanently blocked on such cars.
         const val MAX_CONSECUTIVE_GUN_GLITCHES = 3
+        // Plausibility floor for BMS-reported SOH in the SOC→kWh conversion
+        // (#28). Readings below this are sentinels or garbage, not a real
+        // pack — fall back to nominal capacity.
+        const val SOH_SANITY_MIN = 50.0
         private const val TAG = "AutoserviceDetector"
     }
 
@@ -298,7 +302,13 @@ class AutoserviceChargingDetector @Inject constructor(
             val currentCap = charging?.chargingCapacityKwh?.toDouble()
             val prevCap = prev.capacityKwh?.toDouble()
             val nominalCapacity = settings.getBatteryCapacity()
-            val socEstimate = (socDelta / 100.0) * nominalCapacity
+            // #28: 1% of SOC on an aged pack holds nominal × SOH/100 kWh, so the
+            // SOC→kWh conversion uses BMS-reported SOH. Sanity-clamped: a sentinel
+            // or garbage reading falls back to nominal (factor 1.0).
+            val sohFactor = battery?.sohPercent?.toDouble()
+                ?.takeIf { it in SOH_SANITY_MIN..100.0 }?.div(100.0) ?: 1.0
+            val effectiveCapacity = nominalCapacity * sohFactor
+            val socEstimate = (socDelta / 100.0) * effectiveCapacity
 
             val delta: Double
             val detectionSource: String
@@ -373,7 +383,7 @@ class AutoserviceChargingDetector @Inject constructor(
                 socStart = socStart,
                 socEnd = socEnd,
                 kwhCharged = delta,
-                kwhChargedSoc = (socEnd - socStart) / 100.0 * nominalCapacity,
+                kwhChargedSoc = (socEnd - socStart) / 100.0 * effectiveCapacity,
                 type = type,
                 cost = cost,
                 status = "COMPLETED",

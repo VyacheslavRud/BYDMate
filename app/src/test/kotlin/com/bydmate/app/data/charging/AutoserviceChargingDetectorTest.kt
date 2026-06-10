@@ -312,6 +312,42 @@ class AutoserviceChargingDetectorTest {
     }
 
     @Test
+    fun `gate C SOC estimate respects SOH`() = runTest {
+        // Issue #28: 1% of SOC on an aged pack holds nominal × SOH/100 kWh.
+        val setup = build(
+            battery = battery(soc = 91f, soh = 90f),
+            charging = charging(capKwh = null),
+            prevSoc = 80,
+            prevCapacityKwh = null
+        )
+
+        val result = setup.detector.runCatchUp(now = 1500L)
+
+        assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
+        val ch = setup.chargeDao.inserted.single()
+        // (91-80)/100 * 72.9 * 0.90 = 7.2171
+        assertEquals(7.2171, ch.kwhCharged!!, 0.01)
+        assertEquals(7.2171, ch.kwhChargedSoc!!, 0.01)
+        assertEquals("autoservice_soc_estimate", ch.detectionSource)
+    }
+
+    @Test
+    fun `garbage SOH falls back to nominal capacity`() = runTest {
+        // Sentinel/garbage SOH (outside 50..100) must not skew the estimate.
+        val setup = build(
+            battery = battery(soc = 91f, soh = 0f),
+            charging = charging(capKwh = null),
+            prevSoc = 80,
+            prevCapacityKwh = null
+        )
+
+        setup.detector.runCatchUp(now = 1500L)
+
+        val ch = setup.chargeDao.inserted.single()
+        assertEquals(8.019, ch.kwhCharged!!, 0.01)
+    }
+
+    @Test
     fun `SOC unchanged NEVER creates a row even with cap delta`() = runTest {
         // Regression test: 91→91 SOC, cap shows 5.6 kWh — the original phantom bug
         val setup = build(

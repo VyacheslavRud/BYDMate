@@ -245,6 +245,25 @@ class ChargesViewModelTest {
     // ─── Tests ────────────────────────────────────────────────────────────────
 
     @Test
+    fun `effective capacity for manual kWh edit is nominal scaled by BMS SOH`() = runTest {
+        val vm = buildViewModel(
+            batteryReading = BatteryReading(
+                sohPercent = 90f, socPercent = 80f, lifetimeKwh = null,
+                lifetimeMileageKm = 1000f, voltage12v = 14f, readAtMs = 0L
+            )
+        )
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(72.9 * 0.9, vm.uiState.value.effectiveCapacityKwh, 0.001)
+    }
+
+    @Test
+    fun `effective capacity falls back to nominal when SOH unavailable`() = runTest {
+        val vm = buildViewModel(batteryReading = null, autoserviceAvailable = false)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(72.9, vm.uiState.value.effectiveCapacityKwh, 0.001)
+    }
+
+    @Test
     fun `setPeriod_today_filtersChargesToToday`() = runTest {
         val today = startOfToday() + 3_600_000L
         val yesterdayTs = startOfToday() - 3_600_000L // 1 hour before midnight today
