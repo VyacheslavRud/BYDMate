@@ -140,6 +140,14 @@ class TrackingService : Service(), LocationListener {
     // transition (gunEdgeDetector.onSample is not synchronized — @Volatile
     // gives visibility, not atomicity).
     private val pollGunInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    // Catch-up resolution tracking. The startup retry loop only covers ~12 s,
+    // which loses the cold-boot race when autoservice warms up slower (DiLink
+    // 4.0 field reports). While the last outcome is unresolved (SENTINEL /
+    // UNAVAILABLE / STILL_CHARGING) we keep re-running catch-up on poll ticks —
+    // a missed sleep-charge then materializes as soon as the fids warm up,
+    // instead of being discarded by the odometer gate on the next ignition.
+    @Volatile private var catchUpResolved = false
+    private val catchUpRetryInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private val iternioTelemetryLock = Any()
     @Volatile private var lastIternioTelemetryMs: Long = 0L
@@ -173,6 +181,10 @@ class TrackingService : Service(), LocationListener {
         // a real sleep-charge isn't lost to a transient cold read.
         private const val AUTOSERVICE_CATCHUP_MAX_RETRIES = 4
         private const val AUTOSERVICE_CATCHUP_RETRY_DELAY_MS = 3_000L
+        // Tick-driven catch-up retry while unresolved. 10 ticks ≈ 30 s at the
+        // 3-s base interval — each retry costs ~8 Binder/ADB reads, so keep it
+        // an order of magnitude rarer than the shared loop itself.
+        private const val CATCHUP_RETRY_EVERY_N_TICKS = 10
         // Steering-wheel star a11y re-assert. The framework binds a11y services very early at boot —
         // before our process is ready — so our bind can lose the race and get parked with no retry.
         // A single re-assert (the old behaviour) often fired before the race settled, so we verify-
@@ -347,6 +359,7 @@ class TrackingService : Service(), LocationListener {
                     while (true) {
                         val result = autoserviceDetector.runCatchUp()
                         Log.i(TAG, "Autoservice catch-up: ${result.outcome} (attempt ${attempt + 1})")
+                        catchUpResolved = result.outcome.isResolved()
                         val retryable =
                             result.outcome == com.bydmate.app.data.charging.CatchUpOutcome.SENTINEL ||
                                 result.outcome == com.bydmate.app.data.charging.CatchUpOutcome.AUTOSERVICE_UNAVAILABLE
@@ -735,6 +748,15 @@ class TrackingService : Service(), LocationListener {
                         }
                     }
 
+                    // Re-run an unresolved catch-up until it lands on a terminal
+                    // outcome. Covers the cold-boot race the 12-s startup loop
+                    // loses, and finalizes a session if the gun edge was missed.
+                    if (!catchUpResolved && pollTickCount % CATCHUP_RETRY_EVERY_N_TICKS == 0L) {
+                        serviceScope.launch {
+                            retryUnresolvedCatchUp()
+                        }
+                    }
+
                     // On first data after startup: detect offline charging
                     if (!firstDataReceived) {
                         firstDataReceived = true
@@ -854,12 +876,32 @@ class TrackingService : Service(), LocationListener {
             }
             try {
                 val outcome = autoserviceDetector.runCatchUp(observedKwAbs = powerForClassify)
+                catchUpResolved = outcome.outcome.isResolved()
                 Log.i(TAG, "Live end-of-charging (autoservice gun edge): ${outcome.outcome}")
             } catch (e: Exception) {
                 Log.w(TAG, "Live end-of-charging failed: ${e.message}")
             }
         } finally {
             pollGunInFlight.set(false)
+        }
+    }
+
+    /** Terminal catch-up outcomes — no point re-running until new data arrives. */
+    private fun com.bydmate.app.data.charging.CatchUpOutcome.isResolved(): Boolean =
+        this == com.bydmate.app.data.charging.CatchUpOutcome.SESSION_CREATED ||
+            this == com.bydmate.app.data.charging.CatchUpOutcome.NO_DELTA ||
+            this == com.bydmate.app.data.charging.CatchUpOutcome.BASELINE_INITIALIZED
+
+    private suspend fun retryUnresolvedCatchUp() {
+        if (!catchUpRetryInFlight.compareAndSet(false, true)) return
+        try {
+            val result = autoserviceDetector.runCatchUp()
+            catchUpResolved = result.outcome.isResolved()
+            Log.i(TAG, "Catch-up tick retry: ${result.outcome}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Catch-up tick retry failed: ${e.message}")
+        } finally {
+            catchUpRetryInFlight.set(false)
         }
     }
 

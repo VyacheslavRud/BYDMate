@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -915,6 +916,121 @@ class AutoserviceChargingDetectorTest {
         assertEquals(CatchUpOutcome.NO_DELTA, result.outcome)
         assertEquals(0, setup.chargeDao.inserted.size)
         assertEquals(80, setup.stateStore.load().socPercent)
+    }
+
+    // === Pending charge (gun seen connected → never silently lose the session) ===
+
+    @Test
+    fun `STILL_CHARGING with gun connected sets persistent chargePending`() = runTest {
+        // A brief wake mid-charge proves a session is in progress. Persist that
+        // evidence so a later catch-up can not silently discard the session.
+        val setup = build(
+            battery = battery(soc = 35f),
+            charging = charging(capKwh = 2.0f, gunState = 2),
+            prevSoc = 20,
+            prevCapacityKwh = 0.0f
+        )
+
+        val result = setup.detector.runCatchUp(now = 1500L)
+
+        assertEquals(CatchUpOutcome.STILL_CHARGING, result.outcome)
+        assertTrue(setup.stateStore.loadChargePending())
+    }
+
+    @Test
+    fun `gun glitch STILL_CHARGING also sets chargePending`() = runTest {
+        val setup = build(
+            battery = battery(soc = 35f),
+            charging = ChargingReading(
+                gunConnectState = null,
+                chargingType = 2, chargeBatteryVoltV = 0,
+                batteryType = 1, chargingCapacityKwh = 2.0f,
+                bmsState = null, readAtMs = 1000L
+            ),
+            prevSoc = 20,
+            prevCapacityKwh = 0.0f
+        )
+
+        val result = setup.detector.runCatchUp(now = 1500L)
+
+        assertEquals(CatchUpOutcome.STILL_CHARGING, result.outcome)
+        assertTrue(setup.stateStore.loadChargePending())
+    }
+
+    @Test
+    fun `pending charge with odometer moved still creates a row and clears pending`() = runTest {
+        // Morning race lost: a wake during the charge set pending, the final
+        // wake-up window failed, the user drove off. SOC can only RISE via
+        // charging, so with pending evidence the session must become a row
+        // (kWh slightly under-counted by the drive) instead of a silent drop.
+        val fourHoursMs = 4L * 3_600_000L
+        val setup = build(
+            battery = battery(soc = 80f, mileage = 2200f),
+            charging = charging(capKwh = null, gunState = 1),
+            prevSoc = 10,
+            prevMileageKm = 2091f,
+            prevTs = 100L
+        )
+        setup.stateStore.setChargePending(true)
+
+        val result = setup.detector.runCatchUp(now = 100L + fourHoursMs)
+
+        assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
+        val ch = setup.chargeDao.inserted.single()
+        assertEquals(10, ch.socStart)
+        assertEquals(80, ch.socEnd)
+        assertFalse(setup.stateStore.loadChargePending())
+    }
+
+    @Test
+    fun `odometer moved WITHOUT pending still skips reconstruction`() = runTest {
+        val setup = build(
+            battery = battery(soc = 80f, mileage = 2200f),
+            charging = charging(capKwh = null, gunState = 1),
+            prevSoc = 10,
+            prevMileageKm = 2091f,
+            prevTs = 100L
+        )
+
+        val result = setup.detector.runCatchUp(now = 1500L)
+
+        assertEquals(CatchUpOutcome.NO_DELTA, result.outcome)
+        assertEquals(0, setup.chargeDao.inserted.size)
+    }
+
+    @Test
+    fun `tiny SOC bump clears chargePending without a row`() = runTest {
+        // Gun was seen connected but the charge added <3% — recalibration-scale
+        // noise. Roll forward and drop the stale pending flag.
+        val setup = build(
+            battery = battery(soc = 80f),
+            charging = charging(capKwh = null, gunState = 1),
+            prevSoc = 78
+        )
+        setup.stateStore.setChargePending(true)
+
+        val result = setup.detector.runCatchUp(now = 1500L)
+
+        assertEquals(CatchUpOutcome.NO_DELTA, result.outcome)
+        assertEquals(0, setup.chargeDao.inserted.size)
+        assertFalse(setup.stateStore.loadChargePending())
+    }
+
+    @Test
+    fun `normal reconstruction clears chargePending`() = runTest {
+        val setup = build(
+            battery = battery(soc = 80f, mileage = 2091f),
+            charging = charging(capKwh = null, gunState = 1),
+            prevSoc = 10,
+            prevMileageKm = 2091f,
+            prevTs = 100L
+        )
+        setup.stateStore.setChargePending(true)
+
+        val result = setup.detector.runCatchUp(now = 100L + 4L * 3_600_000L)
+
+        assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
+        assertFalse(setup.stateStore.loadChargePending())
     }
 
     // === recordParkedAnchor ===

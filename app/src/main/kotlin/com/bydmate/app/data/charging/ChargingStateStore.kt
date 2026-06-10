@@ -35,4 +35,10 @@ class ChargingStateStore @Inject constructor(
         settings.setLastCapacityKwh(capacityKwh)
         settings.setLastStateTs(ts)
     }
+
+    /** True when a charge session was observed in progress (gun connected) and
+     *  has not yet been reconstructed or dismissed. */
+    suspend fun loadChargePending(): Boolean = settings.getChargePending()
+
+    suspend fun setChargePending(pending: Boolean) = settings.setChargePending(pending)
 }

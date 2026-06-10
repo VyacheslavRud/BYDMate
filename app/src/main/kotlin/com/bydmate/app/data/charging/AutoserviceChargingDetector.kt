@@ -231,6 +231,12 @@ class AutoserviceChargingDetector @Inject constructor(
                 )
             val gunGlitch = gunResolved == null && chargingDeviceReadable
             if (gunIsConnected || gunGlitch) {
+                // Persist the evidence that a session is in progress around the
+                // stored baseline. The gun physically blocks driving, so if the
+                // odometer later moves before a successful catch-up, the charge
+                // still happened — the pending flag keeps Step 5 from silently
+                // discarding it.
+                stateStore.setChargePending(true)
                 android.util.Log.i(TAG, "runCatchUp: gun=$gun, deviceReadable=$chargingDeviceReadable → STILL_CHARGING (defer to live edge)")
                 _state.value = DetectorState.IDLE
                 return CatchUpResult(CatchUpOutcome.STILL_CHARGING)
@@ -249,14 +255,21 @@ class AutoserviceChargingDetector @Inject constructor(
             val socDelta = currentSoc - prev.socPercent
             val odometerMoved = prev.mileageKm != null && battery?.lifetimeMileageKm != null &&
                 (battery.lifetimeMileageKm - prev.mileageKm) > ODOMETER_MOVED_EPSILON_KM
-            if (socDelta < MIN_SOC_DELTA_FOR_CHARGE || odometerMoved) {
-                android.util.Log.i(TAG, "runCatchUp: socDelta=$socDelta odometerMoved=$odometerMoved → NO_DELTA (roll forward, no row)")
+            // A pending charge (gun was seen connected) overrides the odometer
+            // gate: SOC can only rise via charging, and the gun blocks driving,
+            // so socDelta >= threshold with pending evidence means a real session
+            // that ended before the drive. The drive's consumption makes the SOC
+            // estimate a slight under-count — accepted over losing the row.
+            val chargePending = stateStore.loadChargePending()
+            if (socDelta < MIN_SOC_DELTA_FOR_CHARGE || (odometerMoved && !chargePending)) {
+                android.util.Log.i(TAG, "runCatchUp: socDelta=$socDelta odometerMoved=$odometerMoved pending=$chargePending → NO_DELTA (roll forward, no row)")
                 stateStore.save(
                     socPercent = currentSoc,
                     mileageKm = battery?.lifetimeMileageKm,
                     capacityKwh = charging?.chargingCapacityKwh,
                     ts = now
                 )
+                stateStore.setChargePending(false)
                 _state.value = DetectorState.IDLE
                 return CatchUpResult(CatchUpOutcome.NO_DELTA)
             }
@@ -386,6 +399,7 @@ class AutoserviceChargingDetector @Inject constructor(
                 capacityKwh = charging?.chargingCapacityKwh,
                 ts = now
             )
+            stateStore.setChargePending(false)
 
             android.util.Log.i(TAG, "runCatchUp: SESSION_CREATED id=$chargeId, delta=${"%.3f".format(delta)}, source=$detectionSource, type=$type, socStart=$socStart, socEnd=$socEnd")
             _state.value = DetectorState.IDLE

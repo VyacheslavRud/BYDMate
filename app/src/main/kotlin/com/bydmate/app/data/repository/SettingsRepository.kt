@@ -61,6 +61,11 @@ open class SettingsRepository @Inject constructor(
         // cascade detector's pre-charging baseline survives polling and
         // runCatchUp can compute a real SOC delta on cold start.
         const val KEY_CHARGING_BASELINE_SOC = "charging_baseline_soc"
+        // Set when runCatchUp saw the gun connected (a charge session is in
+        // progress around the stored baseline); cleared once the session is
+        // reconstructed or dismissed. Lets a later catch-up create the row
+        // even if the odometer moved before the first successful run.
+        const val KEY_CHARGE_PENDING = "charge_pending"
         const val KEY_MIGRATION_V2_4_17 = "migration_v2_4_17_done"
         const val KEY_INSIGHT_CACHE_V2_MIGRATION_DONE = "insight_cache_v2_migration_done"
         // One-shot migration flag: v2.8.1 — clear stale "DIPLUS" data_source value
@@ -208,6 +213,12 @@ open class SettingsRepository @Inject constructor(
 
     suspend fun setChargingBaselineSoc(soc: Int) =
         setString(KEY_CHARGING_BASELINE_SOC, soc.toString())
+
+    suspend fun getChargePending(): Boolean =
+        getString(KEY_CHARGE_PENDING, "") == "true"
+
+    suspend fun setChargePending(pending: Boolean) =
+        setString(KEY_CHARGE_PENDING, pending.toString())
 
     suspend fun getLastMileageKm(): Float? =
         getString(KEY_LAST_MILEAGE_KM, "").toFloatOrNull()

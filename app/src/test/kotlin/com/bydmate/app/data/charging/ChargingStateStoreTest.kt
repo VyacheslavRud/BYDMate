@@ -8,7 +8,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChargingStateStoreTest {
@@ -74,6 +76,16 @@ class ChargingStateStoreTest {
         listOf(81, 82, 83, 84, 85).forEach { settings.saveLastKnownSoc(it) }
         val state = s.load()
         assertEquals(80, state.socPercent)
+    }
+
+    @Test
+    fun `chargePending defaults to false and round-trips`() = runTest {
+        val s = store()
+        assertFalse(s.loadChargePending())
+        s.setChargePending(true)
+        assertTrue(s.loadChargePending())
+        s.setChargePending(false)
+        assertFalse(s.loadChargePending())
     }
 
     @Test
