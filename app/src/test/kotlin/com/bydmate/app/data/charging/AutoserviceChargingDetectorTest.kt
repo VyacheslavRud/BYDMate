@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -97,6 +98,9 @@ class AutoserviceChargingDetectorTest {
         override suspend fun set(entity: com.bydmate.app.data.local.entity.SettingEntity) {
             map[entity.key] = entity.value ?: ""
         }
+        override suspend fun setAll(settings: List<com.bydmate.app.data.local.entity.SettingEntity>) {
+            settings.forEach { set(it) }
+        }
         override fun getAll(): Flow<List<com.bydmate.app.data.local.entity.SettingEntity>> =
             flowOf(emptyList())
     }
@@ -126,7 +130,8 @@ class AutoserviceChargingDetectorTest {
         val chargeDao: RecordingDao,
         val snapshotDao: RecordingBatterySnapshotDao,
         val stateStore: ChargingStateStore,
-        val auto: FakeAutoservice
+        val auto: FakeAutoservice,
+        val journal: CatchUpJournal
     )
 
     /**
@@ -175,6 +180,7 @@ class AutoserviceChargingDetectorTest {
         val settingsDao = FakeSettingsDao(initialMap)
         val settings = SettingsRepository(settingsDao, mockk<LocalePreferences>(relaxed = true))
         val stateStore = ChargingStateStore(settings)
+        val journal = CatchUpJournal(settings)
         val classifier = ChargingTypeClassifier()
         val detector = AutoserviceChargingDetector(
             client = auto,
@@ -183,15 +189,21 @@ class AutoserviceChargingDetectorTest {
             stateStore = stateStore,
             classifier = classifier,
             settings = settings,
-            parsReader = FakeParsReader(diParsData)
+            parsReader = FakeParsReader(diParsData),
+            journal = journal
         )
-        return TestSetup(detector, dao, snapshotDao, stateStore, auto)
+        return TestSetup(detector, dao, snapshotDao, stateStore, auto, journal)
     }
 
     /** DiParsData carrying only the fields recordParkedAnchor reads (gun defaults to NONE=1). */
-    private fun parkedSample(soc: Int?, mileage: Double? = null, gun: Int? = 1): DiParsData = DiParsData(
+    private fun parkedSample(
+        soc: Int?,
+        mileage: Double? = null,
+        gun: Int? = 1,
+        power: Double? = null
+    ): DiParsData = DiParsData(
         soc = soc,
-        speed = null, mileage = mileage, power = null, chargeGunState = gun,
+        speed = null, mileage = mileage, power = power, chargeGunState = gun,
         maxBatTemp = null, avgBatTemp = null, minBatTemp = null,
         chargingStatus = null, batteryCapacityKwh = null, totalElecConsumption = null,
         voltage12v = null, maxCellVoltage = null, minCellVoltage = null,
@@ -308,6 +320,42 @@ class AutoserviceChargingDetectorTest {
         // (91-80)/100 * 72.9 = 8.019
         assertEquals(8.019, ch.kwhCharged!!, 0.01)
         assertEquals("autoservice_soc_estimate", ch.detectionSource)
+    }
+
+    @Test
+    fun `gate C SOC estimate respects SOH`() = runTest {
+        // Issue #28: 1% of SOC on an aged pack holds nominal × SOH/100 kWh.
+        val setup = build(
+            battery = battery(soc = 91f, soh = 90f),
+            charging = charging(capKwh = null),
+            prevSoc = 80,
+            prevCapacityKwh = null
+        )
+
+        val result = setup.detector.runCatchUp(now = 1500L)
+
+        assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
+        val ch = setup.chargeDao.inserted.single()
+        // (91-80)/100 * 72.9 * 0.90 = 7.2171
+        assertEquals(7.2171, ch.kwhCharged!!, 0.01)
+        assertEquals(7.2171, ch.kwhChargedSoc!!, 0.01)
+        assertEquals("autoservice_soc_estimate", ch.detectionSource)
+    }
+
+    @Test
+    fun `garbage SOH falls back to nominal capacity`() = runTest {
+        // Sentinel/garbage SOH (outside 50..100) must not skew the estimate.
+        val setup = build(
+            battery = battery(soc = 91f, soh = 0f),
+            charging = charging(capKwh = null),
+            prevSoc = 80,
+            prevCapacityKwh = null
+        )
+
+        setup.detector.runCatchUp(now = 1500L)
+
+        val ch = setup.chargeDao.inserted.single()
+        assertEquals(8.019, ch.kwhCharged!!, 0.01)
     }
 
     @Test
@@ -901,9 +949,48 @@ class AutoserviceChargingDetectorTest {
     }
 
     @Test
-    fun `SOC bump below charge threshold rolls forward without a row`() = runTest {
-        // A 2% wake-up rise is BMS recalibration / regen noise, not a plug-in.
-        // No row; baseline advances to the new SOC.
+    fun `1 percent SOC rise creates a row`() = runTest {
+        // Daily AC top-ups on short-trip cars add only 1-2% — these are real
+        // sessions, not noise (field report 2026-06-11). The gate is 1%.
+        val setup = build(
+            battery = battery(soc = 80f),
+            charging = charging(capKwh = null, gunState = 1),
+            prevSoc = 79
+        )
+
+        val result = setup.detector.runCatchUp(now = 1500L)
+
+        assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
+        val ch = setup.chargeDao.inserted.single()
+        assertEquals(79, ch.socStart)
+        assertEquals(80, ch.socEnd)
+        assertEquals(80, setup.stateStore.load().socPercent)
+    }
+
+    @Test
+    fun `runCatchUp writes journal entries for outcomes`() = runTest {
+        // SESSION_CREATED and the follow-up NO_DELTA must both leave traces in
+        // the persistent journal (field diagnosis — logcat rotates out).
+        val setup = build(
+            battery = battery(soc = 91f),
+            charging = charging(capKwh = null, gunState = 1),
+            prevSoc = 80
+        )
+
+        setup.detector.runCatchUp(now = 1500L)   // SESSION_CREATED
+        setup.detector.runCatchUp(now = 2500L)   // NO_DELTA (soc unchanged)
+
+        val lines = setup.journal.read().lines()
+        assertEquals(2, lines.size)
+        assertTrue(lines[0].contains("SESSION_CREATED"))
+        assertTrue(lines[0].contains("soc=80->91"))
+        assertTrue(lines[1].contains("NO_DELTA soc=91 prev=91"))
+    }
+
+    @Test
+    fun `2 percent SOC rise creates a row`() = runTest {
+        // Regression guard for the old MIN_SOC_DELTA_FOR_CHARGE=3 gate that
+        // silently dropped small overnight charges.
         val setup = build(
             battery = battery(soc = 80f),
             charging = charging(capKwh = null, gunState = 1),
@@ -912,9 +999,206 @@ class AutoserviceChargingDetectorTest {
 
         val result = setup.detector.runCatchUp(now = 1500L)
 
+        assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
+        assertEquals(1, setup.chargeDao.inserted.size)
+        assertEquals(80, setup.stateStore.load().socPercent)
+    }
+
+    // === Gun-glitch narrowing (static fids don't vouch for the gun fid) ===
+
+    @Test
+    fun `gun null with only static batteryType readable does NOT defer`() = runTest {
+        // batteryType is a constant (LFP) readable on firmwares where the gun
+        // fid is simply unsupported. Counting it as "charging device alive"
+        // turned every catch-up into STILL_CHARGING and permanently blocked
+        // charge logging on such cars. Only dynamic charging fids vouch.
+        val setup = build(
+            battery = battery(soc = 91f),
+            charging = ChargingReading(
+                gunConnectState = null,
+                chargingType = null, chargeBatteryVoltV = null,
+                batteryType = 1, chargingCapacityKwh = null,
+                bmsState = null, readAtMs = 1000L
+            ),
+            prevSoc = 80,
+            prevCapacityKwh = 0.0f
+        )
+
+        val result = setup.detector.runCatchUp(now = 1500L)
+
+        assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
+        assertEquals(1, setup.chargeDao.inserted.size)
+    }
+
+    @Test
+    fun `fourth consecutive gun glitch falls through to cascade`() = runTest {
+        // A transient glitch clears within a read or two; a gun fid that stays
+        // silent across many runs while siblings answer is unsupported firmware.
+        // Without an escape the detector would defer forever and never log a
+        // charge on such cars.
+        val glitched = ChargingReading(
+            gunConnectState = null,
+            chargingType = 2, chargeBatteryVoltV = 0,
+            batteryType = 1, chargingCapacityKwh = 8.0f,
+            bmsState = null, readAtMs = 1000L
+        )
+        val setup = build(
+            battery = battery(soc = 91f),
+            charging = glitched,
+            prevSoc = 80,
+            prevCapacityKwh = 0.0f
+        )
+
+        repeat(3) {
+            assertEquals(CatchUpOutcome.STILL_CHARGING, setup.detector.runCatchUp(now = 1500L).outcome)
+        }
+        val fourth = setup.detector.runCatchUp(now = 1500L)
+
+        assertEquals(CatchUpOutcome.SESSION_CREATED, fourth.outcome)
+        assertEquals(1, setup.chargeDao.inserted.size)
+    }
+
+    @Test
+    fun `successful gun read resets the glitch counter`() = runTest {
+        val glitched = ChargingReading(
+            gunConnectState = null,
+            chargingType = 2, chargeBatteryVoltV = 0,
+            batteryType = 1, chargingCapacityKwh = 8.0f,
+            bmsState = null, readAtMs = 1000L
+        )
+        val setup = build(
+            battery = battery(soc = 91f),
+            charging = glitched,
+            prevSoc = 80,
+            prevCapacityKwh = 0.0f
+        )
+
+        // Two glitches, then a real gun read (connected) resets the streak.
+        repeat(2) { setup.detector.runCatchUp(now = 1500L) }
+        setup.auto.charging = charging(capKwh = 8.0f, gunState = 2)
+        setup.detector.runCatchUp(now = 1500L)
+
+        // Three more glitches are counts 1..3 of a fresh streak — all defer.
+        setup.auto.charging = glitched
+        repeat(3) {
+            assertEquals(CatchUpOutcome.STILL_CHARGING, setup.detector.runCatchUp(now = 1500L).outcome)
+        }
+        assertEquals(0, setup.chargeDao.inserted.size)
+    }
+
+    // === Pending charge (gun seen connected → never silently lose the session) ===
+
+    @Test
+    fun `STILL_CHARGING with gun connected sets persistent chargePending`() = runTest {
+        // A brief wake mid-charge proves a session is in progress. Persist that
+        // evidence so a later catch-up can not silently discard the session.
+        val setup = build(
+            battery = battery(soc = 35f),
+            charging = charging(capKwh = 2.0f, gunState = 2),
+            prevSoc = 20,
+            prevCapacityKwh = 0.0f
+        )
+
+        val result = setup.detector.runCatchUp(now = 1500L)
+
+        assertEquals(CatchUpOutcome.STILL_CHARGING, result.outcome)
+        assertTrue(setup.stateStore.loadChargePending())
+    }
+
+    @Test
+    fun `gun glitch STILL_CHARGING also sets chargePending`() = runTest {
+        val setup = build(
+            battery = battery(soc = 35f),
+            charging = ChargingReading(
+                gunConnectState = null,
+                chargingType = 2, chargeBatteryVoltV = 0,
+                batteryType = 1, chargingCapacityKwh = 2.0f,
+                bmsState = null, readAtMs = 1000L
+            ),
+            prevSoc = 20,
+            prevCapacityKwh = 0.0f
+        )
+
+        val result = setup.detector.runCatchUp(now = 1500L)
+
+        assertEquals(CatchUpOutcome.STILL_CHARGING, result.outcome)
+        assertTrue(setup.stateStore.loadChargePending())
+    }
+
+    @Test
+    fun `pending charge with odometer moved still creates a row and clears pending`() = runTest {
+        // Morning race lost: a wake during the charge set pending, the final
+        // wake-up window failed, the user drove off. SOC can only RISE via
+        // charging, so with pending evidence the session must become a row
+        // (kWh slightly under-counted by the drive) instead of a silent drop.
+        val fourHoursMs = 4L * 3_600_000L
+        val setup = build(
+            battery = battery(soc = 80f, mileage = 2200f),
+            charging = charging(capKwh = null, gunState = 1),
+            prevSoc = 10,
+            prevMileageKm = 2091f,
+            prevTs = 100L
+        )
+        setup.stateStore.setChargePending(true)
+
+        val result = setup.detector.runCatchUp(now = 100L + fourHoursMs)
+
+        assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
+        val ch = setup.chargeDao.inserted.single()
+        assertEquals(10, ch.socStart)
+        assertEquals(80, ch.socEnd)
+        assertFalse(setup.stateStore.loadChargePending())
+    }
+
+    @Test
+    fun `odometer moved WITHOUT pending still skips reconstruction`() = runTest {
+        val setup = build(
+            battery = battery(soc = 80f, mileage = 2200f),
+            charging = charging(capKwh = null, gunState = 1),
+            prevSoc = 10,
+            prevMileageKm = 2091f,
+            prevTs = 100L
+        )
+
+        val result = setup.detector.runCatchUp(now = 1500L)
+
         assertEquals(CatchUpOutcome.NO_DELTA, result.outcome)
         assertEquals(0, setup.chargeDao.inserted.size)
-        assertEquals(80, setup.stateStore.load().socPercent)
+    }
+
+    @Test
+    fun `unchanged SOC clears chargePending without a row`() = runTest {
+        // Gun was seen connected but SOC did not rise (charger never delivered).
+        // Roll forward and drop the stale pending flag.
+        val setup = build(
+            battery = battery(soc = 80f),
+            charging = charging(capKwh = null, gunState = 1),
+            prevSoc = 80
+        )
+        setup.stateStore.setChargePending(true)
+
+        val result = setup.detector.runCatchUp(now = 1500L)
+
+        assertEquals(CatchUpOutcome.NO_DELTA, result.outcome)
+        assertEquals(0, setup.chargeDao.inserted.size)
+        assertFalse(setup.stateStore.loadChargePending())
+    }
+
+    @Test
+    fun `normal reconstruction clears chargePending`() = runTest {
+        val setup = build(
+            battery = battery(soc = 80f, mileage = 2091f),
+            charging = charging(capKwh = null, gunState = 1),
+            prevSoc = 10,
+            prevMileageKm = 2091f,
+            prevTs = 100L
+        )
+        setup.stateStore.setChargePending(true)
+
+        val result = setup.detector.runCatchUp(now = 100L + 4L * 3_600_000L)
+
+        assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
+        assertFalse(setup.stateStore.loadChargePending())
     }
 
     // === recordParkedAnchor ===
@@ -923,21 +1207,25 @@ class AutoserviceChargingDetectorTest {
     fun `recordParkedAnchor rolls the anchor forward on a SOC drop`() = runTest {
         val setup = build(battery = battery(soc = 50f), prevSoc = 50)
 
-        setup.detector.recordParkedAnchor(parkedSample(soc = 48, mileage = 2100.0, gun = 1), now = 2000L)
+        val rearm = setup.detector.recordParkedAnchor(parkedSample(soc = 48, mileage = 2100.0, gun = 1), now = 2000L)
 
+        assertFalse(rearm)
         val state = setup.stateStore.load()
         assertEquals(48, state.socPercent)
         assertEquals(2100f, state.mileageKm!!, 0.01f)
     }
 
     @Test
-    fun `recordParkedAnchor does NOT overwrite the anchor on a SOC rise`() = runTest {
+    fun `recordParkedAnchor does NOT overwrite the anchor on a SOC rise and signals re-arm`() = runTest {
         // A higher SOC than the stored anchor means a charge happened while we
-        // were away. Keep the low anchor so runCatchUp can reconstruct the session.
+        // were away. Keep the low anchor so runCatchUp can reconstruct the
+        // session, and return true so the caller re-arms catch-up (covers the
+        // stale-read-at-wake NO_DELTA — audit 2026-06-11).
         val setup = build(battery = battery(soc = 80f), prevSoc = 10)
 
-        setup.detector.recordParkedAnchor(parkedSample(soc = 80, gun = 1), now = 2000L)
+        val rearm = setup.detector.recordParkedAnchor(parkedSample(soc = 80, gun = 1), now = 2000L)
 
+        assertTrue(rearm)
         assertEquals(10, setup.stateStore.load().socPercent)
     }
 
@@ -946,8 +1234,58 @@ class AutoserviceChargingDetectorTest {
         // Live charge in progress — never move the start anchor.
         val setup = build(battery = battery(soc = 50f), prevSoc = 50)
 
-        setup.detector.recordParkedAnchor(parkedSample(soc = 48, gun = 2), now = 2000L)
+        val rearm = setup.detector.recordParkedAnchor(parkedSample(soc = 48, gun = 2), now = 2000L)
 
+        assertFalse(rearm)
+        assertEquals(50, setup.stateStore.load().socPercent)
+    }
+
+    @Test
+    fun `recordParkedAnchor never signals re-arm while power is negative (gun-null live charge)`() = runTest {
+        // Song reports chargeGunState=null even during a live charge. SOC then
+        // climbs above the anchor mid-charge — re-arming there would create a
+        // partial session and split the charge. Negative power = energy is
+        // flowing IN = live charge; block the re-arm (codex audit 2026-06-11).
+        val setup = build(battery = battery(soc = 80f), prevSoc = 10)
+
+        val rearm = setup.detector.recordParkedAnchor(
+            parkedSample(soc = 80, gun = null, power = -5.0), now = 2000L
+        )
+
+        assertFalse(rearm)
+        assertEquals(10, setup.stateStore.load().socPercent)
+    }
+
+    @Test
+    fun `recordParkedAnchor signals re-arm on gun-null SOC rise once power is non-negative`() = runTest {
+        // Same Song gun-null case after the charge ended: power settled to
+        // null/zero — now the rise above the anchor is a missed charge.
+        val setup = build(battery = battery(soc = 80f), prevSoc = 10)
+
+        assertTrue(setup.detector.recordParkedAnchor(parkedSample(soc = 80, gun = null, power = null), now = 2000L))
+        assertTrue(setup.detector.recordParkedAnchor(parkedSample(soc = 80, gun = null, power = 0.0), now = 3000L))
+        assertEquals(10, setup.stateStore.load().socPercent)
+    }
+
+    @Test
+    fun `recordParkedAnchor never signals re-arm while the gun is connected`() = runTest {
+        // Mid-charge ticks have SOC above the anchor by definition — the gun
+        // gate must win, otherwise live charging would trigger phantom re-arms.
+        val setup = build(battery = battery(soc = 80f), prevSoc = 10)
+
+        val rearm = setup.detector.recordParkedAnchor(parkedSample(soc = 80, gun = 2), now = 2000L)
+
+        assertFalse(rearm)
+        assertEquals(10, setup.stateStore.load().socPercent)
+    }
+
+    @Test
+    fun `recordParkedAnchor does not signal re-arm on unchanged SOC`() = runTest {
+        val setup = build(battery = battery(soc = 50f), prevSoc = 50)
+
+        val rearm = setup.detector.recordParkedAnchor(parkedSample(soc = 50, gun = 1), now = 2000L)
+
+        assertFalse(rearm)
         assertEquals(50, setup.stateStore.load().socPercent)
     }
 
@@ -955,8 +1293,35 @@ class AutoserviceChargingDetectorTest {
     fun `recordParkedAnchor seeds the anchor when the store is empty`() = runTest {
         val setup = build(battery = battery(soc = 50f), prevSoc = null)
 
-        setup.detector.recordParkedAnchor(parkedSample(soc = 50, gun = 1), now = 2000L)
+        val rearm = setup.detector.recordParkedAnchor(parkedSample(soc = 50, gun = 1), now = 2000L)
 
+        assertFalse(rearm)
         assertEquals(50, setup.stateStore.load().socPercent)
+    }
+
+    @Test
+    fun `re-arm scenario - stale NO_DELTA then fresh data creates the session`() = runTest {
+        // Full stale-read-at-wake recovery: catch-up first sees yesterday's SOC
+        // (equal to the anchor) and resolves NO_DELTA; later a live tick brings
+        // the real post-charge SOC → recordParkedAnchor signals re-arm → the
+        // re-run reconstructs the charge from the preserved low anchor.
+        val setup = build(
+            battery = battery(soc = 60f, mileage = 2100f),
+            prevSoc = 60,
+            prevMileageKm = 2100f,
+        )
+
+        // Stale read: SOC equals the anchor → terminal NO_DELTA, no row.
+        assertEquals(CatchUpOutcome.NO_DELTA, setup.detector.runCatchUp(now = 1000L).outcome)
+        assertEquals(0, setup.chargeDao.inserted.size)
+
+        // Fresh tick: real SOC is 85, gun out → re-arm signal, anchor preserved.
+        assertTrue(setup.detector.recordParkedAnchor(parkedSample(soc = 85, gun = 1), now = 2000L))
+        assertEquals(60, setup.stateStore.load().socPercent)
+
+        // Re-armed catch-up now sees the fresh SOC and reconstructs the charge.
+        setup.auto.battery = battery(soc = 85f, mileage = 2100f)
+        assertEquals(CatchUpOutcome.SESSION_CREATED, setup.detector.runCatchUp(now = 3000L).outcome)
+        assertEquals(1, setup.chargeDao.inserted.size)
     }
 }

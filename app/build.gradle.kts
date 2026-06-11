@@ -28,10 +28,10 @@ android {
         // targetSdk 30+ would break listFiles() on /storage/emulated/0/energydata/
         targetSdk = 29
         // Tester build for #48: the 4th versionName segment keeps UpdateChecker.isNewer() from
-        // "upgrading" this build to the public 3.1.2 (3.1.2 < 3.1.2.1), and code 313 lets it
-        // install over an auto-updated 3.1.2 (312). Reset to the real next version before merge.
-        versionCode = 313
-        versionName = "3.1.2.1"
+        // "upgrading" this build to the public 3.1.3 (3.1.3 < 3.1.3.1), and code 314 lets it
+        // install over the public 3.1.3 (313). Reset to the real next version before merge.
+        versionCode = 314
+        versionName = "3.1.3.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
