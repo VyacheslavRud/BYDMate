@@ -57,7 +57,8 @@ class AutoserviceChargingDetector @Inject constructor(
     private val stateStore: ChargingStateStore,
     private val classifier: ChargingTypeClassifier,
     private val settings: SettingsRepository,
-    private val parsReader: ParsReader
+    private val parsReader: ParsReader,
+    private val journal: CatchUpJournal
 ) {
     companion object {
         const val MIN_DELTA_KWH = 0.5
@@ -182,6 +183,7 @@ class AutoserviceChargingDetector @Inject constructor(
             // Step 1: liveness check
             if (!client.isAvailable()) {
                 android.util.Log.i(TAG, "runCatchUp: autoservice client not available")
+                logJournal(now, "UNAVAILABLE")
                 _state.value = DetectorState.IDLE
                 return CatchUpResult(CatchUpOutcome.AUTOSERVICE_UNAVAILABLE)
             }
@@ -199,6 +201,7 @@ class AutoserviceChargingDetector @Inject constructor(
             // state and let TrackingService re-run catch-up once the fid warms up.
             val currentSoc: Int = battery?.socPercent?.toInt() ?: run {
                 android.util.Log.i(TAG, "runCatchUp: autoservice SOC sentinel → SENTINEL (retry later)")
+                logJournal(now, "SENTINEL")
                 _state.value = DetectorState.IDLE
                 return CatchUpResult(CatchUpOutcome.SENTINEL)
             }
@@ -213,6 +216,7 @@ class AutoserviceChargingDetector @Inject constructor(
                     ts = now
                 )
                 android.util.Log.i(TAG, "runCatchUp: cold start, seeded state soc=$currentSoc")
+                logJournal(now, "BASELINE_INITIALIZED soc=$currentSoc")
                 _state.value = DetectorState.IDLE
                 return CatchUpResult(CatchUpOutcome.BASELINE_INITIALIZED)
             }
@@ -264,6 +268,7 @@ class AutoserviceChargingDetector @Inject constructor(
                 // discarding it.
                 stateStore.setChargePending(true)
                 android.util.Log.i(TAG, "runCatchUp: gun=$gun, deviceReadable=$chargingDeviceReadable → STILL_CHARGING (defer to live edge)")
+                logJournal(now, "STILL_CHARGING gun=$gun" + if (gunGlitch) " glitch=$consecutiveGunGlitches" else "")
                 _state.value = DetectorState.IDLE
                 return CatchUpResult(CatchUpOutcome.STILL_CHARGING)
             }
@@ -289,6 +294,12 @@ class AutoserviceChargingDetector @Inject constructor(
             val chargePending = stateStore.loadChargePending()
             if (socDelta < MIN_SOC_DELTA_FOR_CHARGE || (odometerMoved && !chargePending)) {
                 android.util.Log.i(TAG, "runCatchUp: socDelta=$socDelta odometerMoved=$odometerMoved pending=$chargePending → NO_DELTA (roll forward, no row)")
+                logJournal(
+                    now,
+                    "NO_DELTA soc=$currentSoc prev=${prev.socPercent} " +
+                        "km=${battery?.lifetimeMileageKm} prevKm=${prev.mileageKm} " +
+                        "odoMoved=$odometerMoved pending=$chargePending"
+                )
                 stateStore.save(
                     socPercent = currentSoc,
                     mileageKm = battery?.lifetimeMileageKm,
@@ -434,11 +445,23 @@ class AutoserviceChargingDetector @Inject constructor(
             stateStore.setChargePending(false)
 
             android.util.Log.i(TAG, "runCatchUp: SESSION_CREATED id=$chargeId, delta=${"%.3f".format(delta)}, source=$detectionSource, type=$type, socStart=$socStart, socEnd=$socEnd")
+            logJournal(
+                now,
+                "SESSION_CREATED kwh=${"%.2f".format(delta)} src=$detectionSource " +
+                    "type=$type soc=$socStart->$socEnd"
+            )
             _state.value = DetectorState.IDLE
             return CatchUpResult(CatchUpOutcome.SESSION_CREATED, chargeId, delta)
         } catch (e: Exception) {
+            android.util.Log.w(TAG, "runCatchUp: failed: ${e.message}", e)
+            logJournal(now, "ERROR ${e.message}")
             _state.value = DetectorState.ERROR
             return CatchUpResult(CatchUpOutcome.AUTOSERVICE_UNAVAILABLE)
         }
+    }
+
+    /** Best-effort journal write — a prefs failure must never break detection. */
+    private suspend fun logJournal(now: Long, payload: String) {
+        runCatching { journal.append(payload, now) }
     }
 }

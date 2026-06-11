@@ -127,7 +127,8 @@ class AutoserviceChargingDetectorTest {
         val chargeDao: RecordingDao,
         val snapshotDao: RecordingBatterySnapshotDao,
         val stateStore: ChargingStateStore,
-        val auto: FakeAutoservice
+        val auto: FakeAutoservice,
+        val journal: CatchUpJournal
     )
 
     /**
@@ -176,6 +177,7 @@ class AutoserviceChargingDetectorTest {
         val settingsDao = FakeSettingsDao(initialMap)
         val settings = SettingsRepository(settingsDao, mockk<LocalePreferences>(relaxed = true))
         val stateStore = ChargingStateStore(settings)
+        val journal = CatchUpJournal(settings)
         val classifier = ChargingTypeClassifier()
         val detector = AutoserviceChargingDetector(
             client = auto,
@@ -184,9 +186,10 @@ class AutoserviceChargingDetectorTest {
             stateStore = stateStore,
             classifier = classifier,
             settings = settings,
-            parsReader = FakeParsReader(diParsData)
+            parsReader = FakeParsReader(diParsData),
+            journal = journal
         )
-        return TestSetup(detector, dao, snapshotDao, stateStore, auto)
+        return TestSetup(detector, dao, snapshotDao, stateStore, auto, journal)
     }
 
     /** DiParsData carrying only the fields recordParkedAnchor reads (gun defaults to NONE=1). */
@@ -954,6 +957,26 @@ class AutoserviceChargingDetectorTest {
         assertEquals(79, ch.socStart)
         assertEquals(80, ch.socEnd)
         assertEquals(80, setup.stateStore.load().socPercent)
+    }
+
+    @Test
+    fun `runCatchUp writes journal entries for outcomes`() = runTest {
+        // SESSION_CREATED and the follow-up NO_DELTA must both leave traces in
+        // the persistent journal (field diagnosis — logcat rotates out).
+        val setup = build(
+            battery = battery(soc = 91f),
+            charging = charging(capKwh = null, gunState = 1),
+            prevSoc = 80
+        )
+
+        setup.detector.runCatchUp(now = 1500L)   // SESSION_CREATED
+        setup.detector.runCatchUp(now = 2500L)   // NO_DELTA (soc unchanged)
+
+        val lines = setup.journal.read().lines()
+        assertEquals(2, lines.size)
+        assertTrue(lines[0].contains("SESSION_CREATED"))
+        assertTrue(lines[0].contains("soc=80->91"))
+        assertTrue(lines[1].contains("NO_DELTA soc=91 prev=91"))
     }
 
     @Test

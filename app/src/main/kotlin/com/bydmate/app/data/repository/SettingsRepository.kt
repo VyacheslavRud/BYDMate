@@ -66,6 +66,10 @@ open class SettingsRepository @Inject constructor(
         // reconstructed or dismissed. Lets a later catch-up create the row
         // even if the odometer moved before the first successful run.
         const val KEY_CHARGE_PENDING = "charge_pending"
+        // Persistent ring buffer of recent runCatchUp decisions (CatchUpJournal).
+        // Included in the diagnostic dump — logcat rotates out the startup
+        // window within minutes on DiLink, so field reports need this.
+        const val KEY_CATCHUP_JOURNAL = "catchup_journal"
         const val KEY_MIGRATION_V2_4_17 = "migration_v2_4_17_done"
         const val KEY_INSIGHT_CACHE_V2_MIGRATION_DONE = "insight_cache_v2_migration_done"
         // One-shot migration flag: v2.8.1 — clear stale "DIPLUS" data_source value

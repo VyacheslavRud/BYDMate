@@ -220,6 +220,8 @@ class SettingsViewModelTest {
             adbOnDeviceClient = FakeAdbClient(),
             localePreferences = LocalePreferences(ctx),
             backupManager = backupManager,
+            chargingStateStore = com.bydmate.app.data.charging.ChargingStateStore(settingsRepo),
+            catchUpJournal = com.bydmate.app.data.charging.CatchUpJournal(settingsRepo),
         )
     }
 
