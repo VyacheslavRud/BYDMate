@@ -1,14 +1,9 @@
 package com.bydmate.app.cluster
 
 import android.content.Context
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
 import android.graphics.Point
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
-import android.os.Build
-import android.os.Environment
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
@@ -32,11 +27,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import java.io.File
-import java.io.FileWriter
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * Owns the cluster projection lifecycle. An overlay SurfaceView is placed on the
@@ -82,10 +72,9 @@ object ClusterProjectionManager {
     const val KEY_OFFSET_X_PCT = "offset_x_pct"
     const val KEY_OFFSET_Y_PCT = "offset_y_pct"
     // User-tunable content scale: VirtualDisplay density as % of cluster dpi (MIN_SCALE_PCT..MAX,
-    // default 100 = native) and an oversample toggle (render bigger, then downscale). These tune
-    // what the projected app renders INSIDE the window, independent of the window size/position.
+    // default 100 = native). Tunes what the projected app renders INSIDE the window — how big the
+    // UI is and how much map fits — independent of the window size/position.
     const val KEY_SCALE_PCT = "scale_pct"
-    const val KEY_OVERSAMPLE = "oversample"
     // App to project onto the cluster (default Yandex Navi). Label is cached only for the settings row.
     const val KEY_TARGET_PACKAGE = "target_package"
     const val KEY_TARGET_LABEL = "target_label"
@@ -101,8 +90,6 @@ object ClusterProjectionManager {
         private set
 
     private var overlayView: View? = null
-    // EXPERIMENTAL (#48): full-surface calibration grid, independent of the projection overlay.
-    private var calibrationView: View? = null
     private var remoteDisplayId: Int = -1
     // Package actually pinned on the cluster (the one we launchAndForce'd). pullBackToMain tugs THIS
     // back, not the live settings target — the two differ when the user switches the projection app
@@ -200,8 +187,7 @@ object ClusterProjectionManager {
         val geo = geometryFor(
             ClusterMode.FULLSCREEN, clusterWidth, clusterHeight, widthPct, heightPct, offsetXPct, offsetYPct,
         ) ?: return true
-        val (scalePct, oversample) = readContentScale(context)
-        val plan = renderPlanFor(geo, clusterDensityDpi, scalePct, oversample)
+        val plan = renderPlanFor(geo, clusterDensityDpi, readScalePct(context))
 
         // addOverlayAndAwaitSurface points overlayView at the NEW container; oldOverlay keeps the old
         // one so we can drop it after Navi has moved. remoteDisplayId is untouched until we commit.
@@ -275,12 +261,10 @@ object ClusterProjectionManager {
             prefs.getInt(KEY_OFFSET_Y_PCT, CENTER_OFFSET_PCT)
     }
 
-    /** Saved content-scale levers as (scalePct, oversample); defaults reproduce native rendering. */
-    private fun readContentScale(context: Context): Pair<Int, Boolean> {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getInt(KEY_SCALE_PCT, DEFAULT_SCALE_PCT) to
-            prefs.getBoolean(KEY_OVERSAMPLE, false)
-    }
+    /** Saved content scale %; the default reproduces native rendering. */
+    private fun readScalePct(context: Context): Int =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getInt(KEY_SCALE_PCT, DEFAULT_SCALE_PCT)
 
     /** Package to project — user-selectable in settings, defaults to Yandex Navi. */
     private fun targetPackage(context: Context): String =
@@ -357,8 +341,7 @@ object ClusterProjectionManager {
         val geo = geometryFor(
             mode, clusterWidth, clusterHeight, widthPct, heightPct, offsetXPct, offsetYPct,
         ) ?: return false
-        val (scalePct, oversample) = readContentScale(context)
-        val plan = renderPlanFor(geo, clusterDensityDpi, scalePct, oversample)
+        val plan = renderPlanFor(geo, clusterDensityDpi, readScalePct(context))
 
         return try {
             val surface = withTimeoutOrNull(SURFACE_TIMEOUT_MS) {
@@ -452,9 +435,8 @@ object ClusterProjectionManager {
 
             val container = FrameLayout(displayContext)
             val surfaceView = SurfaceView(displayContext)
-            // Layout = the physical window on the cluster (geo); the Surface buffer = the render plan
-            // (plan), which is larger when oversampling. The compositor scales the buffer to the view,
-            // so an oversampled buffer is downscaled into the same window (aspect preserved).
+            // Layout = the physical window on the cluster (geo); the Surface buffer = the render
+            // plan. The compositor scales the buffer to the view (aspect preserved).
             val surfaceParams = FrameLayout.LayoutParams(geo.width, geo.height, Gravity.TOP or Gravity.START).apply {
                 leftMargin = geo.xOffset
                 topMargin = geo.yOffset
@@ -554,200 +536,5 @@ object ClusterProjectionManager {
             if (Settings.canDrawOverlays(context)) return true
         }
         return false
-    }
-
-    /**
-     * Diagnostic snapshot for the cluster mini-screen investigation (#48). Captures the display
-     * topology visible to the app, our live projection state, and the native instrument-mode codes
-     * read via the daemon, appending a labelled block to a file the tester can pull without ADB.
-     * [label] marks which native cluster position (off / full / mini / arrows) was active when the
-     * snapshot was taken. Returns a short human summary for a toast. EXPERIMENTAL — this and the
-     * diagnostic button are removed before any release.
-     */
-    suspend fun captureDiagnostics(
-        context: Context, helper: HelperClient, bootstrap: HelperBootstrap, label: String,
-    ): String = withContext(Dispatchers.IO) {
-        val appContext = context.applicationContext
-        val daemonUp = try { bootstrap.ensureRunning() } catch (e: Exception) { false }
-
-        // Native instrument-feature reads (dev=1007, tx=5). 1086337074 returned OFF=1/MINI=2/FULL=4
-        // on Leopard 3 (which has no mini); 1276313665 was -10011 there. We read both to learn how
-        // Sea Lion 07 encodes the mini position. Add candidates here if both come back as sentinels.
-        val modeFids = listOf(1086337074, 1276313665)
-        val modeReads = if (daemonUp) {
-            modeFids.map { fid ->
-                val v = try { helper.read(1007, fid, 5) } catch (e: Exception) { null }
-                "  read(1007, $fid, tx5) = ${v ?: "null"}"
-            }
-        } else listOf("  (daemon not running, autoservice reads skipped)")
-
-        val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val report = buildString {
-            appendLine("=========== CLUSTER DIAG ===========")
-            appendLine("label: $label")
-            appendLine("timestamp: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
-            try {
-                val pi = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
-                val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
-                    pi.longVersionCode.toString() else @Suppress("DEPRECATION") pi.versionCode.toString()
-                appendLine("app: v${pi.versionName} (code=$code)")
-            } catch (e: Exception) {
-                appendLine("app: (version unavailable: ${e.message})")
-            }
-            appendLine("device: ${Build.MANUFACTURER} ${Build.MODEL} (${Build.DEVICE})")
-            appendLine("android: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
-
-            appendLine("--- our projection state ---")
-            appendLine("currentMode: $currentMode")
-            appendLine("remoteDisplayId (active VD): $remoteDisplayId")
-            appendLine("picked cluster: ${clusterWidth}x$clusterHeight dpi=$clusterDensityDpi")
-            appendLine(
-                "prefs: enabled=${prefs.getBoolean(KEY_MIRROR_ENABLED, false)}" +
-                    " width%=${prefs.getInt(KEY_WIDTH_PCT, MAX_PROJECTION_PCT)}" +
-                    " height%=${prefs.getInt(KEY_HEIGHT_PCT, MAX_PROJECTION_PCT)}" +
-                    " offsetX%=${prefs.getInt(KEY_OFFSET_X_PCT, CENTER_OFFSET_PCT)}" +
-                    " offsetY%=${prefs.getInt(KEY_OFFSET_Y_PCT, CENTER_OFFSET_PCT)}" +
-                    " scale%=${prefs.getInt(KEY_SCALE_PCT, DEFAULT_SCALE_PCT)}" +
-                    " oversample=${prefs.getBoolean(KEY_OVERSAMPLE, false)}"
-            )
-            appendLine(
-                "target: ${prefs.getString(KEY_TARGET_PACKAGE, NAVI_PACKAGE)}" +
-                    " trigger=${prefs.getInt(KEY_TRIGGER_KEYCODE, DEFAULT_TRIGGER_KEYCODE)}"
-            )
-
-            appendLine("--- native instrument mode (dev=1007, tx=5) ---")
-            modeReads.forEach { appendLine(it) }
-
-            appendLine("--- displays (DisplayManager) ---")
-            try {
-                val dm = appContext.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-                dm.displays.forEach { d ->
-                    val p = Point()
-                    @Suppress("DEPRECATION") d.getRealSize(p)
-                    val m = DisplayMetrics()
-                    @Suppress("DEPRECATION") d.getMetrics(m)
-                    appendLine(
-                        "  id=${d.displayId} \"${d.name}\" ${p.x}x${p.y}" +
-                            " dpi=${m.densityDpi} state=${d.state} rot=${d.rotation}" +
-                            " flags=0x${Integer.toHexString(d.flags)}"
-                    )
-                }
-            } catch (e: Exception) {
-                appendLine("  (failed to enumerate displays: ${e.message})")
-            }
-            appendLine("====================================")
-            appendLine()
-        }
-
-        val saveDir = listOf(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            File("/storage/emulated/0/Download"),
-            appContext.getExternalFilesDir(null),
-        ).firstOrNull { it != null && (it.exists() || it.mkdirs()) && it.canWrite() }
-
-        if (saveDir == null) {
-            Log.e(TAG, "captureDiagnostics: no writable dir")
-            return@withContext "Снимок не сохранён: нет доступа к файловой системе"
-        }
-        val outFile = File(saveDir, "bydmate-cluster-diag.txt")
-        try {
-            FileWriter(outFile, /* append = */ true).use { it.write(report) }
-            Log.i(TAG, "captureDiagnostics: appended \"$label\" to ${outFile.absolutePath}")
-            "Снимок \"$label\" записан:\n${outFile.absolutePath}"
-        } catch (e: Exception) {
-            Log.e(TAG, "captureDiagnostics write failed: ${e.message}")
-            "Ошибка записи снимка: ${e.message}"
-        }
-    }
-
-    /**
-     * EXPERIMENTAL (#48): toggle a full-surface calibration grid on the cluster projection display.
-     * Draws 100x100 px cells labelled with "col.row" indices straight onto the display (no
-     * VirtualDisplay, no projected app), so a photo of the native mini position reveals exactly
-     * which rectangle of the 1920x720 surface the panel shows — and whether it crops or scales it.
-     * Returns a toast-ready message. Removed before any release, like the diagnostics button.
-     */
-    suspend fun toggleCalibrationGrid(
-        context: Context, helper: HelperClient, bootstrap: HelperBootstrap,
-    ): String = mutex.withLock {
-        val appContext = context.applicationContext
-        calibrationView?.let {
-            removeOverlayView(it)
-            calibrationView = null
-            return@withLock "Калибровочная сетка убрана"
-        }
-        if (!bootstrap.ensureRunning()) return@withLock "Сервис не запущен, сетка недоступна"
-        if (!ensureOverlayPermission(appContext, helper)) return@withLock "Нет разрешения на оверлей"
-        val display = resolveClusterDisplay(appContext)
-            ?: return@withLock "Проекционный дисплей не найден"
-        withContext(Dispatchers.Main) {
-            val displayContext = appContext.createDisplayContext(display)
-            val wm = displayContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            val view = CalibrationGridView(displayContext)
-            val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT,
-                OVERLAY_TYPE,
-                OVERLAY_FLAGS,
-                PixelFormat.OPAQUE,
-            )
-            wm.addView(view, params)
-            calibrationView = view
-        }
-        Log.i(TAG, "calibration grid shown on ${clusterWidth}x$clusterHeight")
-        "Сетка ${clusterWidth}x$clusterHeight на приборке. Сфотографируй и нажми ещё раз, чтобы убрать"
-    }
-}
-
-/**
- * EXPERIMENTAL (#48): calibration pattern for [ClusterProjectionManager.toggleCalibrationGrid].
- * Checkerboard of 100 px cells, each labelled "col.row" (cell's left edge = col*100 px, top edge =
- * row*100 px), thin grid lines, a red frame on the outermost surface edge and a cyan center cross.
- * Any photographed fragment can be mapped back to absolute surface pixels from the labels alone.
- */
-private class CalibrationGridView(context: Context) : View(context) {
-    private val cellStep = 100
-    private val evenCell = Paint().apply { color = Color.rgb(24, 24, 24) }
-    private val oddCell = Paint().apply { color = Color.rgb(52, 52, 52) }
-    private val line = Paint().apply { color = Color.argb(120, 255, 255, 255); strokeWidth = 1f }
-    private val frame = Paint().apply {
-        color = Color.RED; style = Paint.Style.STROKE; strokeWidth = 12f
-    }
-    private val cross = Paint().apply { color = Color.CYAN; strokeWidth = 4f }
-    private val label = Paint().apply {
-        color = Color.WHITE; textSize = 30f; isAntiAlias = true; textAlign = Paint.Align.CENTER
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        val w = width
-        val h = height
-        var row = 0
-        while (row * cellStep < h) {
-            var col = 0
-            while (col * cellStep < w) {
-                val x = col * cellStep.toFloat()
-                val y = row * cellStep.toFloat()
-                canvas.drawRect(
-                    x, y, x + cellStep, y + cellStep,
-                    if ((col + row) % 2 == 0) evenCell else oddCell,
-                )
-                canvas.drawText("$col.$row", x + cellStep / 2f, y + cellStep / 2f + 10f, label)
-                col++
-            }
-            row++
-        }
-        var gx = 0
-        while (gx <= w) {
-            canvas.drawLine(gx.toFloat(), 0f, gx.toFloat(), h.toFloat(), line)
-            gx += cellStep
-        }
-        var gy = 0
-        while (gy <= h) {
-            canvas.drawLine(0f, gy.toFloat(), w.toFloat(), gy.toFloat(), line)
-            gy += cellStep
-        }
-        canvas.drawLine(w / 2f, 0f, w / 2f, h.toFloat(), cross)
-        canvas.drawLine(0f, h / 2f, w.toFloat(), h / 2f, cross)
-        canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), frame)
     }
 }

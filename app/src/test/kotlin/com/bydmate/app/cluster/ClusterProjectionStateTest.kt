@@ -94,7 +94,7 @@ class ClusterProjectionStateTest {
         assertEquals(ClusterMode.OFF, nextMode(ClusterMode.FULLSCREEN))
     }
 
-    // --- renderPlanFor (content-scale levers) ---
+    // --- renderPlanFor (content scale) ---
 
     private val window960 get() = geometryFor(ClusterMode.FULLSCREEN, 1920, 720, 50, 100)!!  // 960x720
 
@@ -104,14 +104,6 @@ class ClusterProjectionStateTest {
 
     @Test fun `lower scale lowers density without resizing the buffer`() {
         assertEquals(RenderPlan(960, 720, 160), renderPlanFor(window960, 320, scalePct = 50))
-    }
-
-    @Test fun `oversample doubles the buffer and keeps density`() {
-        assertEquals(RenderPlan(1920, 1440, 320), renderPlanFor(window960, 320, oversample = true))
-    }
-
-    @Test fun `scale and oversample combine independently`() {
-        assertEquals(RenderPlan(1920, 1440, 240), renderPlanFor(window960, 320, scalePct = 75, oversample = true))
     }
 
     @Test fun `scale is clamped to the allowed range`() {

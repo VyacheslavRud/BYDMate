@@ -1,7 +1,6 @@
 package com.bydmate.app.ui.settings
 
 import android.content.Context
-import android.widget.Toast
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings as AndroidSettings
@@ -71,7 +70,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.text.font.FontFamily
@@ -105,7 +103,6 @@ import com.bydmate.app.cluster.DEFAULT_TRIGGER_KEYCODE
 import com.bydmate.app.cluster.SteeringWheelKeyService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.launch
 import com.bydmate.app.R
 import com.bydmate.app.data.remote.OpenRouterModel
 import com.bydmate.app.data.repository.SettingsRepository
@@ -881,9 +878,6 @@ private fun DisplaySection() {
     var scalePct by remember {
         mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_SCALE_PCT, DEFAULT_SCALE_PCT))
     }
-    var oversample by remember {
-        mutableStateOf(prefs.getBoolean(ClusterProjectionManager.KEY_OVERSAMPLE, false))
-    }
     var targetPkg by remember {
         mutableStateOf(prefs.getString(ClusterProjectionManager.KEY_TARGET_PACKAGE, NAVI_PACKAGE) ?: NAVI_PACKAGE)
     }
@@ -1039,125 +1033,39 @@ private fun DisplaySection() {
             .putInt(ClusterProjectionManager.KEY_OFFSET_X_PCT, offsetXPct)
             .putInt(ClusterProjectionManager.KEY_OFFSET_Y_PCT, offsetYPct)
             .putInt(ClusterProjectionManager.KEY_SCALE_PCT, scalePct)
-            .putBoolean(ClusterProjectionManager.KEY_OVERSAMPLE, oversample)
             .apply()
         ClusterProjectionManager.reproject(
             context, entryPoint.helperClient(), entryPoint.helperBootstrap())
     }
-    ClusterSizeSlider(stringResource(R.string.settings_display_size_width), widthPct, enabled, { widthPct = it }, applyGeometry)
-    ClusterSizeSlider(stringResource(R.string.settings_display_size_height), heightPct, enabled, { heightPct = it }, applyGeometry)
-    // EXPERIMENTAL (feature/cluster-mini-sealion): window position within the free space left by a
-    // sub-100% window, so a tester can slide the rendered map into the visible region of the native
-    // mini-cluster window (#48). Removed (or promoted to a real localised feature) before release.
-    ClusterSizeSlider("Сдвиг по горизонтали", offsetXPct, enabled, { offsetXPct = it }, applyGeometry, MIN_OFFSET_PCT, MAX_OFFSET_PCT)
-    ClusterSizeSlider("Сдвиг по вертикали", offsetYPct, enabled, { offsetYPct = it }, applyGeometry, MIN_OFFSET_PCT, MAX_OFFSET_PCT)
-    // EXPERIMENTAL (#48): content-scale levers — tune what the app renders INSIDE the window (how
-    // much map fits), independent of the window size/position above. "Масштаб" = VirtualDisplay
-    // density % (below 100 = more map); "Oversample" = render bigger then downscale (a stronger
-    // "show more" lever). Removed (or promoted to a real localised feature) before release.
-    ClusterSizeSlider("Масштаб", scalePct, enabled, { scalePct = it }, applyGeometry, MIN_SCALE_PCT, MAX_SCALE_PCT)
-    ClusterOversampleToggle(oversample, enabled) { oversample = it; applyGeometry() }
-
-    // EXPERIMENTAL diagnostic snapshot (#48): appends displays + native instrument-mode codes + our
-    // projection state to /sdcard/Download/bydmate-cluster-diag.txt, so a non-ADB tester can capture
-    // the cluster topology in each native position (off / full / mini / arrows). Removed before release.
-    ClusterDiagnosticsButton(context, entryPoint)
-
-    // EXPERIMENTAL calibration grid (#48): labelled 100 px cells drawn on the whole projection
-    // surface, so a photo of the native mini position reveals the exact visible rectangle (and
-    // whether the panel crops or scales the surface). Removed before release.
-    ClusterCalibrationButton(context, entryPoint)
-}
-
-/** EXPERIMENTAL (#48). Tap → toggle the calibration grid on the cluster projection display. */
-@Composable
-private fun ClusterCalibrationButton(context: Context, entryPoint: ClusterEntryPoint) {
-    val scope = rememberCoroutineScope()
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = CardSurfaceElevated),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp)
-            .clickable {
-                scope.launch {
-                    val msg = ClusterProjectionManager.toggleCalibrationGrid(
-                        context, entryPoint.helperClient(), entryPoint.helperBootstrap())
-                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                }
-            },
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(imageVector = Icons.Outlined.Settings, contentDescription = null, tint = AccentGreen)
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Калибровочная сетка", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                Text(
-                    "Вкл/выкл сетку на приборке: сфотографируй мини-режим для замера зоны",
-                    color = TextSecondary, fontSize = 12.sp,
-                )
-            }
-        }
-    }
-}
-
-/** EXPERIMENTAL (#48). Tap → pick the active native cluster position → write a diagnostic snapshot. */
-@Composable
-private fun ClusterDiagnosticsButton(context: Context, entryPoint: ClusterEntryPoint) {
-    val scope = rememberCoroutineScope()
-    var picking by remember { mutableStateOf(false) }
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = CardSurfaceElevated),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp)
-            .clickable { picking = true },
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(imageVector = Icons.Outlined.Settings, contentDescription = null, tint = AccentGreen)
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Снять снимок приборки", color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                Text("Диагностика мини-экрана: выбери текущее положение", color = TextSecondary, fontSize = 12.sp)
-            }
-        }
-    }
-    if (picking) {
-        AlertDialog(
-            onDismissRequest = { picking = false },
-            containerColor = CardSurfaceElevated,
-            title = { Text("Положение приборки", color = TextPrimary) },
-            text = {
-                Column {
-                    listOf("ИПЦ выкл", "ИПЦ full", "ИПЦ мини", "ИПЦ стрелки").forEach { lbl ->
-                        TextButton(onClick = {
-                            picking = false
-                            scope.launch {
-                                val msg = ClusterProjectionManager.captureDiagnostics(
-                                    context, entryPoint.helperClient(), entryPoint.helperBootstrap(), lbl)
-                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                            }
-                        }) { Text(lbl, color = AccentGreen) }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { picking = false }) { Text("Отмена", color = TextSecondary) }
-            },
-        )
-    }
+    // Defaults (100/100 size, centered, scale 100) reproduce the plain fullscreen projection, so
+    // cars without a native mini zone (e.g. Leopard 3) need no tuning. The offset sliders only
+    // matter once the window is smaller than the panel; on Sea Lion 07 they let the user move the
+    // window into the native mini-cluster zone (#48).
+    ClusterSizeSlider(
+        stringResource(R.string.settings_display_size_width), widthPct, enabled,
+        { widthPct = it }, applyGeometry,
+        description = stringResource(R.string.settings_display_size_width_desc),
+    )
+    ClusterSizeSlider(
+        stringResource(R.string.settings_display_size_height), heightPct, enabled,
+        { heightPct = it }, applyGeometry,
+        description = stringResource(R.string.settings_display_size_height_desc),
+    )
+    ClusterSizeSlider(
+        stringResource(R.string.settings_display_offset_x), offsetXPct, enabled,
+        { offsetXPct = it }, applyGeometry, MIN_OFFSET_PCT, MAX_OFFSET_PCT,
+        description = stringResource(R.string.settings_display_offset_x_desc),
+    )
+    ClusterSizeSlider(
+        stringResource(R.string.settings_display_offset_y), offsetYPct, enabled,
+        { offsetYPct = it }, applyGeometry, MIN_OFFSET_PCT, MAX_OFFSET_PCT,
+        description = stringResource(R.string.settings_display_offset_y_desc),
+    )
+    ClusterSizeSlider(
+        stringResource(R.string.settings_display_scale), scalePct, enabled,
+        { scalePct = it }, applyGeometry, MIN_SCALE_PCT, MAX_SCALE_PCT,
+        description = stringResource(R.string.settings_display_scale_desc),
+    )
 }
 
 /** App label for the cluster picker row; falls back to the package name when not installed/resolvable. */
@@ -1299,6 +1207,7 @@ private fun ClusterSizeSlider(
     onFinished: () -> Unit,
     min: Int = MIN_PROJECTION_PCT,
     max: Int = MAX_PROJECTION_PCT,
+    description: String? = null,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -1314,6 +1223,9 @@ private fun ClusterSizeSlider(
                 fontWeight = FontWeight.Medium,
             )
         }
+        if (description != null) {
+            Text(description, color = TextSecondary, fontSize = 12.sp)
+        }
         Slider(
             value = pct.toFloat(),
             onValueChange = { onChange(it.roundToInt()) },
@@ -1325,28 +1237,6 @@ private fun ClusterSizeSlider(
                 thumbColor = AccentGreen,
                 activeTrackColor = AccentGreen,
             ),
-        )
-    }
-}
-
-/** EXPERIMENTAL (#48). Oversample toggle — render the projection bigger, then downscale to the window. */
-@Composable
-private fun ClusterOversampleToggle(checked: Boolean, enabled: Boolean, onToggle: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            "Oversample (больше карты)",
-            color = if (enabled) TextPrimary else TextMuted,
-            fontSize = 14.sp,
-        )
-        Switch(
-            checked = checked,
-            onCheckedChange = { if (enabled) onToggle(it) },
-            enabled = enabled,
-            colors = bydSwitchColors(),
         )
     }
 }
