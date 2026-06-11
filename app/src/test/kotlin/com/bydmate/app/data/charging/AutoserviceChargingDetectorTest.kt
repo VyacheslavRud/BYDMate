@@ -1202,21 +1202,25 @@ class AutoserviceChargingDetectorTest {
     fun `recordParkedAnchor rolls the anchor forward on a SOC drop`() = runTest {
         val setup = build(battery = battery(soc = 50f), prevSoc = 50)
 
-        setup.detector.recordParkedAnchor(parkedSample(soc = 48, mileage = 2100.0, gun = 1), now = 2000L)
+        val rearm = setup.detector.recordParkedAnchor(parkedSample(soc = 48, mileage = 2100.0, gun = 1), now = 2000L)
 
+        assertFalse(rearm)
         val state = setup.stateStore.load()
         assertEquals(48, state.socPercent)
         assertEquals(2100f, state.mileageKm!!, 0.01f)
     }
 
     @Test
-    fun `recordParkedAnchor does NOT overwrite the anchor on a SOC rise`() = runTest {
+    fun `recordParkedAnchor does NOT overwrite the anchor on a SOC rise and signals re-arm`() = runTest {
         // A higher SOC than the stored anchor means a charge happened while we
-        // were away. Keep the low anchor so runCatchUp can reconstruct the session.
+        // were away. Keep the low anchor so runCatchUp can reconstruct the
+        // session, and return true so the caller re-arms catch-up (covers the
+        // stale-read-at-wake NO_DELTA — audit 2026-06-11).
         val setup = build(battery = battery(soc = 80f), prevSoc = 10)
 
-        setup.detector.recordParkedAnchor(parkedSample(soc = 80, gun = 1), now = 2000L)
+        val rearm = setup.detector.recordParkedAnchor(parkedSample(soc = 80, gun = 1), now = 2000L)
 
+        assertTrue(rearm)
         assertEquals(10, setup.stateStore.load().socPercent)
     }
 
@@ -1225,8 +1229,31 @@ class AutoserviceChargingDetectorTest {
         // Live charge in progress — never move the start anchor.
         val setup = build(battery = battery(soc = 50f), prevSoc = 50)
 
-        setup.detector.recordParkedAnchor(parkedSample(soc = 48, gun = 2), now = 2000L)
+        val rearm = setup.detector.recordParkedAnchor(parkedSample(soc = 48, gun = 2), now = 2000L)
 
+        assertFalse(rearm)
+        assertEquals(50, setup.stateStore.load().socPercent)
+    }
+
+    @Test
+    fun `recordParkedAnchor never signals re-arm while the gun is connected`() = runTest {
+        // Mid-charge ticks have SOC above the anchor by definition — the gun
+        // gate must win, otherwise live charging would trigger phantom re-arms.
+        val setup = build(battery = battery(soc = 80f), prevSoc = 10)
+
+        val rearm = setup.detector.recordParkedAnchor(parkedSample(soc = 80, gun = 2), now = 2000L)
+
+        assertFalse(rearm)
+        assertEquals(10, setup.stateStore.load().socPercent)
+    }
+
+    @Test
+    fun `recordParkedAnchor does not signal re-arm on unchanged SOC`() = runTest {
+        val setup = build(battery = battery(soc = 50f), prevSoc = 50)
+
+        val rearm = setup.detector.recordParkedAnchor(parkedSample(soc = 50, gun = 1), now = 2000L)
+
+        assertFalse(rearm)
         assertEquals(50, setup.stateStore.load().socPercent)
     }
 
@@ -1234,8 +1261,35 @@ class AutoserviceChargingDetectorTest {
     fun `recordParkedAnchor seeds the anchor when the store is empty`() = runTest {
         val setup = build(battery = battery(soc = 50f), prevSoc = null)
 
-        setup.detector.recordParkedAnchor(parkedSample(soc = 50, gun = 1), now = 2000L)
+        val rearm = setup.detector.recordParkedAnchor(parkedSample(soc = 50, gun = 1), now = 2000L)
 
+        assertFalse(rearm)
         assertEquals(50, setup.stateStore.load().socPercent)
+    }
+
+    @Test
+    fun `re-arm scenario - stale NO_DELTA then fresh data creates the session`() = runTest {
+        // Full stale-read-at-wake recovery: catch-up first sees yesterday's SOC
+        // (equal to the anchor) and resolves NO_DELTA; later a live tick brings
+        // the real post-charge SOC → recordParkedAnchor signals re-arm → the
+        // re-run reconstructs the charge from the preserved low anchor.
+        val setup = build(
+            battery = battery(soc = 60f, mileage = 2100f),
+            prevSoc = 60,
+            prevMileageKm = 2100f,
+        )
+
+        // Stale read: SOC equals the anchor → terminal NO_DELTA, no row.
+        assertEquals(CatchUpOutcome.NO_DELTA, setup.detector.runCatchUp(now = 1000L).outcome)
+        assertEquals(0, setup.chargeDao.inserted.size)
+
+        // Fresh tick: real SOC is 85, gun out → re-arm signal, anchor preserved.
+        assertTrue(setup.detector.recordParkedAnchor(parkedSample(soc = 85, gun = 1), now = 2000L))
+        assertEquals(60, setup.stateStore.load().socPercent)
+
+        // Re-armed catch-up now sees the fresh SOC and reconstructs the charge.
+        setup.auto.battery = battery(soc = 85f, mileage = 2100f)
+        assertEquals(CatchUpOutcome.SESSION_CREATED, setup.detector.runCatchUp(now = 3000L).outcome)
+        assertEquals(1, setup.chargeDao.inserted.size)
     }
 }

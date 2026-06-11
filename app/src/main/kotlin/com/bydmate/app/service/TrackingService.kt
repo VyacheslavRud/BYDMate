@@ -78,6 +78,7 @@ class TrackingService : Service(), LocationListener {
     @Inject lateinit var socInterpolator: SocInterpolator
     @Inject lateinit var rangeCalculator: RangeCalculator
     @Inject lateinit var autoserviceDetector: com.bydmate.app.data.charging.AutoserviceChargingDetector
+    @Inject lateinit var catchUpJournal: com.bydmate.app.data.charging.CatchUpJournal
     @Inject lateinit var autoserviceClient: com.bydmate.app.data.autoservice.AutoserviceClient
     @Inject lateinit var cameraStateMonitor: com.bydmate.app.data.camera.CameraStateMonitor
     @Inject lateinit var adbOnDeviceClient: com.bydmate.app.data.autoservice.AdbOnDeviceClient
@@ -148,6 +149,13 @@ class TrackingService : Service(), LocationListener {
     // instead of being discarded by the odometer gate on the next ignition.
     @Volatile private var catchUpResolved = false
     private val catchUpRetryInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    // One-shot re-arm: when a live tick shows SOC strictly above the persisted
+    // anchor with the gun out AFTER catch-up already resolved, the resolution
+    // was based on stale data (quickboot snapshot serves yesterday's SOC as a
+    // valid number → terminal NO_DELTA). Re-arm catch-up once per service
+    // lifetime so the real sleep-charge materializes; once-only so a gun-less
+    // live charge (Song reports gun=null) can't split one session into many.
+    @Volatile private var socRearmUsed = false
 
     private val iternioTelemetryLock = Any()
     @Volatile private var lastIternioTelemetryMs: Long = 0L
@@ -722,7 +730,18 @@ class TrackingService : Service(), LocationListener {
                     // Roll the charge-start anchor forward while driving/parked so a
                     // sleep-charge (app dead the whole time) can be reconstructed from
                     // the last pre-shutdown SOC. No-op (cheap read) on most ticks.
-                    autoserviceDetector.recordParkedAnchor(data)
+                    // Returns true when the live SOC sits ABOVE the anchor with the
+                    // gun out — an un-reconstructed charge (stale read at wake).
+                    val socAboveAnchor = autoserviceDetector.recordParkedAnchor(data)
+                    if (socAboveAnchor && catchUpResolved && !socRearmUsed) {
+                        socRearmUsed = true
+                        catchUpResolved = false
+                        Log.i(TAG, "Catch-up re-arm: live SOC above anchor with gun out")
+                        serviceScope.launch {
+                            runCatching { catchUpJournal.append("REARM soc=${data.soc} above anchor") }
+                            retryUnresolvedCatchUp()
+                        }
+                    }
 
                     data.soc?.let { soc ->
                         settingsRepository.saveLastKnownSoc(soc)

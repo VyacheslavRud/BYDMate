@@ -143,23 +143,34 @@ class AutoserviceChargingDetector @Inject constructor(
      * from it. That also makes the wake-up path race-free without a lock-step
      * flag: a post-charge 80% tick can never clobber the 10% anchor before
      * reconstruction reads it.
+     *
+     * @return true when the live SOC is STRICTLY ABOVE the anchor with the gun
+     *         out — a charge happened that catch-up has not reconstructed (e.g.
+     *         a stale autoservice read at wake resolved NO_DELTA). The caller
+     *         should re-arm catch-up — audit 2026-06-11, lost sleep-charge on
+     *         Song.
      */
-    suspend fun recordParkedAnchor(data: DiParsData, now: Long = System.currentTimeMillis()) {
+    suspend fun recordParkedAnchor(data: DiParsData, now: Long = System.currentTimeMillis()): Boolean {
         val gun = data.chargeGunState
         val gunConnected = gun != null && gun != GUN_STATE_NONE && gun != 0
-        if (gunConnected) return                       // live charge — keep the start anchor
-        val soc = data.soc?.takeIf { it in 0..100 } ?: return
-        mutex.withLock {
+        if (gunConnected) return false                 // live charge — keep the start anchor
+        val soc = data.soc?.takeIf { it in 0..100 } ?: return false
+        return mutex.withLock {
             val prevSoc = stateStore.load().socPercent
-            // prevSoc == null → seed; soc < prevSoc → driving roll-forward.
-            // soc >= prevSoc → charge pending or unchanged: leave the anchor.
-            if (prevSoc != null && soc >= prevSoc) return@withLock
-            stateStore.save(
-                socPercent = soc,
-                mileageKm = data.mileage?.toFloat(),
-                capacityKwh = null,
-                ts = now
-            )
+            when {
+                prevSoc != null && soc > prevSoc -> true   // un-reconstructed charge — re-arm
+                prevSoc != null && soc == prevSoc -> false // unchanged: leave the anchor
+                else -> {
+                    // prevSoc == null → seed; soc < prevSoc → driving roll-forward.
+                    stateStore.save(
+                        socPercent = soc,
+                        mileageKm = data.mileage?.toFloat(),
+                        capacityKwh = null,
+                        ts = now
+                    )
+                    false
+                }
+            }
         }
     }
 
