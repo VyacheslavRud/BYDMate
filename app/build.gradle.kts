@@ -27,11 +27,9 @@ android {
         // on DiLink Android 12 (requestLegacyExternalStorage works).
         // targetSdk 30+ would break listFiles() on /storage/emulated/0/energydata/
         targetSdk = 29
-        // Tester build for #48: the 4th versionName segment keeps UpdateChecker.isNewer() from
-        // "upgrading" this build to the public 3.1.3 (3.1.3 < 3.1.3.1), and code 314 lets it
-        // install over the public 3.1.3 (313). Reset to the real next version before merge.
-        versionCode = 314
-        versionName = "3.1.3.1"
+        // 315 (not 314) so the 3.1.3.1 tester build (314) is offered this public release.
+        versionCode = 315
+        versionName = "3.1.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
