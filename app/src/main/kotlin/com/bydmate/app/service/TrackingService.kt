@@ -348,32 +348,37 @@ class TrackingService : Service(), LocationListener {
                     Log.w(TAG, "deleteEmpty failed: ${e.message}")
                 }
                 Log.i(TAG, "Sync: ${result.details ?: result.error ?: "ok"}")
-                // Autoservice catch-up: synthesizes COMPLETED ChargeEntity records
-                // for charging that happened while DiLink was asleep. Best-effort —
-                // wrapped so a Binder/ADB failure does not break the import chain.
-                // The autoservice SOC fid can sentinel-out during the cold-start
-                // window before its cache warms; retry a few times so a real
-                // sleep-charge isn't lost to a transient sentinel/unavailable read.
-                try {
-                    var attempt = 0
-                    while (true) {
-                        val result = autoserviceDetector.runCatchUp()
-                        Log.i(TAG, "Autoservice catch-up: ${result.outcome} (attempt ${attempt + 1})")
-                        catchUpResolved = result.outcome.isResolved()
-                        val retryable =
-                            result.outcome == com.bydmate.app.data.charging.CatchUpOutcome.SENTINEL ||
-                                result.outcome == com.bydmate.app.data.charging.CatchUpOutcome.AUTOSERVICE_UNAVAILABLE
-                        if (!retryable || attempt >= AUTOSERVICE_CATCHUP_MAX_RETRIES) break
-                        attempt++
-                        delay(AUTOSERVICE_CATCHUP_RETRY_DELAY_MS)
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Autoservice catch-up failed: ${e.message}")
-                }
                 // AI insights (once per day)
                 insightsManager.refreshIfNeeded()
             } catch (e: Exception) {
                 Log.w(TAG, "Sync failed: ${e.message}")
+            }
+        }
+
+        // Autoservice catch-up: synthesizes COMPLETED ChargeEntity records for
+        // charging that happened while DiLink was asleep. Runs in its OWN
+        // coroutine, not chained after runSync(): a slow or throwing import
+        // must not delay the catch-up read past the moment the car starts
+        // moving (odometer gate) — audit 2026-06-11, lost sleep-charge on Song.
+        // The autoservice SOC fid can sentinel-out during the cold-start
+        // window before its cache warms; retry a few times so a real
+        // sleep-charge isn't lost to a transient sentinel/unavailable read.
+        serviceScope.launch {
+            try {
+                var attempt = 0
+                while (true) {
+                    val result = autoserviceDetector.runCatchUp()
+                    Log.i(TAG, "Autoservice catch-up: ${result.outcome} (attempt ${attempt + 1})")
+                    catchUpResolved = result.outcome.isResolved()
+                    val retryable =
+                        result.outcome == com.bydmate.app.data.charging.CatchUpOutcome.SENTINEL ||
+                            result.outcome == com.bydmate.app.data.charging.CatchUpOutcome.AUTOSERVICE_UNAVAILABLE
+                    if (!retryable || attempt >= AUTOSERVICE_CATCHUP_MAX_RETRIES) break
+                    attempt++
+                    delay(AUTOSERVICE_CATCHUP_RETRY_DELAY_MS)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Autoservice catch-up failed: ${e.message}")
             }
         }
     }
