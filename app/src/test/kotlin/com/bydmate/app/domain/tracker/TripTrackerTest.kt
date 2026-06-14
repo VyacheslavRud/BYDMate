@@ -58,6 +58,23 @@ class TripTrackerTest {
     }
 
     @Test
+    fun `applies m_s to km_h conversion on GPS speed fallback`() = runTest {
+        // 1.2 m/s → 4 km/h (above SPEED_THRESHOLD) only WITH the *3.6 conversion;
+        // the raw m/s value (1) would stay below threshold and never start. Guards
+        // against the conversion silently being dropped.
+        val tracker = tracker()
+        val data = diParsData(speed = null)
+        val loc = movingLocation(1.2f)
+
+        nowMs = 1_000L
+        tracker.onData(data, loc) // arm
+        nowMs = 7_000L
+        tracker.onData(data, loc) // +6 s ≥ START_DELAY → DRIVING (only if converted)
+
+        assertEquals(TripState.DRIVING, tracker.state.value)
+    }
+
+    @Test
     fun `stays idle when both autoservice and GPS speed are unavailable`() = runTest {
         val tracker = tracker()
         val data = diParsData(speed = null)

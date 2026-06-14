@@ -43,11 +43,15 @@ data class CatchUpResult(
  * Gate C (fallback): socDelta > 0, cap unreliable
  *   → source = "autoservice_soc_estimate"
  *
- * The required gate is `socDelta >= MIN_SOC_DELTA_FOR_CHARGE` with the odometer
- * unchanged since the parked anchor — prevents phantom rows when SOC barely
- * moved (the regression that produced phantom autoservice_catchup rows in
- * v2.4.15/v2.4.16 via the lifetime_kwh driving counter) and stops a drive that
- * happened in the sleep gap from smearing into a reconstructed session.
+ * SOC-rise gate is tiered: a rise below MIN_SOC_DELTA_FOR_CHARGE (1%) is always
+ * noise and dropped; the [MIN_SOC_DELTA_FOR_CHARGE, SOC_DELTA_TRUSTED_CHARGE)
+ * band (exactly 2%) additionally requires the odometer to be unchanged since the
+ * parked anchor; a rise >= SOC_DELTA_TRUSTED_CHARGE (3%) is trusted
+ * unconditionally. This prevents phantom rows when SOC barely moved (the
+ * regression that produced phantom autoservice_catchup rows in v2.4.15/v2.4.16
+ * via the lifetime_kwh driving counter) and stops a drive that happened in the
+ * sleep gap from smearing into a reconstructed session, while never gating a
+ * clearly-real >=3% charge on a possibly-stale odometer.
  */
 @Singleton
 class AutoserviceChargingDetector @Inject constructor(
