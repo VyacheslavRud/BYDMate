@@ -546,6 +546,9 @@ private fun EditorDialog(
                             },
                             onAddMediaVolume = {
                                 onUpdate { copy(actions = actions + newMediaVolumeAction(context)) }
+                            },
+                            onAddSentry = {
+                                onUpdate { copy(actions = actions + newSentryAction(context)) }
                             }
                         )
                     }
@@ -1147,6 +1150,8 @@ private fun ActionRow(
                 DelayActionControls(action = action, onUpdate = onUpdate, modifier = Modifier.weight(1f))
             "media_volume" ->
                 MediaVolumeActionControls(action = action, onUpdate = onUpdate, modifier = Modifier.weight(1f))
+            "sentry" ->
+                SentryActionControls(action = action, onUpdate = onUpdate, modifier = Modifier.weight(1f))
             else -> // "param" (default)
                 ParamActionControls(action = action, onUpdate = onUpdate, modifier = Modifier.weight(1f))
         }
@@ -1306,6 +1311,43 @@ private fun MediaVolumeActionControls(
             color = AccentTeal,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.width(40.dp)
+        )
+    }
+}
+
+// --- Sentry Action Controls ---
+
+@Composable
+private fun SentryActionControls(
+    action: ActionDef,
+    onUpdate: (ActionDef) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isEnabled = action.payload == "1"
+    val onLabel = stringResource(R.string.automation_action_sentry_on)
+    val offLabel = stringResource(R.string.automation_action_sentry_off)
+    val displayLabel = stringResource(R.string.automation_action_sentry)
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(displayLabel, fontSize = 13.sp, color = TextMuted)
+        Spacer(Modifier.weight(1f))
+        Text(
+            if (isEnabled) onLabel else offLabel,
+            fontSize = 13.sp,
+            color = if (isEnabled) AccentGreen else TextSecondary
+        )
+        Spacer(Modifier.width(6.dp))
+        Switch(
+            checked = isEnabled,
+            onCheckedChange = { checked ->
+                val payload = if (checked) "1" else "0"
+                val name = if (checked) onLabel else offLabel
+                onUpdate(action.copy(payload = payload, displayName = "$displayLabel: $name"))
+            },
+            colors = bydSwitchColors()
         )
     }
 }
@@ -1545,7 +1587,8 @@ private fun AddActionButton(
     onAddUrl: () -> Unit,
     onAddYandexMusic: () -> Unit,
     onAddDelay: () -> Unit,
-    onAddMediaVolume: () -> Unit
+    onAddMediaVolume: () -> Unit,
+    onAddSentry: () -> Unit
 ) {
     val context = LocalContext.current
     var menuExpanded by remember { mutableStateOf(false) }
@@ -1608,6 +1651,10 @@ private fun AddActionButton(
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.automation_action_media_volume), fontSize = 13.sp) },
                 onClick = { menuExpanded = false; onAddMediaVolume() }
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.automation_action_sentry), fontSize = 13.sp) },
+                onClick = { menuExpanded = false; onAddSentry() }
             )
         }
     }

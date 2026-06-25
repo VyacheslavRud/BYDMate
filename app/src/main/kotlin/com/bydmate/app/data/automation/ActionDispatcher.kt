@@ -11,6 +11,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.bydmate.app.data.local.entity.ActionDef
 import com.bydmate.app.data.remote.DiParsData
+import com.bydmate.app.data.vehicle.HelperClient
 import com.bydmate.app.data.vehicle.VehicleApi
 import dagger.hilt.android.qualifiers.ApplicationContext
 import org.json.JSONObject
@@ -23,6 +24,7 @@ data class DispatchResult(val success: Boolean, val reason: String? = null)
 @Singleton
 class ActionDispatcher @Inject constructor(
     private val vehicleApi: VehicleApi,
+    private val helper: HelperClient,
     @ApplicationContext private val context: Context
 ) {
     companion object {
@@ -83,11 +85,25 @@ class ActionDispatcher @Inject constructor(
             "yandex_music" -> launchYandexMusic(action)
             "delay" -> dispatchDelay(action)
             "media_volume" -> setMediaVolume(action)
+            "sentry" -> dispatchSentry(action)
             else -> DispatchResult(false, "Unknown action kind: ${action.kind}")
         }
     } catch (e: Exception) {
         Log.e(TAG, "dispatch failed for kind=${action.kind}: ${e.message}")
         DispatchResult(false, e.message ?: "Unknown error")
+    }
+
+    // --- sentry mode (Settings.Global via helper daemon) ---
+
+    private suspend fun dispatchSentry(action: ActionDef): DispatchResult {
+        val value = when (action.payload) {
+            "1" -> 1
+            "0" -> 0
+            else -> return DispatchResult(false, "Некорректное состояние охранного режима")
+        }
+        val ok = helper.putGlobalSetting("sentrymode_enabled_switch", value)
+        return if (ok) DispatchResult(true)
+        else DispatchResult(false, "Не удалось переключить охранный режим")
     }
 
     private suspend fun dispatchDelay(action: ActionDef): DispatchResult {

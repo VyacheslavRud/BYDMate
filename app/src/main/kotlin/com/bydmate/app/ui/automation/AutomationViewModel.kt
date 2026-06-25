@@ -357,6 +357,14 @@ class AutomationViewModel @Inject constructor(
                     val level = a.payload?.toIntOrNull()
                     if (level == null || level < 0) return "Действие #$n: уровень громкости не задан"
                 }
+                "sentry" -> {
+                    if (a.payload !in listOf("0", "1")) return localized(
+                        "动作 #$n：охранный режим — некорректное состояние",
+                        "Action #$n: invalid sentry mode state",
+                        "Действие #$n: некорректное состояние охранного режима",
+                        context
+                    )
+                }
             }
         }
         return null
@@ -711,6 +719,15 @@ fun ActionDef.withYandexMusic(mode: String, minimize: Boolean): ActionDef = copy
         put("mode", mode)
         put("minimize", minimize)
     }.toString()
+)
+
+// --- Sentry helpers ---
+
+fun newSentryAction(context: Context): ActionDef = ActionDef(
+    command = "sentry",
+    displayName = localized("охранный режим", "Sentry mode", "Охранный режим", context),
+    kind = "sentry",
+    payload = "1"
 )
 
 /**
