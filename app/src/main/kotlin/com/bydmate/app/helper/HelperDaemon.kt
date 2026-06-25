@@ -236,6 +236,20 @@ fun main(args: Array<String>) {
                     true
                 }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
 
+                HelperBinderProtocol.TX_PUT_GLOBAL_SETTING -> runCatching {
+                    val key = data.readString() ?: ""
+                    val value = data.readInt()
+                    // Hardcoded whitelist — ONLY the sentry-mode master switch. shell uid holds
+                    // WRITE_SECURE_SETTINGS, so `settings put global` sticks. NOT a generic
+                    // settings passthrough.
+                    val allowed = setOf("sentrymode_enabled_switch")
+                    val ok = if (key in allowed) {
+                        shExec("settings put global \"\$1\" \"\$2\"", key, value.toString()).code == 0
+                    } else false
+                    reply?.writeInt(if (ok) 0 else -1); reply?.writeInt(0)
+                    true
+                }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
+
                 else -> super.onTransact(code, data, reply, flags)
             }
         }

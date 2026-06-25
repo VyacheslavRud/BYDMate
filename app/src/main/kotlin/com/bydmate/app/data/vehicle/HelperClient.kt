@@ -57,6 +57,10 @@ interface HelperClient {
      * has no a11y settings UI, so this is how the star-control toggle self-enables key filtering.
      */
     suspend fun enableAccessibilityService(): Boolean
+
+    /** Write [value] to Settings.Global [key] via `settings put global` under shell uid.
+     *  Daemon-whitelisted to sentrymode_enabled_switch. */
+    suspend fun putGlobalSetting(key: String, value: Int): Boolean
 }
 
 @Singleton
@@ -137,6 +141,11 @@ open class HelperClientImpl @Inject constructor() : HelperClient {
             val status = if (reply.dataAvail() >= 4) reply.readInt() else return@transactParsed false
             status == 0
         } ?: false
+
+    override suspend fun putGlobalSetting(key: String, value: Int): Boolean =
+        statusOk(HelperBinderProtocol.TX_PUT_GLOBAL_SETTING) {
+            it.writeString(key); it.writeInt(value)
+        }
 
     /** (status,value) reply; true iff status == 0. Shared by the boolean projection ops. */
     private suspend fun statusOk(code: Int, writeArgs: (Parcel) -> Unit): Boolean =
