@@ -79,20 +79,24 @@ class WriteAllowlist(private val map: Map<String, WriteEntry>) {
         internal fun isBanned(dev: Int, fid: Int): Boolean =
             dev in BANNED_DEVS && (dev to fid) !in BANNED_DEV_FID_EXCEPTIONS
 
-        // 31 native write entries on Leopard 3 via HelperDaemon: 22 live-validated
+        // 31 native write entries on Leopard 3 via HelperDaemon. 22 live-validated
         // 2026-05-28 (climate/windows/sunroof/sunshade/locks) + 8 live-validated
         // 2026-05-29 (interior/ambient light, DRL, rear-window-defrost = mirror heat).
-        // The sole non-validated entry is ac_on: its address was corrected to the
-        // competitor ac_ctrl_mode channel (501219352=0) and awaits an in-vehicle
-        // confirmation snap before promotion to validated=true — the prior
-        // power-fid/value-2 guess never turned the AC on.
+        // ac_cycle_outer corrected 2026-06-28 from live autoservice reads: external
+        // circulation reads 0 (internal reads 1), so the prior value 2 is not a valid
+        // enum and autoservice rejected the setInt (the "helper.write returned false"
+        // the user hit). ac_on stays unvalidated: an in-car test 2026-06-28 showed the
+        // competitor ac_ctrl_mode write (501219352=0) is rejected on Leopard 3 even as
+        // a real change with the climate awake (ctrl_mode read 1, wrote 0, no effect) —
+        // likely a different write fid or a signature-permission gate. Pin via a
+        // com.byd.airconditioning decompile before promoting to validated=true.
         val LIVE_VALIDATED: List<WriteEntry> = listOf(
             // climate (dev=1000)
             WriteEntry("ac_on",          1000, 501219352, null, 0, 0,   "climate",  false, "competitor-v80"),
             WriteEntry("ac_off",         1000, 501219364, null, 1, 1,   "climate",  true, "live-leopard3-2026-05-28"),
             WriteEntry("ac_temp_main",   1000, 501219368, null, 16, 30, "climate",  true, "live-leopard3-2026-05-28"),
             WriteEntry("ac_cycle_inner", 1000, 501219355, null, 1, 1,   "climate",  true, "live-leopard3-2026-05-28"),
-            WriteEntry("ac_cycle_outer", 1000, 501219355, null, 2, 2,   "climate",  true, "live-leopard3-2026-05-28"),
+            WriteEntry("ac_cycle_outer", 1000, 501219355, null, 0, 0,   "climate",  true, "live-leopard3-2026-06-28"),
 
             // windows competitor short-form (front only)
             WriteEntry("window_driver_open",     1001, 1125122104, null, 1, 1, "windows", true, "live-leopard3-2026-05-28"),
