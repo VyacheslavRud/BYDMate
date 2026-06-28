@@ -235,6 +235,7 @@
 
     <!-- Charge edit dialog -->
     <string name="charges_edit_dialog_title">Изменить зарядку</string>
+    <string name="charges_edit_date_label">Дата</string>
     <string name="charges_edit_type_label">Тип:</string>
     <string name="charges_edit_kwh_label">кВт·ч:</string>
     <string name="charges_edit_kwh_from_soc">из SOC × %1$.1f кВт·ч</string>

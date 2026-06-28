@@ -204,6 +204,7 @@
     <string name="charges_chart_bat_temp_title">Battery temp. (°C)</string>
     <string name="charges_chart_bat_temp_placeholder">Temperature: shown after 3 completed charging sessions (now: %1$d)</string>
     <string name="charges_edit_dialog_title">Edit charging session</string>
+    <string name="charges_edit_date_label">Date</string>
     <string name="charges_edit_type_label">Type:</string>
     <string name="charges_edit_kwh_label">kWh:</string>
     <string name="charges_edit_kwh_from_soc">from SOC × %1$.1f kWh</string>

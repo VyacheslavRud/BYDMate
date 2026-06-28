@@ -211,6 +211,7 @@
 
     <!-- Charge edit dialog -->
     <string name="charges_edit_dialog_title">编辑充电记录</string>
+    <string name="charges_edit_date_label">日期</string>
     <string name="charges_edit_type_label">类型：</string>
     <string name="charges_edit_kwh_label">kWh：</string>
     <string name="charges_edit_kwh_from_soc">按 SOC 计算 × %1$.1f kWh</string>
