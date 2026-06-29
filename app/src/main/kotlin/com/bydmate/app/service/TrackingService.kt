@@ -237,6 +237,34 @@ class TrackingService : Service(), LocationListener {
         private val _cameraActive = MutableStateFlow(false)
         val cameraActive: StateFlow<Boolean> = _cameraActive
 
+        // Live reference to the running service so the floating widget can reach
+        // the singleton AutomationEngine without binding. Mirrors how widget data
+        // flows out through this companion. Set in onCreate, cleared in onDestroy.
+        @Volatile private var instance: TrackingService? = null
+
+        /**
+         * Widget → engine bridge. Runs button N's rules through the live engine on
+         * the service scope and reports the matched-rule count (0 ⇒ caller shows the
+         * "no rules for button N" toast). No running service ⇒ onResult(0), fail-soft.
+         * onResult may be invoked off the main thread; callers marshal UI work.
+         */
+        fun fireAutomationButton(buttonId: Int, onResult: (matched: Int) -> Unit) {
+            val svc = instance
+            if (svc == null) {
+                onResult(0)
+                return
+            }
+            svc.serviceScope.launch {
+                val matched = try {
+                    svc.automationEngine.onButtonPress(buttonId)
+                } catch (e: Exception) {
+                    Log.w(TAG, "fireAutomationButton failed: ${e.message}")
+                    0
+                }
+                onResult(matched)
+            }
+        }
+
         fun start(context: Context) {
             val intent = Intent(context, TrackingService::class.java)
             context.startForegroundService(intent)
@@ -330,6 +358,7 @@ class TrackingService : Service(), LocationListener {
         networkAvailableMonitor.start()
         startPolling()
         startCameraMonitor()
+        instance = this
         _isRunning.value = true
         ChainLog.append(this, "TrackingService fully started")
 
@@ -665,6 +694,7 @@ class TrackingService : Service(), LocationListener {
         }
 
         wakeLock?.let { if (it.isHeld) it.release() }
+        instance = null
         _isRunning.value = false
 
         // Auto-restart via WorkManager (like BydConnect AutoRestartReceiver)
