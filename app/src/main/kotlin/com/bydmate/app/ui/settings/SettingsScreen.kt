@@ -656,6 +656,9 @@ private fun WidgetSection() {
             label = prefs.getLeftTapAppLabel(),
         ),
     )
+    val buttonsEnabled by prefs.buttonsEnabledFlow().collectAsStateWithLifecycle(
+        initialValue = prefs.isButtonsEnabled(),
+    )
     var showLeftTapPicker by remember { mutableStateOf(false) }
 
     SectionHeader(text = stringResource(R.string.settings_widget_section_header))
@@ -822,6 +825,30 @@ private fun WidgetSection() {
                 Switch(
                     checked = leftTapApp.enabled,
                     onCheckedChange = { prefs.setLeftTapZoningEnabled(it) },
+                    enabled = enabled,
+                    colors = bydSwitchColors(),
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.settings_widget_buttons_label),
+                        color = TextPrimary,
+                        fontSize = 13.sp,
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_widget_buttons_description),
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                    )
+                }
+                Switch(
+                    checked = buttonsEnabled,
+                    onCheckedChange = { prefs.setButtonsEnabled(it) },
                     enabled = enabled,
                     colors = bydSwitchColors(),
                 )
