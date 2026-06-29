@@ -41,13 +41,20 @@ class HelperBootstrapTest {
         // When false, killHelper() does NOT clear processAlive — simulates a process that
         // refuses to die, so the bail-out guard can be exercised.
         var killEffective = true
+        // When false, killHelper() reports a failed dispatch (no ADB connection / exec threw),
+        // exercising the "kill could not be dispatched → bail" guard.
+        var killSucceeds = true
         var onSpawn: () -> Boolean = { true }
         override suspend fun connect() = Result.success(Unit)
         override suspend fun isConnected() = true
         override suspend fun exec(cmd: String): String? = null
         override suspend fun grantUsageStatsAppop(packageName: String) = true
         override suspend fun spawnHelper(): Boolean { spawnCalls++; return onSpawn() }
-        override suspend fun killHelper(): Boolean { killCalls++; if (killEffective) processAlive = false; return true }
+        override suspend fun killHelper(): Boolean {
+            killCalls++
+            if (killSucceeds && killEffective) processAlive = false
+            return killSucceeds
+        }
         override suspend fun readHelperLog(): String? = null
         override suspend fun helperHeartbeat(): Boolean = processAlive
         override suspend fun shutdown() {}
@@ -114,6 +121,45 @@ class HelperBootstrapTest {
         assertEquals("must attempt the kill", 1, adb.killCalls)
         assertEquals("must NOT spawn over the live stale daemon", 0, adb.spawnCalls)
         assertEquals("must not persist a version", baselineVersion() xor 1L, prefs().getLong(KEY, -1L))
+    }
+
+    @Test
+    fun `failed kill dispatch bails without spawning or persisting`() = runTest {
+        // Stale version recorded; killHelper() reports it could not be dispatched (e.g. ADB down).
+        // Without evidence the old daemon is gone, we must not spawn over it nor record a version.
+        prefs().edit().putLong(KEY, baselineVersion() xor 1L).apply()
+        val adb = FakeAdb()
+        adb.processAlive = true
+        adb.killSucceeds = false
+        val helper = FakeHelper(alive = true)
+        adb.onSpawn = { helper.alive = true; true }
+        val boot = HelperBootstrap(adb, helper, ctx())
+
+        assertFalse("must not claim success when the kill could not be dispatched", boot.ensureRunning())
+        assertEquals("must attempt the kill", 1, adb.killCalls)
+        assertEquals("must NOT spawn after a failed kill", 0, adb.spawnCalls)
+        assertEquals("must not persist a version", baselineVersion() xor 1L, prefs().getLong(KEY, -1L))
+    }
+
+    @Test
+    fun `failed spawn dispatch does not persist even though a daemon answers the ping`() = runTest {
+        // Stale version recorded; the old ps-level process is already gone (heartbeat false) but a
+        // leftover daemon still answers the binder ping. The spawn dispatch fails — we must bail
+        // BEFORE the poll so that ping does not get the new version persisted against a non-fresh daemon.
+        prefs().edit().putLong(KEY, baselineVersion() xor 1L).apply()
+        val adb = FakeAdb()
+        adb.processAlive = false
+        val helper = FakeHelper(alive = true)
+        adb.onSpawn = { false }
+        val boot = HelperBootstrap(adb, helper, ctx())
+
+        assertFalse("must not claim success on a failed spawn dispatch", boot.ensureRunning())
+        assertEquals("must attempt the spawn", 1, adb.spawnCalls)
+        assertEquals(
+            "must NOT persist the new version on spawn failure",
+            baselineVersion() xor 1L,
+            prefs().getLong(KEY, -1L),
+        )
     }
 
     @Test
