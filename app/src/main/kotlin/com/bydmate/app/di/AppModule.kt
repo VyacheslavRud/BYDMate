@@ -465,7 +465,8 @@ object AppModule {
     fun provideHelperBootstrap(
         adb: com.bydmate.app.data.autoservice.AdbOnDeviceClient,
         helper: com.bydmate.app.data.vehicle.HelperClient,
+        @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context,
     ): com.bydmate.app.data.vehicle.HelperBootstrap =
-        com.bydmate.app.data.vehicle.HelperBootstrap(adb, helper)
+        com.bydmate.app.data.vehicle.HelperBootstrap(adb, helper, context)
 
 }
