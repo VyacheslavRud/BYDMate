@@ -401,6 +401,7 @@
     <string name="widget_km_per_percent">%1$.1f</string>
     <string name="widget_voltage_value">%1$.1f V</string>
     <string name="widget_toast_hidden">Widget hidden. Open BYDMate - it will return.</string>
+    <string name="widget_button_no_rules">No rules for button %1$d</string>
     <string name="widget_trash_release">release - widget hidden</string>
     <string name="widget_trash_hint">drag here to hide</string>
     <string name="dashboard_vehicle_data_offline">No vehicle data</string>

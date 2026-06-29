@@ -456,6 +456,7 @@
     <string name="widget_trip_km_value">%1$.1f 公里</string>
     <string name="widget_voltage_value">%1$.1f V</string>
     <string name="widget_toast_hidden">小组件已隐藏。打开 BYDMate 即可恢复。</string>
+    <string name="widget_button_no_rules">按钮 %1$d 没有规则</string>
     <string name="widget_trash_release">松手 - 隐藏小组件</string>
     <string name="widget_trash_hint">拖到这里隐藏</string>
     <string name="widget_km_per_percent">%1$.1f</string>
