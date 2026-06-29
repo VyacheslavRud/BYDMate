@@ -158,14 +158,17 @@ class ActionDispatcher @Inject constructor(
 
     private fun getBlockReason(command: String, data: DiParsData?): String? {
         if (BLOCKED_PATTERNS.any { command.contains(it) }) return "Запрещённая команда"
+        // Frunk is a powered external panel — fail SAFE. Checked BEFORE the data==null
+        // guard so missing telemetry (or unknown speed) blocks the open rather than
+        // allowing it. Unlike windows, this aperture must never open above standstill.
+        if (isFrontTrunkOpenCommand(command)) {
+            val speed = data?.speed ?: return "Скорость неизвестна, передний багажник не открыть"
+            if (speed > 0) return "Передний багажник открывается только на стоянке (скорость $speed км/ч)"
+        }
         if (data == null) return null
         if (isWindowOpenCommand(command)) {
             val speed = data.speed ?: return "Скорость неизвестна"
             if (speed > 80) return "Открытие окон заблокировано на скорости ${speed} км/ч (>80)"
-        }
-        if (isFrontTrunkOpenCommand(command)) {
-            val speed = data.speed ?: return "Скорость неизвестна, передний багажник не открыть"
-            if (speed > 0) return "Передний багажник открывается только на стоянке (скорость $speed км/ч)"
         }
         return null
     }
