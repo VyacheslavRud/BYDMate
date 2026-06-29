@@ -49,8 +49,12 @@ class ActionDispatcher @Inject constructor(
          * "打开N" sets the aperture to N%; N==0 is a CLOSE (safe at speed) and must
          * not be treated as an open. A bare "打开" with no percentage is treated
          * conservatively as an open. 全开/半开/通风 are always opens.
+         *
+         * Seat commands (座椅, e.g. 主驾座椅通风N档) share the 主驾/副驾 subject and the
+         * 通风 keyword but are NOT apertures — they must never be window-gated.
          */
         internal fun isWindowOpenCommand(command: String): Boolean {
+            if (command.contains("座椅")) return false   // seat heat/vent is not a window
             val subjects = listOf("车窗", "天窗", "主驾", "副驾", "后左", "后右", "遮阳帘")
             if (subjects.none { command.contains(it) }) return false
             if (command.contains("关")) return false

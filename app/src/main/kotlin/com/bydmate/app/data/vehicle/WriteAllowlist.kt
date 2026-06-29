@@ -85,6 +85,7 @@ class WriteAllowlist(private val map: Map<String, WriteEntry>) {
         // 2026-05-28 (climate/windows/sunroof/sunshade/locks) + 8 live-validated
         // 2026-05-29 (interior/ambient light, DRL, rear-window-defrost = mirror heat) +
         // 8 live-validated 2026-06-29 (seat heat/vent switch+level, dev=1000) +
+        // 2 live-validated 2026-06-29 (front trunk open/close, dev=1001) +
         // 3 live-validated 2026-06-29 (fridge mode/temp cool/temp heat, dev=1023 carve-out).
         // ac_cycle_outer corrected 2026-06-28 from live autoservice reads: external
         // circulation reads 0 (internal reads 1), so the prior value 2 is not a valid
