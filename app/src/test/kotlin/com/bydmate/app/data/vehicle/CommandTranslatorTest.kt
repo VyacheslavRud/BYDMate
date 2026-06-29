@@ -294,6 +294,19 @@ class CommandTranslatorTest {
         assertEquals(3, r?.value)
     }
 
+    // ── Front trunk (frunk) ── dev=1001, open=1 close=3 ──────────────────────
+    @Test fun `front trunk open maps to front_trunk_open val 1`() {
+        val r = one("前备箱打开")
+        assertEquals("front_trunk_open", r?.actionName)
+        assertEquals(1, r?.value)
+    }
+
+    @Test fun `front trunk close maps to front_trunk_close val 3`() {
+        val r = one("前备箱关闭")
+        assertEquals("front_trunk_close", r?.actionName)
+        assertEquals(3, r?.value)
+    }
+
     // ── Test 12: allActions returns non-empty set of unique names ─────────────
     @Test fun `allActions returns non-empty set`() {
         val actions = CommandTranslator.allActions()

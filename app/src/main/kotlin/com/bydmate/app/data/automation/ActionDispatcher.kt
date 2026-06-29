@@ -61,6 +61,14 @@ class ActionDispatcher @Inject constructor(
             return opensViaPosition || opensViaWord
         }
 
+        /**
+         * True if [command] would OPEN the front trunk — a powered external panel
+         * gated to standstill (speed 0). Close is not gated. Pure predicate, kept in
+         * the companion so it is unit-testable without Android deps.
+         */
+        internal fun isFrontTrunkOpenCommand(command: String): Boolean =
+            command.contains("前备箱") && command.contains("打开") && !command.contains("关")
+
         private val POSITION_OPEN = Regex("打开(\\d+)")
 
         /** Clamp a requested media volume level to the device's valid [0, max] range. Pure — unit-testable. */
@@ -150,6 +158,10 @@ class ActionDispatcher @Inject constructor(
         if (isWindowOpenCommand(command)) {
             val speed = data.speed ?: return "Скорость неизвестна"
             if (speed > 80) return "Открытие окон заблокировано на скорости ${speed} км/ч (>80)"
+        }
+        if (isFrontTrunkOpenCommand(command)) {
+            val speed = data.speed ?: return "Скорость неизвестна, передний багажник не открыть"
+            if (speed > 0) return "Передний багажник открывается только на стоянке (скорость $speed км/ч)"
         }
         return null
     }

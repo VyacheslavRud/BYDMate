@@ -71,6 +71,10 @@ object CommandTranslator {
         "开后备箱"  to Resolved("open_trunk",  1),  // competitor val=1
         "关后备箱"  to Resolved("close_trunk", 3),  // competitor val=3
 
+        // ── Front trunk (frunk) ── LIVE_VALIDATED (dev=1001, open speed-0 gated) ─
+        "前备箱打开" to Resolved("front_trunk_open",  1),
+        "前备箱关闭" to Resolved("front_trunk_close", 3),
+
         // ── Sunroof ── LIVE_VALIDATED ─────────────────────────────────────────
         "天窗打开100" to Resolved("sunroof_open",  1),  // full open
         "天窗打开50"  to Resolved("sunroof_tilt",  3),  // tilt/half — LIVE val=3

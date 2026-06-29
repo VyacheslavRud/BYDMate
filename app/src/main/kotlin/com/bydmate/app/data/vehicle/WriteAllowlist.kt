@@ -79,7 +79,7 @@ class WriteAllowlist(private val map: Map<String, WriteEntry>) {
         internal fun isBanned(dev: Int, fid: Int): Boolean =
             dev in BANNED_DEVS && (dev to fid) !in BANNED_DEV_FID_EXCEPTIONS
 
-        // 39 native write entries on Leopard 3 via HelperDaemon. 22 live-validated
+        // 41 native write entries on Leopard 3 via HelperDaemon. 22 live-validated
         // 2026-05-28 (climate/windows/sunroof/sunshade/locks) + 8 live-validated
         // 2026-05-29 (interior/ambient light, DRL, rear-window-defrost = mirror heat) +
         // 8 live-validated 2026-06-29 (seat heat/vent switch+level, dev=1000).
@@ -150,6 +150,10 @@ class WriteAllowlist(private val map: Map<String, WriteEntry>) {
             WriteEntry("driver_seat_vent_level",     1000, 1276252176, null, 1, 5, "seats", true, "live-leopard3-2026-06-29"),
             WriteEntry("passenger_seat_vent_switch", 1000, 1276248088, null, 0, 1, "seats", true, "live-leopard3-2026-06-29"),
             WriteEntry("passenger_seat_vent_level",  1000, 1276252184, null, 1, 5, "seats", true, "live-leopard3-2026-06-29"),
+            // front trunk (frunk) — dev=1001 SETTING_ELECTRIC_FORECABIN_SWITCH_SET, 1=open 3=close.
+            // Powered external panel; open is speed-0 gated in ActionDispatcher.
+            WriteEntry("front_trunk_open",  1001, 1276182560, null, 1, 1, "trunk", true, "live-leopard3-2026-06-29"),
+            WriteEntry("front_trunk_close", 1001, 1276182560, null, 3, 3, "trunk", true, "live-leopard3-2026-06-29"),
         )
 
         /**
