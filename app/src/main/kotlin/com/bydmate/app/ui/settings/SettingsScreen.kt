@@ -1667,6 +1667,11 @@ private fun LanguageBlock(
                 selected = currentLang == "zh",
                 onClick = { applyLang("zh") },
             )
+            LanguageOption(
+                label = "Português",
+                selected = currentLang == "pt",
+                onClick = { applyLang("pt") },
+            )
         }
     }
 }

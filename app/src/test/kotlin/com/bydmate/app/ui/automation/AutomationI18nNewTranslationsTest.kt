@@ -83,4 +83,34 @@ class AutomationI18nNewTranslationsTest {
             }
         }
     }
+
+    /**
+     * Portuguese (generic values-pt) parity. Iterating the REAL TRIGGER_PARAMS +
+     * ACTION_COMMANDS under "pt" proves every name/category/unit/enum/action label
+     * resolves through a pt resource (wiring intact, no missing key crashes). The
+     * spot-checks pin actual pt text per type so a silent Russian fallback (which a
+     * missing values-pt key would produce) is caught, not masked.
+     */
+    @Test fun pt_catalog_fully_backed_by_resources() {
+        LocalePreferences(ctx).setLanguage("pt")
+        val lc = ctx.appLocalizedContext()
+        for (p in TRIGGER_PARAMS) {
+            assertEquals("name ${p.param}", lc.getString(p.nameRes), p.localizedName(ctx))
+            assertEquals("category ${p.param}", lc.getString(p.categoryRes), p.localizedCategory(ctx))
+            p.unitRes?.let { assertEquals("unit ${p.param}", lc.getString(it), p.localizedUnit(ctx)) }
+            p.enumValues?.forEach { (value, res) ->
+                assertEquals("enum ${p.param}/$value", lc.getString(res), p.localizedEnumLabel(value, ctx))
+            }
+        }
+        for (a in ACTION_COMMANDS) {
+            assertEquals("action name ${a.command}", lc.getString(a.nameRes), a.localizedName(ctx))
+            assertEquals("action category ${a.command}", lc.getString(a.categoryRes), a.localizedCategory(ctx))
+        }
+        // Real pt text per type (fallback would yield the ru string instead).
+        assertEquals("Clima", lc.getString(R.string.auto_cat_climate))
+        assertEquals("Velocidade", lc.getString(R.string.auto_param_speed))
+        assertEquals("km/h", lc.getString(R.string.auto_unit_kmh))
+        assertEquals("Ligado", lc.getString(R.string.auto_enum_on))
+        assertEquals("Travar portas", lc.getString(R.string.auto_act_lock_doors))
+    }
 }
