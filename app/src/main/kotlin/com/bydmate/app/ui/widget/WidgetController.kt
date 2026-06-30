@@ -200,7 +200,7 @@ object WidgetController {
         buttonLayerView = buttonCompose
 
         // Transparent container: button layer fills the window; the panel pins to
-        // the top-right so the left column + bottom row pockets appear on expand.
+        // the top so the single bottom-row button pocket appears below it on expand.
         val root = android.widget.FrameLayout(viewCtx)
         root.addView(
             buttonCompose,

@@ -21,14 +21,14 @@ class ButtonPressTriggerTest {
     }
 
     @Test fun `button_press survives toJson then fromJson round-trip`() {
-        val original = newButtonPressTrigger(5)
+        val original = newButtonPressTrigger(2)
         val json: JSONObject = original.toJson()
         val restored = TriggerDef.fromJson(json)
         assertEquals(original, restored)
     }
 
     @Test fun `button_press survives list round-trip via column JSON`() {
-        val list = listOf(newButtonPressTrigger(1), newButtonPressTrigger(6))
+        val list = listOf(newButtonPressTrigger(1), newButtonPressTrigger(4))
         val columnJson = TriggerDef.listToJson(list)
         val restored = TriggerDef.listFromJson(columnJson)
         assertEquals(list, restored)

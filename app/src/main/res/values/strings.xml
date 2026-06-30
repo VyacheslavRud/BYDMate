@@ -122,7 +122,7 @@
     <string name="settings_widget_left_tap_label">Приложение для левого тапа</string>
     <string name="settings_widget_left_tap_description">По умолчанию Яндекс.Навигатор. Если приложение удалено, тап не сработает.</string>
     <string name="settings_widget_buttons_label">Кнопки на виджете</string>
-    <string name="settings_widget_buttons_description">Один тап по виджету выдвигает 6 кнопок, двойной тап открывает BYDMate. Кнопка запускает правило с триггером «Нажатие кнопки».</string>
+    <string name="settings_widget_buttons_description">Один тап по виджету выдвигает 4 кнопки, двойной тап открывает BYDMate. Кнопка запускает правило с триггером «Нажатие кнопки».</string>
 
     <!-- Settings: Places section -->
     <string name="settings_places_section_header">Места</string>

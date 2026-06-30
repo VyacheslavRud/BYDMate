@@ -108,7 +108,7 @@
     <string name="settings_widget_left_tap_label">App for left tap</string>
     <string name="settings_widget_left_tap_description">Default is Yandex Navigator. If the app is removed, the tap will not work.</string>
     <string name="settings_widget_buttons_label">Widget buttons</string>
-    <string name="settings_widget_buttons_description">A single tap slides out 6 buttons, a double tap opens BYDMate. A button runs a rule with the "Button press" trigger.</string>
+    <string name="settings_widget_buttons_description">A single tap slides out 4 buttons, a double tap opens BYDMate. A button runs a rule with the "Button press" trigger.</string>
     <string name="settings_places_section_header">Places</string>
     <string name="settings_places_entry_title">Automation points</string>
     <string name="settings_places_entry_description">Home, work, favorite places - Place enter / Place exit triggers</string>
