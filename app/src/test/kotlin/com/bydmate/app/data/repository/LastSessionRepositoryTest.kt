@@ -139,4 +139,58 @@ class LastSessionRepositoryTest {
         assertNull("stale bookmark should be age-trimmed", repo.takeMatch(2_000L))
         assertEquals(50, repo.takeMatch(8 * day + 1_000L)?.endSoc)
     }
+
+    @Test
+    fun `live soc persisted each tick survives a power-cut and reconciles to a bookmark`() {
+        val context = ctx()
+        val repo1 = LastSessionRepository(context)
+        repo1.onSessionStart(soc = 80, ts = 1_000L)
+        repo1.updateLiveSoc(soc = 75, ts = 2_000L)
+        repo1.updateLiveSoc(soc = 72, ts = 3_000L)
+        // power-cut at ignition-off: onSessionEnd never fires, process dies
+
+        // next ignition-on, fresh process reads the persisted open session
+        val repo2 = LastSessionRepository(context)
+        repo2.reconcileStaleOpenSession(now = 3_000L + 40_000L, idleMs = 30_000L)
+
+        val m = repo2.takeMatch(3_000L)
+        assertEquals(80, m?.startSoc)
+        assertEquals(72, m?.endSoc)   // last live reading before the cut
+    }
+
+    @Test
+    fun `open session still live is not reconciled`() {
+        val repo = LastSessionRepository(ctx())
+        repo.onSessionStart(soc = 80, ts = 1_000L)
+        repo.updateLiveSoc(soc = 75, ts = 2_000L)
+        // only 10s since the last tick — still driving, must not close
+        repo.reconcileStaleOpenSession(now = 2_000L + 10_000L, idleMs = 30_000L)
+        assertNull(repo.takeMatch(2_000L))
+    }
+
+    @Test
+    fun `reconcile is a no-op when no open session exists`() {
+        val repo = LastSessionRepository(ctx())
+        repo.reconcileStaleOpenSession(now = 100_000L, idleMs = 30_000L)
+        assertNull(repo.takeMatch(100_000L))
+    }
+
+    @Test
+    fun `onSessionEnd falls back to last live soc when the end-tick soc is null`() {
+        val repo = LastSessionRepository(ctx())
+        repo.onSessionStart(soc = 80, ts = 1_000L)
+        repo.updateLiveSoc(soc = 60, ts = 2_000L)
+        // engine-off sentinels-out the SOC fid at the closing tick
+        repo.onSessionEnd(soc = null, ts = 3_000L)
+        assertEquals(60, repo.takeMatch(3_000L)?.endSoc)
+    }
+
+    @Test
+    fun `updateLiveSoc fills start soc when it was null at the start tick`() {
+        val repo = LastSessionRepository(ctx())
+        repo.onSessionStart(soc = null, ts = 1_000L)   // cold-start sentinel
+        repo.updateLiveSoc(soc = 77, ts = 2_000L)
+        repo.onSessionEnd(soc = 60, ts = 3_000L)
+        assertEquals(77, repo.takeMatch(3_000L)?.startSoc)
+    }
 }

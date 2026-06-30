@@ -313,6 +313,13 @@ class TrackingService : Service(), LocationListener {
             }
         }
 
+        // Finalize a driving session left open by a hard power-cut at ignition-off
+        // (the head unit dies before the 30-sec idle-close can fire onSessionEnd),
+        // so its last live SOC still becomes a trip bookmark. No-op when there is
+        // no open session, or when it is still live (brief mid-drive restart).
+        lastSessionRepository.reconcileStaleOpenSession(
+            System.currentTimeMillis(), SESSION_IDLE_CLOSE_MS)
+
         // v2.4.8: clear odometer buffers poisoned by the startup-race that
         // shipped in v2.4.5–v2.4.7 (DiPars returned Mileage:0 on first poll
         // and the zero row stuck around, blocking every later real reading
@@ -469,10 +476,12 @@ class TrackingService : Service(), LocationListener {
                 if (sessionStartTotalElecKwh == null && data.totalElecConsumption != null) {
                     sessionStartTotalElecKwh = data.totalElecConsumption
                 }
-                // Lazy-init the session start SOC too — the autoservice SOC fid can
-                // sentinel-out at the exact start tick (cold start), same as above.
-                data.soc?.let { lastSessionRepository.fillStartSocIfMissing(it) }
             }
+            // Persist the live SOC (the same value already read for ABRP and the
+            // widget) as the running session end on every active tick, so a hard
+            // power-cut at ignition-off can't drop it. Also lazily fills the start
+            // SOC if it sentinelled-out at the start tick. Single source: data.soc.
+            data.soc?.let { lastSessionRepository.updateLiveSoc(it, now) }
         } else if (currentSession != null) {
             val idleFor = now - sessionLastActiveTs
             if (idleFor >= SESSION_IDLE_CLOSE_MS) {

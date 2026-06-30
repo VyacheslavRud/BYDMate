@@ -13,18 +13,22 @@ import kotlin.math.abs
  * graft socStart/socEnd onto trips imported from energydata (which carries no
  * SOC of its own).
  *
- * A session's SOC is read live during driving; the matching TripEntity is
- * created later, when HistoryImporter syncs energydata. These happen in
- * different process lifetimes, so the bookmarks are persisted (SharedPreferences)
- * and kept as a short, bounded list — not a single in-memory slot. That lets a
- * batch import (several trips driven between two syncs) match each trip to its
- * own session, and survives a service/process restart between session end and
- * the next sync.
+ * A session's SOC is read live during driving (the same value sent to ABRP and
+ * shown in the widget); the matching TripEntity is created later, when
+ * HistoryImporter syncs energydata. These happen in different process lifetimes,
+ * so the bookmarks are persisted (SharedPreferences) and kept as a short, bounded
+ * list — not a single in-memory slot. That lets a batch import (several trips
+ * driven between two syncs) match each trip to its own session, and survives a
+ * service/process restart between session end and the next sync.
  *
- * Only completed sessions (both startTs and endTs known) are stored, so every
- * stored bookmark has a real time window to match against. The in-progress
- * session is kept in memory only; a restart mid-session drops it (best-effort,
- * same as before the native-stack migration).
+ * Surviving ignition-off: on DiLink the head unit (and our process) dies the
+ * instant the car is switched off, long before the 30-sec idle-close that fires
+ * [onSessionEnd] can run. So the in-progress session is persisted too — its
+ * running end SOC is rewritten on every live tick via [updateLiveSoc], so the
+ * last reading before the power-cut is already on disk. On the next startup
+ * [reconcileStaleOpenSession] promotes that stale open session into a completed
+ * bookmark. Without this the end SOC would never reach disk and no trip would
+ * ever get enriched on a head unit that cuts power at ignition-off.
  *
  * Thread safety: all mutation and matching is guarded by [lock]; SharedPreferences
  * writes use apply() so the non-suspend TrackingService hot path never blocks.
@@ -44,16 +48,18 @@ class LastSessionRepository @Inject constructor(
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val lock = Any()
 
-    // In-progress session (in-memory only) — promoted to [completed] on session end.
-    private var pendingStartSoc: Int? = null
-    private var pendingStartTs: Long? = null
+    // In-progress session — persisted to disk so its live SOC survives a hard
+    // power-cut at ignition-off. Reconciled into [completed] on the next startup.
+    private var pending: Snapshot? = loadPending()
 
     // Completed sessions, oldest first. Loaded from disk so they survive restart.
     private val completed: MutableList<Snapshot> = loadCompleted().toMutableList()
 
     fun onSessionStart(soc: Int?, ts: Long) = synchronized(lock) {
-        pendingStartSoc = soc
-        pendingStartTs = ts
+        // Seed end = start so a session that ends before any further tick still
+        // carries a sane endSoc.
+        pending = Snapshot(startSoc = soc, endSoc = soc, startTs = ts, endTs = ts)
+        persistPendingLocked()
     }
 
     /**
@@ -63,23 +69,70 @@ class LastSessionRepository @Inject constructor(
      * non-null start SOC has been captured, or when no session is in progress.
      */
     fun fillStartSocIfMissing(soc: Int) = synchronized(lock) {
-        if (pendingStartTs != null && pendingStartSoc == null) {
-            pendingStartSoc = soc
+        val p = pending ?: return
+        if (p.startTs != null && p.startSoc == null) {
+            pending = p.copy(startSoc = soc)
+            persistPendingLocked()
         }
     }
 
+    /**
+     * Persist the live SOC read each active tick as the running session end (and
+     * lazily fill the start SOC if it sentinelled-out at the start tick). This is
+     * what makes the end SOC survive a power-cut: the last value written here is
+     * the SOC at the last live moment of the drive — effectively the trip-end SOC.
+     * No-op when no session is in progress.
+     */
+    fun updateLiveSoc(soc: Int, ts: Long) = synchronized(lock) {
+        val p = pending ?: return
+        pending = p.copy(startSoc = p.startSoc ?: soc, endSoc = soc, endTs = ts)
+        persistPendingLocked()
+    }
+
     fun onSessionEnd(soc: Int?, ts: Long) = synchronized(lock) {
-        val startTs = pendingStartTs
+        val p = pending
+        val startTs = p?.startTs
         // Store only completed sessions with a real window. A null startTs means
         // the session was already running at app launch (no onSessionStart fired) —
         // without a start there is nothing reliable to window-match on, so skip it.
         if (startTs != null) {
-            completed.add(Snapshot(startSoc = pendingStartSoc, endSoc = soc, startTs = startTs, endTs = ts))
+            // Engine-off can sentinel-out the SOC fid at the closing tick; fall back
+            // to the last live reading rather than storing a null end.
+            val endSoc = soc ?: p.endSoc
+            completed.add(Snapshot(startSoc = p.startSoc, endSoc = endSoc, startTs = startTs, endTs = ts))
             trimLocked(ts)
-            persistLocked()
+            persistCompletedLocked()
         }
-        pendingStartSoc = null
-        pendingStartTs = null
+        pending = null
+        clearPendingLocked()
+    }
+
+    /**
+     * On startup, finalize a driving session that was left open by a hard
+     * power-cut at ignition-off (the head unit died before the 30-sec idle-close
+     * could fire [onSessionEnd]). If the persisted open session's last live tick
+     * is older than [idleMs], promote it into a completed bookmark using its last
+     * running end SOC, so HistoryImporter can still enrich that trip. No-op when
+     * there is no open session, or when it is still live (a brief mid-drive
+     * process restart, which should resume rather than close).
+     */
+    fun reconcileStaleOpenSession(now: Long, idleMs: Long) = synchronized(lock) {
+        val p = pending ?: return
+        val refTs = p.endTs ?: p.startTs
+        if (refTs == null) {
+            pending = null
+            clearPendingLocked()
+            return
+        }
+        if (now - refTs >= idleMs) {
+            if (p.startTs != null) {
+                completed.add(Snapshot(p.startSoc, p.endSoc, p.startTs, p.endTs ?: p.startTs))
+                trimLocked(now)
+                persistCompletedLocked()
+            }
+            pending = null
+            clearPendingLocked()
+        }
     }
 
     /**
@@ -98,7 +151,7 @@ class LastSessionRepository @Inject constructor(
             .minByOrNull { abs((it.endTs ?: 0L) - tripEndTs) }
             ?: return null
         completed.remove(best)
-        persistLocked()
+        persistCompletedLocked()
         return best
     }
 
@@ -109,17 +162,24 @@ class LastSessionRepository @Inject constructor(
         }
     }
 
-    private fun persistLocked() {
+    private fun snapshotToJson(s: Snapshot): JSONObject = JSONObject().apply {
+        put("startSoc", s.startSoc ?: JSONObject.NULL)
+        put("endSoc", s.endSoc ?: JSONObject.NULL)
+        put("startTs", s.startTs ?: JSONObject.NULL)
+        put("endTs", s.endTs ?: JSONObject.NULL)
+    }
+
+    private fun snapshotFromJson(o: JSONObject): Snapshot = Snapshot(
+        startSoc = if (o.isNull("startSoc")) null else o.getInt("startSoc"),
+        endSoc = if (o.isNull("endSoc")) null else o.getInt("endSoc"),
+        startTs = if (o.isNull("startTs")) null else o.getLong("startTs"),
+        endTs = if (o.isNull("endTs")) null else o.getLong("endTs"),
+    )
+
+    private fun persistCompletedLocked() {
         val arr = JSONArray()
         for (s in completed) {
-            arr.put(
-                JSONObject().apply {
-                    put("startSoc", s.startSoc ?: JSONObject.NULL)
-                    put("endSoc", s.endSoc ?: JSONObject.NULL)
-                    put("startTs", s.startTs)
-                    put("endTs", s.endTs)
-                }
-            )
+            arr.put(snapshotToJson(s))
         }
         prefs.edit().putString(KEY_SESSIONS, arr.toString()).apply()
     }
@@ -128,23 +188,38 @@ class LastSessionRepository @Inject constructor(
         val raw = prefs.getString(KEY_SESSIONS, null) ?: return emptyList()
         return try {
             val arr = JSONArray(raw)
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                Snapshot(
-                    startSoc = if (o.isNull("startSoc")) null else o.getInt("startSoc"),
-                    endSoc = if (o.isNull("endSoc")) null else o.getInt("endSoc"),
-                    startTs = if (o.isNull("startTs")) null else o.getLong("startTs"),
-                    endTs = if (o.isNull("endTs")) null else o.getLong("endTs"),
-                )
-            }
+            (0 until arr.length()).map { i -> snapshotFromJson(arr.getJSONObject(i)) }
         } catch (_: Exception) {
             emptyList()
+        }
+    }
+
+    private fun persistPendingLocked() {
+        val p = pending
+        if (p == null) {
+            clearPendingLocked()
+            return
+        }
+        prefs.edit().putString(KEY_PENDING, snapshotToJson(p).toString()).apply()
+    }
+
+    private fun clearPendingLocked() {
+        prefs.edit().remove(KEY_PENDING).apply()
+    }
+
+    private fun loadPending(): Snapshot? {
+        val raw = prefs.getString(KEY_PENDING, null) ?: return null
+        return try {
+            snapshotFromJson(JSONObject(raw))
+        } catch (_: Exception) {
+            null
         }
     }
 
     companion object {
         private const val PREFS_NAME = "session_soc_bookmarks"
         private const val KEY_SESSIONS = "completed_sessions"
+        private const val KEY_PENDING = "pending_session"
         private const val END_TOLERANCE_MS = 30_000L
         private const val MAX_COUNT = 20
         private const val MAX_AGE_MS = 7L * 24 * 3600 * 1000
