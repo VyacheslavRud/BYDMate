@@ -114,6 +114,8 @@
     <string name="settings_widget_show_soc_label">Показывать виджет SOC</string>
     <string name="settings_widget_hints">• Долгий тап на виджете - скрыть до следующего открытия BYDMate.\n• Перетащить в корзину внизу - выключить совсем.\n• Обычный тап - открыть BYDMate.</string>
     <string name="settings_widget_reset_position_button">Сбросить позицию</string>
+    <string name="settings_reset_seat_channel">Сбросить канал сидений</string>
+    <string name="settings_reset_seat_channel_hint">Если подогрев или вентиляция сидений не срабатывают после смены машины</string>
     <string name="settings_widget_opacity_label">Прозрачность</string>
     <string name="settings_widget_scale_label">Размер</string>
     <string name="settings_widget_tap_section_header">Тап по виджету</string>

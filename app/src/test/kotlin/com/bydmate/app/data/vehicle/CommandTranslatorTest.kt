@@ -80,32 +80,6 @@ class CommandTranslatorTest {
         assertEquals(1, r?.value)
     }
 
-    // ── Seats: re-wired to validated dev=1000 switch+level (composite fan-out) ─
-    @Test fun `seat heat level 1 fans out to driver switch on plus level 1`() {
-        assertEquals(
-            setOf("driver_seat_heat_switch" to 1, "driver_seat_heat_level" to 1),
-            pairs("主驾座椅加热1档"),
-        )
-    }
-
-    @Test fun `seat heat level 5 fans out to driver switch on plus level 5`() {
-        assertEquals(
-            setOf("driver_seat_heat_switch" to 1, "driver_seat_heat_level" to 5),
-            pairs("主驾座椅加热5档"),
-        )
-    }
-
-    @Test fun `seat heat off writes only switch 0`() {
-        assertEquals(setOf("driver_seat_heat_switch" to 0), pairs("主驾座椅加热关闭"))
-    }
-
-    @Test fun `passenger seat vent level 3 fans out to passenger vent switch plus level 3`() {
-        assertEquals(
-            setOf("passenger_seat_vent_switch" to 1, "passenger_seat_vent_level" to 3),
-            pairs("副驾座椅通风3档"),
-        )
-    }
-
     // ── Test 9: sunroof 50 maps to sunroof_tilt val=3 ────────────────────────
     @Test fun `sunroof 50 maps to sunroof_tilt val 3`() {
         val r = one("天窗打开50")
@@ -336,5 +310,23 @@ class CommandTranslatorTest {
     @Test fun `allActions returns non-empty set`() {
         val actions = CommandTranslator.allActions()
         assertTrue("allActions must be non-empty", actions.isNotEmpty())
+    }
+
+    // ── resolveSeat: dedicated seat parser, out of composite fan-out ──────────
+    @Test fun `resolveSeat parses driver vent level`() {
+        assertEquals(SeatCommand(SeatGroup.DRIVER_VENT, 1), CommandTranslator.resolveSeat("主驾座椅通风1档"))
+        assertEquals(SeatCommand(SeatGroup.DRIVER_VENT, 5), CommandTranslator.resolveSeat("主驾座椅通风5档"))
+    }
+    @Test fun `resolveSeat parses off`() {
+        assertEquals(SeatCommand(SeatGroup.PASSENGER_HEAT, 0), CommandTranslator.resolveSeat("副驾座椅加热关闭"))
+    }
+    @Test fun `resolveSeat strips prefix`() {
+        assertEquals(SeatCommand(SeatGroup.DRIVER_HEAT, 2), CommandTranslator.resolveSeat("迪加主驾座椅加热2档"))
+    }
+    @Test fun `resolveSeat returns null for non-seat`() {
+        assertEquals(null, CommandTranslator.resolveSeat("车窗全开"))
+    }
+    @Test fun `seat commands no longer in composite fan-out`() {
+        assertEquals(emptyList<CommandTranslator.Resolved>(), CommandTranslator.resolve("主驾座椅通风1档"))
     }
 }

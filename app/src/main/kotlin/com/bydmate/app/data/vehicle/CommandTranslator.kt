@@ -1,11 +1,17 @@
 package com.bydmate.app.data.vehicle
 
+/** A parsed seat comfort command. level: 0 = off, 1..5 = heat/vent stage. */
+data class SeatCommand(val group: SeatGroup, val level: Int)
+
 /**
- * Maps legacy D+ Chinese command strings to (action_name, value) for VehicleApi.dispatch.
+ * Maps the app's internal Chinese command vocabulary to (action_name, value) for
+ * VehicleApi.dispatch. These strings are the command tokens used by automations and
+ * Smart Home; they are NOT a live D+ HTTP path (the old D+ command bus no longer exists,
+ * writes now go through the native autoservice channel via VehicleApi).
  *
  * Source: AutomationViewModel.ACTION_COMMANDS (49 entries) + Smart Home VPS catalog
- * (same vocabulary). Both callers historically stripped the "迪加" prefix before sending
- * over HTTP; the prefix is now removed here if present.
+ * (same vocabulary). Some callers historically prefixed "迪加"; that prefix is stripped
+ * here if present.
  *
  * Crowd validation strategy: actions not present here OR not in WriteAllowlist will
  * fail-soft at dispatch(). User files issue → we add the mapping in a follow-up.
@@ -104,19 +110,6 @@ object CommandTranslator {
         "关闭后视镜加热" to Resolved("defrost_rear_off", 0),
     )
 
-    /**
-     * Seat heat/vent fan out to the validated dev=1000 switch + level fids: "on at
-     * level N" writes switch=1 then level=N; "off" writes switch=0. Keys match the
-     * UI/voice command strings 主驾座椅加热{1..5}档 / 主驾座椅加热关闭.
-     */
-    private fun seatStages(prefix: String, switchAction: String, levelAction: String): Map<String, List<Resolved>> =
-        buildMap {
-            for (lvl in 1..5) {
-                put("$prefix${lvl}档", listOf(Resolved(switchAction, 1), Resolved(levelAction, lvl)))
-            }
-            put("${prefix}关闭", listOf(Resolved(switchAction, 0)))
-        }
-
     /** Fridge temperature presets fan out to [fridge_mode, fridge_temp_*]. Cooling raw
      *  = °C + 19; heating raw = °C. Mode is set alongside so each action is self-contained. */
     private fun fridgeCool(celsius: Int): List<Resolved> =
@@ -144,11 +137,6 @@ object CommandTranslator {
         put("前排车窗关闭", listOf(Resolved("window_driver_pos", 0), Resolved("window_passenger_pos", 0)))
         put("后排车窗全开", listOf(Resolved("window_rear_left_pos", 100), Resolved("window_rear_right_pos", 100)))
         put("后排车窗关闭", listOf(Resolved("window_rear_left_pos", 0), Resolved("window_rear_right_pos", 0)))
-        // ── Seat heat/vent ── switch + level fan-out (dev=1000) ────────────────
-        putAll(seatStages("主驾座椅加热", "driver_seat_heat_switch", "driver_seat_heat_level"))
-        putAll(seatStages("副驾座椅加热", "passenger_seat_heat_switch", "passenger_seat_heat_level"))
-        putAll(seatStages("主驾座椅通风", "driver_seat_vent_switch", "driver_seat_vent_level"))
-        putAll(seatStages("副驾座椅通风", "passenger_seat_vent_switch", "passenger_seat_vent_level"))
         // ── Fridge temperature presets ── mode + setpoint (dev=1023) ──────────
         put("冰箱制冷-6度", fridgeCool(-6))
         put("冰箱制冷-3度", fridgeCool(-3))
@@ -202,4 +190,25 @@ object CommandTranslator {
      *  range (the bug where 外循环 stayed at 2 while the allowlist range was tightened to 0). */
     fun allResolved(): List<Resolved> =
         table.values + composite.values.flatten()
+
+    private val SEAT_PREFIXES: Map<String, SeatGroup> = mapOf(
+        "主驾座椅加热" to SeatGroup.DRIVER_HEAT,
+        "副驾座椅加热" to SeatGroup.PASSENGER_HEAT,
+        "主驾座椅通风" to SeatGroup.DRIVER_VENT,
+        "副驾座椅通风" to SeatGroup.PASSENGER_VENT,
+    )
+
+    /** Parse a seat heat/vent command into (group, level), or null if not a seat command. */
+    fun resolveSeat(commandString: String): SeatCommand? {
+        val s = commandString.removePrefix("迪加")
+        for ((prefix, group) in SEAT_PREFIXES) {
+            if (!s.startsWith(prefix)) continue
+            val tail = s.removePrefix(prefix)
+            if (tail == "关闭") return SeatCommand(group, 0)
+            val m = Regex("""(\d)档""").matchEntire(tail) ?: return null
+            val lvl = m.groupValues[1].toInt()
+            return if (lvl in 1..5) SeatCommand(group, lvl) else null
+        }
+        return null
+    }
 }

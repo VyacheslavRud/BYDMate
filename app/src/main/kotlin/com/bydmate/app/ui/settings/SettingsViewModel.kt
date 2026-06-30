@@ -40,6 +40,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.bydmate.app.data.vehicle.SeatChannel
+import com.bydmate.app.data.vehicle.SeatChannelStore
 import com.bydmate.app.service.BootReceiver
 import com.bydmate.app.ui.widget.WidgetController
 import java.io.File
@@ -119,6 +121,7 @@ class SettingsViewModel @Inject constructor(
     private val backupManager: BackupManager,
     private val chargingStateStore: com.bydmate.app.data.charging.ChargingStateStore,
     private val catchUpJournal: com.bydmate.app.data.charging.CatchUpJournal,
+    private val seatChannelStore: SeatChannelStore,
 ) : ViewModel() {
 
     private val _appLanguage = MutableStateFlow(localePreferences.getLanguage() ?: "ru")
@@ -137,6 +140,9 @@ class SettingsViewModel @Inject constructor(
         // which leaves the floating widget rendering against the old language.
         WidgetController.relocale()
     }
+
+    /** Forget the remembered seat write-channel; next seat command re-probes primary→fallback. */
+    fun resetSeatChannel() = seatChannelStore.setWinner(SeatChannel.UNKNOWN)
 
     private val _uiState = MutableStateFlow(SettingsUiState(
         appVersion = getVersion(),

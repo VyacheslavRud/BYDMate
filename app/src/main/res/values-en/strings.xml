@@ -100,6 +100,8 @@
     <string name="settings_widget_show_soc_label">Show SOC widget</string>
     <string name="settings_widget_hints">- Long tap the widget - hide until BYDMate is opened next time.\n- Drag to the bin at the bottom - turn off completely.\n- Regular tap - open BYDMate.</string>
     <string name="settings_widget_reset_position_button">Reset position</string>
+    <string name="settings_reset_seat_channel">Reset seat channel</string>
+    <string name="settings_reset_seat_channel_hint">If seat heating or ventilation stops working after switching cars</string>
     <string name="settings_widget_opacity_label">Opacity</string>
     <string name="settings_widget_scale_label">Size</string>
     <string name="settings_widget_tap_section_header">Widget tap</string>

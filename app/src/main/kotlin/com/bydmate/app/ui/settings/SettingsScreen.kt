@@ -1572,6 +1572,20 @@ private fun AppSection(state: SettingsUiState, viewModel: SettingsViewModel) {
             }
         }
     }
+
+    Text(
+        text = stringResource(R.string.settings_reset_seat_channel_hint),
+        color = TextSecondary,
+        fontSize = 11.sp,
+        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+    )
+    Button(
+        onClick = { viewModel.resetSeatChannel() },
+        shape = RoundedCornerShape(8.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = CardSurface),
+    ) {
+        Text(stringResource(R.string.settings_reset_seat_channel), fontSize = 13.sp, color = TextPrimary)
+    }
 }
 
 @Composable

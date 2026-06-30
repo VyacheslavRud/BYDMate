@@ -42,9 +42,12 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import com.bydmate.app.data.vehicle.SeatChannel
+import com.bydmate.app.data.vehicle.SeatChannelStore
 import io.mockk.coEvery
 import io.mockk.mockk
 import io.mockk.slot
+import io.mockk.verify
 import kotlinx.coroutines.delay
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -56,6 +59,7 @@ import org.robolectric.annotation.Config
 class SettingsViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
+    private val seatChannelStore: SeatChannelStore = mockk(relaxed = true)
 
     @Before
     fun setUp() {
@@ -227,6 +231,7 @@ class SettingsViewModelTest {
             backupManager = backupManager,
             chargingStateStore = com.bydmate.app.data.charging.ChargingStateStore(settingsRepo),
             catchUpJournal = com.bydmate.app.data.charging.CatchUpJournal(settingsRepo),
+            seatChannelStore = seatChannelStore,
         )
     }
 
@@ -278,5 +283,11 @@ class SettingsViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle() // cancelled job must not resurrect state
 
         assertEquals(UpdateState.Idle, vm.uiState.value.updateDialogState)
+    }
+
+    @Test fun `resetSeatChannel sets winner to UNKNOWN`() = runTest {
+        val vm = buildViewModel()
+        vm.resetSeatChannel()
+        verify { seatChannelStore.setWinner(SeatChannel.UNKNOWN) }
     }
 }

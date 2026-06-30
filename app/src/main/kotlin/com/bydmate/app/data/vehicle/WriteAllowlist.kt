@@ -167,11 +167,21 @@ class WriteAllowlist(private val map: Map<String, WriteEntry>) {
 
         /**
          * Candidate (unvalidated) native channels staged for an in-vehicle snap.
-         * Empty since 2026-05-29: the interior/ambient light entries graduated to
-         * [LIVE_VALIDATED] after a write+readback snap passed on Leopard 3. Kept as
-         * an extension point — the merge order in [loadProduction] still folds it in.
+         * Holds the seat heat/vent dev=1001 fallback channel (competitor-v80 fids)
+         * used by AdaptiveSeatChannel when the primary dev=1000 path returns a
+         * permanent error on non-Leopard-3 models. The merge order in [loadProduction]
+         * folds these in after competitor JSON; LIVE_VALIDATED wins on collision.
          */
-        val CANDIDATE_UNVALIDATED: List<WriteEntry> = emptyList()
+        val CANDIDATE_UNVALIDATED: List<WriteEntry> = listOf(
+            // Seat heat/vent fallback channel — competitor dev=1001, single write.
+            // value range 1..6: 1=off, 2=lvl1 ... 6=lvl5. Used by AdaptiveSeatChannel
+            // when dev=1000 primary returns NOOP/PERMANENT (e.g. Song Plus / DiLink 3).
+            // Not live-validated on those models yet — confirmed via competitor-v80.
+            WriteEntry("driver_seat_heat_fallback",    1001, 1125122068, null, 1, 6, "seats", false, "competitor-v80"),
+            WriteEntry("driver_seat_vent_fallback",    1001, 1125122064, null, 1, 6, "seats", false, "competitor-v80"),
+            WriteEntry("passenger_seat_heat_fallback", 1001, 1125122076, null, 1, 6, "seats", false, "competitor-v80"),
+            WriteEntry("passenger_seat_vent_fallback", 1001, 1125122072, null, 1, 6, "seats", false, "competitor-v80"),
+        )
 
         /**
          * Category inference from action name prefix.

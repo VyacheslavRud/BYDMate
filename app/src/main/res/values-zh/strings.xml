@@ -91,6 +91,8 @@
     <string name="settings_widget_show_soc_label">显示 SOC 小组件</string>
     <string name="settings_widget_hints">• 长按小组件 - 隐藏至下次打开 BYDMate。\n• 拖到底部垃圾桶 - 完全关闭。\n• 普通点击 - 打开 BYDMate。</string>
     <string name="settings_widget_reset_position_button">重置位置</string>
+    <string name="settings_reset_seat_channel">重置座椅通道</string>
+    <string name="settings_reset_seat_channel_hint">更换车辆后座椅加热或通风失效时使用</string>
     <string name="settings_widget_opacity_label">不透明度</string>
     <string name="settings_widget_scale_label">大小</string>
     <string name="settings_widget_tap_section_header">点击小组件</string>
