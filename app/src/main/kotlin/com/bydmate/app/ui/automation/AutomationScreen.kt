@@ -666,11 +666,11 @@ private fun EditorDialog(
 @Composable
 private fun ReorderArrows(onMoveUp: (() -> Unit)?, onMoveDown: (() -> Unit)?) {
     IconButton(onClick = { onMoveUp?.invoke() }, enabled = onMoveUp != null, modifier = Modifier.size(24.dp)) {
-        Icon(Icons.Outlined.KeyboardArrowUp, "выше",
+        Icon(Icons.Outlined.KeyboardArrowUp, stringResource(R.string.auto_a11y_move_up),
             tint = TextSecondary.copy(alpha = if (onMoveUp != null) 1f else 0.25f), modifier = Modifier.size(16.dp))
     }
     IconButton(onClick = { onMoveDown?.invoke() }, enabled = onMoveDown != null, modifier = Modifier.size(24.dp)) {
-        Icon(Icons.Outlined.KeyboardArrowDown, "ниже",
+        Icon(Icons.Outlined.KeyboardArrowDown, stringResource(R.string.auto_a11y_move_down),
             tint = TextSecondary.copy(alpha = if (onMoveDown != null) 1f else 0.25f), modifier = Modifier.size(16.dp))
     }
 }
@@ -768,7 +768,7 @@ private fun ParamTriggerControls(
     if (paramOption?.enumValues != null) {
         // Enum dropdown
         var enumExpanded by remember { mutableStateOf(false) }
-        val enumLabel = paramOption.enumValues.find { it.first == trigger.value }?.second ?: trigger.value
+        val enumLabel = paramOption.localizedEnumLabel(trigger.value, context)
         Box {
             Text(
                 enumLabel,
@@ -780,9 +780,9 @@ private fun ParamTriggerControls(
                     .padding(8.dp, 6.dp)
             )
             DropdownMenu(expanded = enumExpanded, onDismissRequest = { enumExpanded = false }) {
-                paramOption.enumValues.forEach { (value, label) ->
+                paramOption.enumValues.forEach { (value, _) ->
                     DropdownMenuItem(
-                        text = { Text(label, fontSize = 13.sp) },
+                        text = { Text(paramOption.localizedEnumLabel(value, context), fontSize = 13.sp) },
                         onClick = {
                             enumExpanded = false
                             onUpdate(trigger.copy(value = value, operator = "=="))
@@ -806,9 +806,9 @@ private fun ParamTriggerControls(
                 fontSize = 13.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         )
-        if (paramOption?.unit?.isNotEmpty() == true) {
+        if (paramOption != null && paramOption.localizedUnit(context).isNotEmpty()) {
             Spacer(Modifier.width(4.dp))
-            Text(paramOption.unit, fontSize = 12.sp, color = TextMuted)
+            Text(paramOption.localizedUnit(context), fontSize = 12.sp, color = TextMuted)
         }
     }
 }
@@ -1232,7 +1232,7 @@ private fun ActionRow(
         if (action.kind == "param" && action.command.isNotBlank()) {
             Spacer(Modifier.width(4.dp))
             IconButton(onClick = { onTest(action.command) }, modifier = Modifier.size(24.dp)) {
-                Icon(Icons.Outlined.PlayArrow, "выполнить сейчас", tint = AccentGreen, modifier = Modifier.size(16.dp))
+                Icon(Icons.Outlined.PlayArrow, stringResource(R.string.auto_a11y_run_now), tint = AccentGreen, modifier = Modifier.size(16.dp))
             }
         }
         Spacer(Modifier.width(4.dp))
@@ -2596,7 +2596,7 @@ private fun newPlaceTrigger(place: PlaceEntity, context: android.content.Context
         chineseName = "位置",
         operator = "==",
         value = "enter",
-        displayName = localized("进入「${place.name}」", "Enter «${place.name}»", "Въезд в «${place.name}»", context),
+        displayName = context.getString(R.string.auto_trig_place_enter, place.name),
         kind = "place_enter",
         placeId = place.id,
         placeName = place.name
@@ -2609,7 +2609,7 @@ private fun newServiceStartTrigger(context: android.content.Context): TriggerDef
         chineseName = "服务启动",
         operator = "==",
         value = "true",
-        displayName = localized("BYDMate 启动", "BYDMate startup", "Запуск BYDMate", context),
+        displayName = context.getString(R.string.auto_trig_service_start),
         kind = "service_start"
     )
 }
@@ -2620,21 +2620,21 @@ private fun newNetworkAvailableTrigger(context: android.content.Context): Trigge
         chineseName = "网络可用",
         operator = "==",
         value = "true",
-        displayName = localized("网络可用", "Internet available", "Доступен интернет", context),
+        displayName = context.getString(R.string.auto_trig_network_available),
         kind = "network_available"
     )
 }
 
 private fun newDelayAction(context: android.content.Context): ActionDef = ActionDef(
     command = "delay_1000",
-    displayName = localized("延迟 1 秒", "Delay 1 sec", "Пауза 1 сек", context),
+    displayName = context.getString(R.string.auto_act_delay_1s),
     kind = "delay",
     payload = "1000"
 )
 
 private fun newMediaVolumeAction(context: android.content.Context): ActionDef = ActionDef(
     command = "media_volume",
-    displayName = localized("媒体音量: 2", "Media volume: 2", "Громкость медиа: 2", context),
+    displayName = context.getString(R.string.auto_act_media_volume),
     kind = "media_volume",
     payload = "2"
 )
@@ -2645,7 +2645,7 @@ private fun newTimeOfDayTrigger(context: android.content.Context): TriggerDef {
         chineseName = "时间段",
         operator = "==",
         value = "NIGHT",
-        displayName = localized("夜晚", "Night", "Ночь", context),
+        displayName = context.getString(R.string.auto_trig_time_of_day_night),
         kind = "time_of_day"
     )
 }
