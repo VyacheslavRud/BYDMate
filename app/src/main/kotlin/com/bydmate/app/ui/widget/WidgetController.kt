@@ -219,6 +219,13 @@ object WidgetController {
         )
         rootContainer = root
 
+        // WindowManager attaches this FrameLayout, so Compose resolves the window
+        // recomposer's lifecycle owner from the root view, not from the child
+        // ComposeViews. Without owners on the root, AbstractComposeView throws
+        // "ViewTreeLifecycleOwner not found" on attach and the overlay crashes.
+        root.setViewTreeLifecycleOwner(lifecycleOwner)
+        root.setViewTreeSavedStateRegistryOwner(lifecycleOwner)
+
         try {
             windowManager.addView(root, params)
         } catch (e: Exception) {
