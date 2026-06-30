@@ -33,7 +33,6 @@ data class ChartBar(
 
 data class MonthGroup(
     val yearMonth: String,     // "2026-03"
-    val label: String,         // "Март 2026"
     val totalKm: Double,
     val totalKwh: Double,
     val avgConsumption: Double,
@@ -43,7 +42,6 @@ data class MonthGroup(
 
 data class DayGroup(
     val date: String,          // "30.03"
-    val dayOfWeek: String,     // "Пн"
     val totalKm: Double,
     val totalKwh: Double,
     val avgConsumption: Double,
@@ -282,8 +280,8 @@ class TripsViewModel @Inject constructor(
     private fun groupIntoMonths(trips: List<TripEntity>): List<MonthGroup> {
         val monthKeyFmt = SimpleDateFormat("yyyy-MM", Locale.US)
         val dayKeyFmt = SimpleDateFormat("dd.MM", Locale.US)
-        val dayOfWeekFmt = SimpleDateFormat("EEE", Locale.getDefault())
-        val monthLabelFmt = SimpleDateFormat("LLLL yyyy", Locale.getDefault())
+        // Weekday / month labels are formatted in the UI layer (DayHeader / MonthHeader)
+        // from the trip timestamps, so they recompose on an in-place language switch.
 
         val monthMap = linkedMapOf<String, MutableList<TripEntity>>()
         for (trip in trips) {
@@ -303,7 +301,6 @@ class TripsViewModel @Inject constructor(
                 val kwh = dayTrips.sumOf { it.kwhConsumed ?: 0.0 }
                 DayGroup(
                     date = dayKey,
-                    dayOfWeek = dayOfWeekFmt.format(Date(dayTrips.first().startTs)),
                     totalKm = km,
                     totalKwh = kwh,
                     avgConsumption = if (km > 0) kwh / km * 100.0 else 0.0,
@@ -316,8 +313,6 @@ class TripsViewModel @Inject constructor(
             val kwh = monthTrips.sumOf { it.kwhConsumed ?: 0.0 }
             MonthGroup(
                 yearMonth = monthKey,
-                label = monthLabelFmt.format(Date(monthTrips.first().startTs))
-                    .replaceFirstChar { it.uppercase() },
                 totalKm = km,
                 totalKwh = kwh,
                 avgConsumption = if (km > 0) kwh / km * 100.0 else 0.0,

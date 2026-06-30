@@ -141,11 +141,11 @@ Anti-hallucination rules (CRITICAL):
     private fun todayString(): String =
         SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
+    // Return the actually selected language so every locale (pt, zh, ...) gets its
+    // own localized insight resources AND its own cache key. Collapsing everything
+    // but "en" to "ru" made pt/zh reuse the Russian resources and cache entry.
     private fun currentLanguage(): String =
-        when (localePreferences.getLanguage()) {
-            "en" -> "en"
-            else -> "ru"
-        }
+        localePreferences.getLanguage() ?: "ru"
 
     private fun buildPrompt(lang: String): String =
         when (lang) {
