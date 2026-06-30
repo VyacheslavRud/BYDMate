@@ -80,11 +80,30 @@ class CommandTranslatorTest {
         assertEquals(1, r?.value)
     }
 
-    // ── Test 6: seat heat level 1 maps to _on val=2 ──────────────────────────
-    @Test fun `seat heat level 1 maps to driver_seat_heat_on val 2`() {
-        val r = one("主驾座椅加热1档")
-        assertEquals("driver_seat_heat_on", r?.actionName)
-        assertEquals(2, r?.value)
+    // ── Seats: re-wired to validated dev=1000 switch+level (composite fan-out) ─
+    @Test fun `seat heat level 1 fans out to driver switch on plus level 1`() {
+        assertEquals(
+            setOf("driver_seat_heat_switch" to 1, "driver_seat_heat_level" to 1),
+            pairs("主驾座椅加热1档"),
+        )
+    }
+
+    @Test fun `seat heat level 5 fans out to driver switch on plus level 5`() {
+        assertEquals(
+            setOf("driver_seat_heat_switch" to 1, "driver_seat_heat_level" to 5),
+            pairs("主驾座椅加热5档"),
+        )
+    }
+
+    @Test fun `seat heat off writes only switch 0`() {
+        assertEquals(setOf("driver_seat_heat_switch" to 0), pairs("主驾座椅加热关闭"))
+    }
+
+    @Test fun `passenger seat vent level 3 fans out to passenger vent switch plus level 3`() {
+        assertEquals(
+            setOf("passenger_seat_vent_switch" to 1, "passenger_seat_vent_level" to 3),
+            pairs("副驾座椅通风3档"),
+        )
     }
 
     // ── Test 9: sunroof 50 maps to sunroof_tilt val=3 ────────────────────────
@@ -273,6 +292,44 @@ class CommandTranslatorTest {
         val r = one("关后备箱")
         assertEquals("close_trunk", r?.actionName)
         assertEquals(3, r?.value)
+    }
+
+    // ── Front trunk (frunk) ── dev=1001, open=1 close=3 ──────────────────────
+    @Test fun `front trunk open maps to front_trunk_open val 1`() {
+        val r = one("前备箱打开")
+        assertEquals("front_trunk_open", r?.actionName)
+        assertEquals(1, r?.value)
+    }
+
+    @Test fun `front trunk close maps to front_trunk_close val 3`() {
+        val r = one("前备箱关闭")
+        assertEquals("front_trunk_close", r?.actionName)
+        assertEquals(3, r?.value)
+    }
+
+    // ── Fridge ── dev=1023 carve-out; mode 1/2/3, temp mode-dependent raw ────
+    @Test fun `fridge cool mode maps to fridge_mode val 1`() {
+        val r = one("冰箱制冷")
+        assertEquals("fridge_mode", r?.actionName)
+        assertEquals(1, r?.value)
+    }
+
+    @Test fun `fridge off maps to fridge_mode val 3`() {
+        val r = one("冰箱关闭")
+        assertEquals("fridge_mode", r?.actionName)
+        assertEquals(3, r?.value)
+    }
+
+    @Test fun `fridge cool 0C fans out to mode 1 plus temp raw 19`() {
+        assertEquals(setOf("fridge_mode" to 1, "fridge_temp_cool" to 19), pairs("冰箱制冷0度"))
+    }
+
+    @Test fun `fridge cool minus 6C maps to temp raw 13`() {
+        assertEquals(setOf("fridge_mode" to 1, "fridge_temp_cool" to 13), pairs("冰箱制冷-6度"))
+    }
+
+    @Test fun `fridge heat 40C fans out to mode 2 plus temp raw 40`() {
+        assertEquals(setOf("fridge_mode" to 2, "fridge_temp_heat" to 40), pairs("冰箱制热40度"))
     }
 
     // ── Test 12: allActions returns non-empty set of unique names ─────────────

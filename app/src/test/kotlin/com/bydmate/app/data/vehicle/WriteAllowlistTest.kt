@@ -233,6 +233,47 @@ class WriteAllowlistTest {
         assertEquals(2, al.find("drl_off")!!.valueMin)
     }
 
+    // ── Seat heat/vent re-wired to validated dev=1000 switch+level 2026-06-29 ──
+    @Test fun `seat heat and vent switch plus level entries are validated on dev 1000`() {
+        val al = WriteAllowlist.loadProduction { "{}" }
+        val names = listOf(
+            "driver_seat_heat_switch", "driver_seat_heat_level",
+            "passenger_seat_heat_switch", "passenger_seat_heat_level",
+            "driver_seat_vent_switch", "driver_seat_vent_level",
+            "passenger_seat_vent_switch", "passenger_seat_vent_level",
+        )
+        for (name in names) {
+            val e = al.find(name)
+            assertNotNull("$name must be present", e)
+            assertTrue("$name must be validated", e!!.validated)
+            assertEquals("$name must be on dev 1000", 1000, e.dev)
+        }
+        val sw = al.find("driver_seat_heat_switch")!!
+        assertEquals(0, sw.valueMin); assertEquals(1, sw.valueMax)
+        val lvl = al.find("driver_seat_heat_level")!!
+        assertEquals(1, lvl.valueMin); assertEquals(5, lvl.valueMax)
+    }
+
+    // ── Fridge carved out of banned dev 1023, validated 2026-06-29 ────────────
+    @Test fun `fridge fids are carved out of banned dev 1023`() {
+        assertTrue(
+            "fridge mode fid must be carved out of dev 1023 ban",
+            (1023 to 850427920) in WriteAllowlist.BANNED_DEV_FID_EXCEPTIONS,
+        )
+        assertTrue(
+            "fridge temp fid must be carved out of dev 1023 ban",
+            (1023 to 850427928) in WriteAllowlist.BANNED_DEV_FID_EXCEPTIONS,
+        )
+        val al = WriteAllowlist.loadProduction { "{}" }
+        val mode = al.find("fridge_mode")
+        assertNotNull(mode); assertEquals(1023, mode!!.dev); assertTrue(mode.validated)
+        assertEquals(1, mode.valueMin); assertEquals(3, mode.valueMax)
+        val cool = al.find("fridge_temp_cool")
+        assertNotNull(cool); assertEquals(13, cool!!.valueMin); assertEquals(25, cool.valueMax)
+        val heat = al.find("fridge_temp_heat")
+        assertNotNull(heat); assertEquals(35, heat!!.valueMin); assertEquals(50, heat.valueMax)
+    }
+
     // ── Dim 6, Test 6: LIVE_VALIDATED has no duplicate actionName ────────────
     @Test fun `LIVE_VALIDATED has no duplicate actionName case-insensitive`() {
         val liveKeys = WriteAllowlist.LIVE_VALIDATED.map { it.actionName.lowercase() }
