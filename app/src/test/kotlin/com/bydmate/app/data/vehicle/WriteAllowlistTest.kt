@@ -250,7 +250,8 @@ class WriteAllowlistTest {
             assertEquals("$name must be on dev 1000", 1000, e.dev)
         }
         val sw = al.find("driver_seat_heat_switch")!!
-        assertEquals(0, sw.valueMin); assertEquals(1, sw.valueMax)
+        // switch range 0..2: 1=on, 2=off (0 unused — silent no-op). Off code corrected 2026-07-01.
+        assertEquals(0, sw.valueMin); assertEquals(2, sw.valueMax)
         val lvl = al.find("driver_seat_heat_level")!!
         assertEquals(1, lvl.valueMin); assertEquals(5, lvl.valueMax)
     }

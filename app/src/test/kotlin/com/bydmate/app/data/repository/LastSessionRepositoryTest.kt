@@ -186,6 +186,29 @@ class LastSessionRepositoryTest {
     }
 
     @Test
+    fun `persisted pending drive is invisible to takeMatch until reconciled - importer must reconcile first`() {
+        // Reproduces the trip-SOC dash bug: a drive that ended without onSessionEnd (DiLink
+        // dies instantly at ignition-off) leaves a stale `pending` on disk. An energydata
+        // import that runs before reconcile (e.g. BYDMateApp.onCreate.runSync, which fires
+        // before TrackingService.onCreate's reconcile) sees nothing and would write null SOC.
+        // HistoryImporter.doSync now reconciles first; this locks in that contract.
+        val context = ctx()
+        val repo1 = LastSessionRepository(context)
+        repo1.onSessionStart(soc = 88, ts = 1_000_000L)
+        repo1.updateLiveSoc(soc = 84, ts = 1_060_000L)   // ~1 min drive, power-cut, no onSessionEnd
+
+        // Fresh process at next ignition-on; the energydata trip ended at 1_060_000.
+        val repo2 = LastSessionRepository(context)
+        // Before reconcile the promoted bookmark is absent — this is the dash bug.
+        assertNull(repo2.takeMatch(1_060_000L))
+        // After reconcile (what doSync now does up front) the same match yields the SOC.
+        repo2.reconcileStaleOpenSession(now = 1_060_000L + 60_000L, idleMs = 10_000L)
+        val m = repo2.takeMatch(1_060_000L)
+        assertEquals(88, m?.startSoc)
+        assertEquals(84, m?.endSoc)
+    }
+
+    @Test
     fun `updateLiveSoc fills start soc when it was null at the start tick`() {
         val repo = LastSessionRepository(ctx())
         repo.onSessionStart(soc = null, ts = 1_000L)   // cold-start sentinel

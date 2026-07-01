@@ -178,8 +178,10 @@ class TrackingService : Service(), LocationListener {
         // contend with battery / charging snapshot reads.
         private const val GUN_STATE_POLL_EVERY_N_TICKS = 5
         // Tolerance between last "session active" tick and the current tick before we
-        // consider the session closed. 30 sec survives brief powerState blips and
-        // covers the DiLink wind-down after ignition-off.
+        // consider the session closed. 10 sec survives brief powerState blips; it stays
+        // short because DiLink dies almost instantly at ignition-off (onSessionEnd rarely
+        // fires), so reconcileStaleOpenSession promotes the stale pending after this idle.
+        // HistoryImporter.PENDING_SESSION_IDLE_CLOSE_MS mirrors this — keep them in sync.
         private const val SESSION_IDLE_CLOSE_MS = 10_000L
         // Throttle for the periodic INFO summary so logcat doesn't get flooded.
         private const val SUMMARY_LOG_INTERVAL_MS = 60_000L
@@ -348,13 +350,27 @@ class TrackingService : Service(), LocationListener {
                 val ok = helperBootstrap.ensureRunning()
                 Log.i(TAG, "HelperBootstrap.ensureRunning → $ok")
                 ChainLog.append(this@TrackingService, "Helper daemon: ${if (ok) "alive" else "unreachable"}")
-                // Re-apply "disable native assistant" once the daemon is live so the choice
-                // survives reboot / OTA. Chained after ensureRunning() (not a separate coroutine)
-                // so it cannot race an unregistered binder on cold start.
-                if (ok && settingsRepository.getString(
+                // Reconcile the native-assistant package state with the toggle in BOTH
+                // directions once the daemon is live, so a drift self-heals. An earlier
+                // enable/disable can silently miss the daemon (bootstrap race, or the daemon
+                // wasn't up yet when the toggle was flipped in Settings), leaving the pm
+                // enabled-state disagreeing with the stored choice. The old code only ever
+                // re-applied the *disable*, so a stuck-disabled state (toggle OFF but packages
+                // DISABLED_USER) never recovered. Now we assert the stored choice both ways.
+                // Only touch packages the user explicitly chose for (pref written at least
+                // once) — a fresh install that never toggled leaves the BYD default alone.
+                // The effect is visible after the next boot: the assistant is a boot-bound
+                // system service, so runtime enable/disable only takes hold on reload (this is
+                // why the Settings toggle warns about a required head-unit restart).
+                // Chained after ensureRunning() (not a separate coroutine) so it cannot race
+                // an unregistered binder on cold start.
+                if (ok) {
+                    val pref = settingsRepository.getString(
                         com.bydmate.app.data.repository.SettingsRepository.KEY_DISABLE_NATIVE_ASSISTANT,
-                        "false") == "true") {
-                    helperClient.setAppHidden("com.byd.autovoice", true)
+                        "")
+                    if (pref.isNotEmpty()) {
+                        helperClient.setAppHidden("com.byd.autovoice", pref == "true")
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "HelperBootstrap.ensureRunning failed: ${e.message}")

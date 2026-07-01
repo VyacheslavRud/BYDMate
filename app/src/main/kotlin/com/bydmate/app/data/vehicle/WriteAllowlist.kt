@@ -143,16 +143,18 @@ class WriteAllowlist(private val map: Map<String, WriteEntry>) {
             // mirror heat = rear-window defrost (single button on Leopard 3) — 1=on, 0=off, dev=1000
             WriteEntry("defrost_rear_on",  1000, 501219357, null, 1, 1, "climate", true, "live-leopard3-2026-05-29"),
             WriteEntry("defrost_rear_off", 1000, 501219357, null, 0, 0, "climate", true, "live-leopard3-2026-05-29"),
-            // seat heat/vent — dev=1000 switch (1/0) + level (1..5), validated 2026-06-29.
-            // "On at level N" = two writes (switch=1 + level=N); off = switch=0. heat and
-            // vent on a seat are mutually exclusive (climate module cancels the other).
-            WriteEntry("driver_seat_heat_switch",    1000, 1276248084, null, 0, 1, "seats", true, "live-leopard3-2026-06-29"),
+            // seat heat/vent — dev=1000 switch (1=on / 2=off) + level (1..5), validated 2026-06-29,
+            // off code corrected 2026-07-01. "On at level N" = two writes (switch=1 + level=N);
+            // off = switch=2 (NOT 0 — switch=0 is a silent no-op: autoservice returns status=1 but
+            // the seat stays on; 2 matches the read status enum 1=on/2=off). heat and vent on a
+            // seat are mutually exclusive (climate module cancels the other).
+            WriteEntry("driver_seat_heat_switch",    1000, 1276248084, null, 0, 2, "seats", true, "live-leopard3-2026-07-01"),
             WriteEntry("driver_seat_heat_level",     1000, 1276252180, null, 1, 5, "seats", true, "live-leopard3-2026-06-29"),
-            WriteEntry("passenger_seat_heat_switch", 1000, 1276248092, null, 0, 1, "seats", true, "live-leopard3-2026-06-29"),
+            WriteEntry("passenger_seat_heat_switch", 1000, 1276248092, null, 0, 2, "seats", true, "live-leopard3-2026-07-01"),
             WriteEntry("passenger_seat_heat_level",  1000, 1276252188, null, 1, 5, "seats", true, "live-leopard3-2026-06-29"),
-            WriteEntry("driver_seat_vent_switch",    1000, 1276248080, null, 0, 1, "seats", true, "live-leopard3-2026-06-29"),
+            WriteEntry("driver_seat_vent_switch",    1000, 1276248080, null, 0, 2, "seats", true, "live-leopard3-2026-07-01"),
             WriteEntry("driver_seat_vent_level",     1000, 1276252176, null, 1, 5, "seats", true, "live-leopard3-2026-06-29"),
-            WriteEntry("passenger_seat_vent_switch", 1000, 1276248088, null, 0, 1, "seats", true, "live-leopard3-2026-06-29"),
+            WriteEntry("passenger_seat_vent_switch", 1000, 1276248088, null, 0, 2, "seats", true, "live-leopard3-2026-07-01"),
             WriteEntry("passenger_seat_vent_level",  1000, 1276252184, null, 1, 5, "seats", true, "live-leopard3-2026-06-29"),
             // front trunk (frunk) — dev=1001 SETTING_ELECTRIC_FORECABIN_SWITCH_SET, 1=open 3=close.
             // Powered external panel; open is speed-0 gated in ActionDispatcher.

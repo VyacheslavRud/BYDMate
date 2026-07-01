@@ -32,6 +32,9 @@ class HistoryImporter @Inject constructor(
         private const val TAG = "HistoryImporter"
         private const val MIN_TRIP_DURATION_SEC = 30L
         private const val DEDUP_WINDOW_MS = 300_000L // ±5 min for time-based dedup
+        // Mirror of TrackingService.SESSION_IDLE_CLOSE_MS — the idle gap after which an
+        // open SOC session is considered finished and promotable to a completed bookmark.
+        private const val PENDING_SESSION_IDLE_CLOSE_MS = 10_000L
     }
 
     private val syncMutex = Mutex()
@@ -78,6 +81,18 @@ class HistoryImporter @Inject constructor(
     }
 
     private suspend fun doSync(): ImportResult {
+        // SOC enrichment ordering guard: a trip finishes in one process lifetime but is
+        // imported in a later one, and the DiLink head unit dies instantly at ignition-off
+        // (onSessionEnd rarely fires). The prior drive's SOC bookmark is therefore left as a
+        // stale `pending` on disk, promoted to `completed` only by reconcileStaleOpenSession.
+        // That promotion lives in TrackingService.onCreate, but runSync() also runs from
+        // BYDMateApp.onCreate (before the service reconcile) and from Settings/Welcome — so an
+        // import could match (takeMatch searches only `completed`) before the bookmark is
+        // promoted, write socStart/socEnd=null, and the watermark below would lock that loss
+        // in forever. Reconcile here so every import path promotes the stale pending first.
+        lastSessionRepository.reconcileStaleOpenSession(
+            System.currentTimeMillis(), PENDING_SESSION_IDLE_CLOSE_MS)
+
         val lastImportTs = settingsRepository.getLastEnergyImportTs()
         val bydRecords = energyDataReader.readTripsSince(lastImportTs)
         // SOC enrichment uses per-trip session bookmarks (lastSessionRepository.takeMatch

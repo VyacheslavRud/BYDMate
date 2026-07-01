@@ -66,8 +66,8 @@ class AdaptiveSeatChannelTest {
         val writer = RecordingWriter { _, _ -> WriteOutcome.REAL }
         val ch = AdaptiveSeatChannel(writer, store)
         assertTrue(ch.actuate(SeatGroup.PASSENGER_VENT, 0))
-        // off = switch=0 only, no level
-        assertEquals(listOf("passenger_seat_vent_switch" to 0), writer.calls)
+        // off = switch=2 only (2=off on dev=1000; 0 is a silent no-op), no level
+        assertEquals(listOf("passenger_seat_vent_switch" to 2), writer.calls)
     }
 
     @Test fun `cached FALLBACK uses fallback directly with off=1`() = runTest {

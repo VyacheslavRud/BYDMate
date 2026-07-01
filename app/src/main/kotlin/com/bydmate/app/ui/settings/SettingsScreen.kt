@@ -1607,6 +1607,13 @@ private fun AppSection(state: SettingsUiState, viewModel: SettingsViewModel) {
                     stringResource(R.string.settings_voice_disable_native_description),
                     color = TextSecondary, fontSize = 12.sp
                 )
+                // The assistant is a boot-bound system service — toggling only takes hold on
+                // reload (both off and back on), so warn about the required restart.
+                Text(
+                    stringResource(R.string.settings_voice_native_assistant_reboot_note),
+                    color = AccentOrange, fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
             Switch(
                 checked = state.disableNativeAssistant,

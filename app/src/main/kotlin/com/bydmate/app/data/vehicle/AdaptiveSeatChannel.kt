@@ -49,10 +49,13 @@ class AdaptiveSeatChannel(
         return false   // both dead → stay UNKNOWN, audit log already recorded both attempts
     }
 
-    /** Primary dev=1000: switch (1/0) — level-independent, so it is the detection write —
-     *  then, for on, the requested level (best-effort). Outcome = the switch write's outcome. */
+    /** Primary dev=1000: switch (1=on / 2=off) — level-independent, so it is the detection
+     *  write — then, for on, the requested level (best-effort). Outcome = the switch write's
+     *  outcome. NOTE: off is switch=2, NOT 0. Live-confirmed on Leopard 3 2026-07-01: the
+     *  autoservice returns status=1 ("ok") for switch=0 but does NOT actuate — the seat stays
+     *  on. 2 is the real off code (matches the read status enum: 1=on, 2=off). */
     private suspend fun primary(a: Actions, level: Int): WriteOutcome {
-        val sw = writer.write(a.switch, if (level == 0) 0 else 1)
+        val sw = writer.write(a.switch, if (level == 0) 2 else 1)
         if (level > 0 && sw == WriteOutcome.REAL) writer.write(a.level, level)
         return sw
     }
