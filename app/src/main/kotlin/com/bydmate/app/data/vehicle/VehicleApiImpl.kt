@@ -7,6 +7,8 @@ import com.bydmate.app.data.local.dao.VehicleWriteLogDao
 import com.bydmate.app.data.local.entity.VehicleWriteLogEntity
 import com.bydmate.app.data.nativestack.ParsReader
 import com.bydmate.app.data.remote.DiParsData
+import com.bydmate.app.demo.DemoMode
+import com.bydmate.app.demo.DemoVehicleDataFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -29,29 +31,48 @@ class VehicleApiImpl @Inject constructor(
     )
 
     // Liveness + snapshots — passthroughs.
-    override suspend fun isAvailable(): Boolean = autoservice.isAvailable()
-    override suspend fun readBatterySnapshot(): BatteryReading? = autoservice.readBatterySnapshot()
-    override suspend fun readSnapshot(): DiParsData? = parsReader.fetch()
+    override suspend fun isAvailable(): Boolean =
+        if (DemoMode.enabled.value) true else autoservice.isAvailable()
+    override suspend fun readBatterySnapshot(): BatteryReading? =
+        if (DemoMode.enabled.value) {
+            BatteryReading(97.4f, 68f, 5_184.2f, 28_431.7f, 13.6f, System.currentTimeMillis())
+        } else autoservice.readBatterySnapshot()
+    override suspend fun readSnapshot(): DiParsData? =
+        if (DemoMode.enabled.value) demoSnapshot() else parsReader.fetch()
 
     // Individual readers — direct autoservice fid hits.
-    override suspend fun readSoc(): Float? = autoservice.getFloat(1014, 1246777400)
-    override suspend fun readSpeed(): Float? = autoservice.getFloat(1013, -1807745016)
+    override suspend fun readSoc(): Float? =
+        if (DemoMode.enabled.value) demoSnapshot().soc?.toFloat() else autoservice.getFloat(1014, 1246777400)
+    override suspend fun readSpeed(): Float? =
+        if (DemoMode.enabled.value) demoSnapshot().speed?.toFloat() else autoservice.getFloat(1013, -1807745016)
     override suspend fun readMileageKm(): Float? =
-        autoservice.getInt(1014, 1246765072)?.let { it / 10f }
-    override suspend fun readPowerKw(): Int? = autoservice.getInt(1012, 339738656)
-    override suspend fun readAcStatus(): Int? = autoservice.getInt(1000, 1077936144)
-    override suspend fun readAcTemp(): Int? = autoservice.getInt(1000, 1077936168)
-    override suspend fun readInsideTemp(): Int? = autoservice.getInt(1000, 1031798832)
-    override suspend fun readExteriorTemp(): Int? = autoservice.getInt(1000, 1077936184)
-    override suspend fun readFanLevel(): Int? = autoservice.getInt(1000, 1077936156)
-    override suspend fun readWindowDriver(): Int? = autoservice.getInt(1001, 947912728)
-    override suspend fun readWindowPassenger(): Int? = autoservice.getInt(1001, 1267728400)
-    override suspend fun readWindowRearLeft(): Int? = autoservice.getInt(1001, 947912736)
-    override suspend fun readWindowRearRight(): Int? = autoservice.getInt(1001, 947912752)
+        if (DemoMode.enabled.value) demoSnapshot().mileage?.toFloat()
+        else autoservice.getInt(1014, 1246765072)?.let { it / 10f }
+    override suspend fun readPowerKw(): Int? =
+        if (DemoMode.enabled.value) demoSnapshot().power?.toInt() else autoservice.getInt(1012, 339738656)
+    override suspend fun readAcStatus(): Int? =
+        if (DemoMode.enabled.value) demoSnapshot().acStatus else autoservice.getInt(1000, 1077936144)
+    override suspend fun readAcTemp(): Int? =
+        if (DemoMode.enabled.value) demoSnapshot().acTemp else autoservice.getInt(1000, 1077936168)
+    override suspend fun readInsideTemp(): Int? =
+        if (DemoMode.enabled.value) demoSnapshot().insideTemp else autoservice.getInt(1000, 1031798832)
+    override suspend fun readExteriorTemp(): Int? =
+        if (DemoMode.enabled.value) demoSnapshot().exteriorTemp else autoservice.getInt(1000, 1077936184)
+    override suspend fun readFanLevel(): Int? =
+        if (DemoMode.enabled.value) demoSnapshot().fanLevel else autoservice.getInt(1000, 1077936156)
+    override suspend fun readWindowDriver(): Int? =
+        if (DemoMode.enabled.value) demoSnapshot().windowFL else autoservice.getInt(1001, 947912728)
+    override suspend fun readWindowPassenger(): Int? =
+        if (DemoMode.enabled.value) demoSnapshot().windowFR else autoservice.getInt(1001, 1267728400)
+    override suspend fun readWindowRearLeft(): Int? =
+        if (DemoMode.enabled.value) demoSnapshot().windowRL else autoservice.getInt(1001, 947912736)
+    override suspend fun readWindowRearRight(): Int? =
+        if (DemoMode.enabled.value) demoSnapshot().windowRR else autoservice.getInt(1001, 947912752)
 
     // ─── Writes ────────────────────────────────────────────────────────────────
 
     override suspend fun dispatch(commandString: String): Result<Unit> {
+        if (DemoMode.enabled.value) return demoWriteBlocked(commandString)
         CommandTranslator.resolveSeat(commandString)?.let { seat ->
             // Seat writes are switch then level (two binder transacts). Wrap in NonCancellable
             // so a hard stop between the two writes never leaves the seat half-commanded
@@ -142,6 +163,7 @@ class VehicleApiImpl @Inject constructor(
      */
     // internal for testing the Unsupported path (non-validated helper-false flow).
     internal suspend fun doWrite(actionName: String, value: Int): Result<Unit> {
+        if (DemoMode.enabled.value) return demoWriteBlocked(actionName)
         val entry = allowlist.find(actionName) ?: run {
             Log.w(TAG, "doWrite: action=$actionName not in allowlist")
             logWrite(actionName, -1, -1, value, null, false, "allowlist_miss", validated = false)
@@ -221,6 +243,10 @@ class VehicleApiImpl @Inject constructor(
      * of a code bug. seat entries have no readbackFid, so no read-back verification.
      */
     internal suspend fun doWriteOutcome(actionName: String, value: Int): WriteOutcome {
+        if (DemoMode.enabled.value) {
+            Log.i(TAG, "Demo Mode blocked vehicle write: $actionName")
+            return WriteOutcome.TRANSIENT
+        }
         val entry = allowlist.find(actionName) ?: run {
             Log.w(TAG, "doWriteOutcome: action=$actionName not in allowlist")
             logWrite(actionName, -1, -1, value, null, false, "allowlist_miss", validated = false)
@@ -246,6 +272,14 @@ class VehicleApiImpl @Inject constructor(
         val ok = outcome == WriteOutcome.REAL
         logWrite(actionName, entry.dev, entry.writeFid, value, status, ok, if (ok) null else "outcome_$outcome", entry.validated)
         return outcome
+    }
+
+    private fun demoSnapshot(): DiParsData =
+        DemoVehicleDataFactory.snapshot((System.currentTimeMillis() / 1000L) % 300L)
+
+    private fun demoWriteBlocked(actionName: String): Result<Unit> {
+        Log.i(TAG, "Demo Mode blocked vehicle write: $actionName")
+        return Result.failure(VehicleWriteError.Unsupported(actionName, "blocked by Demo Mode"))
     }
 
     // ─── Observability hook ────────────────────────────────────────────────────

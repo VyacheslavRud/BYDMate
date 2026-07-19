@@ -8,6 +8,7 @@ import com.bydmate.app.data.local.dao.ChargeDao
 import com.bydmate.app.data.local.dao.IdleDrainDao
 import com.bydmate.app.data.remote.DynamicMetric
 import com.bydmate.app.data.remote.InsightsManager
+import com.bydmate.app.demo.DemoMode
 import com.bydmate.app.data.repository.SettingsRepository
 import com.bydmate.app.data.repository.TripRepository
 import com.bydmate.app.domain.battery.AvgSocCalculator
@@ -93,6 +94,7 @@ data class DashboardUiState(
     val consumption: Double? = null,
     val consumptionTrend: Trend = Trend.NONE,
     val isCharging: Boolean = false,
+    val demoModeEnabled: Boolean = false,
 )
 
 @HiltViewModel
@@ -110,6 +112,7 @@ class DashboardViewModel @Inject constructor(
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
 
     init {
+        observeDemoMode()
         cleanupBadIdleDrainData()
         observeLiveData()
         observeLastTrip()
@@ -118,6 +121,20 @@ class DashboardViewModel @Inject constructor(
         loadInsight()
         loadPeriodSummary()
         viewModelScope.launch { loadAutoserviceFlag() }
+    }
+
+    private fun observeDemoMode() {
+        viewModelScope.launch {
+            DemoMode.enabled.collect { enabled ->
+                _uiState.update { it.copy(demoModeEnabled = enabled) }
+                if (enabled) loadPeriodSummary()
+            }
+        }
+        viewModelScope.launch {
+            DemoMode.dataRevision.collect {
+                if (DemoMode.enabled.value) loadPeriodSummary()
+            }
+        }
     }
 
     fun setPeriod(period: DashboardPeriod) {
@@ -404,6 +421,17 @@ class DashboardViewModel @Inject constructor(
     }
 
     private suspend fun loadAutoserviceFlag() {
+        if (DemoMode.isEnabled(appContext)) {
+            _uiState.update {
+                it.copy(
+                    adbConnected = true,
+                    currentSoh = 97.4f,
+                    currentLifetimeKm = 28_431.7f,
+                    currentLifetimeKwh = 5_184.2f,
+                )
+            }
+            return
+        }
         val state = runCatching { batteryStateRepository.refresh() }.getOrNull()
         _uiState.update {
             if (state == null) {

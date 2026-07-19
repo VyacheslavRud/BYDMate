@@ -107,6 +107,7 @@ import com.bydmate.app.cluster.DEFAULT_TRIGGER_KEYCODE
 import com.bydmate.app.cluster.SteeringWheelKeyService
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
+import com.bydmate.app.BuildConfig
 import com.bydmate.app.R
 import com.bydmate.app.data.remote.OpenRouterModel
 import com.bydmate.app.data.repository.SettingsRepository
@@ -126,6 +127,7 @@ import com.bydmate.app.hud.HudController
 import java.util.Locale
 
 private enum class SettingsSection(@StringRes val labelRes: Int, val icon: ImageVector) {
+    DEV(R.string.settings_section_developer_title, Icons.Outlined.Build),
     VOICE(R.string.settings_section_voice_agent, Icons.Outlined.Mic),
     WIDGET(R.string.settings_section_widget_title, Icons.Outlined.PhoneAndroid),
     DISPLAY(R.string.settings_section_display_title, Icons.Outlined.DirectionsCar),
@@ -222,7 +224,9 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        var selected by rememberSaveable { mutableStateOf(SettingsSection.VOICE) }
+        var selected by rememberSaveable {
+            mutableStateOf(if (BuildConfig.DEBUG) SettingsSection.DEV else SettingsSection.VOICE)
+        }
         val hiddenSelected = selected == SettingsSection.SMART_HOME
         val safeSelected = if (hiddenSelected && !state.devModeUnlocked) {
             SettingsSection.VOICE
@@ -255,6 +259,7 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     when (safeSelected) {
+                        SettingsSection.DEV -> DevSection(state, viewModel)
                         SettingsSection.BATTERY -> BatterySection(state, viewModel)
                         SettingsSection.INTEGRATIONS -> IntegrationsSection(state, viewModel)
                         SettingsSection.VOICE -> VoiceSettingsContent(state, viewModel, onNavigateToVoiceJournal, onNavigateToAgentChat)
@@ -295,6 +300,7 @@ private fun SettingsRail(
             )
 
             SettingsSection.entries.forEach { section ->
+                if (section == SettingsSection.DEV && !BuildConfig.DEBUG) return@forEach
                 val isHidden = section == SettingsSection.SMART_HOME
                 if (isHidden && !smartHomeUnlocked) return@forEach
                 RailItem(
@@ -331,11 +337,12 @@ private fun RailItem(
     isHidden: Boolean,
     onClick: () -> Unit,
 ) {
-    val activeColor = if (isHidden) AccentOrange else AccentGreen
+    val isDeveloper = section == SettingsSection.DEV
+    val activeColor = if (isHidden || isDeveloper) AccentOrange else AccentGreen
     val bg = if (isActive) activeColor.copy(alpha = 0.12f) else Color.Transparent
     val fg = when {
         isActive -> activeColor
-        isHidden -> AccentOrange
+        isHidden || isDeveloper -> AccentOrange
         else -> TextSecondary
     }
     Row(
@@ -360,6 +367,60 @@ private fun RailItem(
             fontSize = 14.sp,
             fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
         )
+    }
+}
+
+@Composable
+private fun DevSection(state: SettingsUiState, viewModel: SettingsViewModel) {
+    SectionHeader(text = stringResource(R.string.settings_demo_header))
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = AccentOrange.copy(alpha = 0.08f)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, AccentOrange.copy(alpha = 0.45f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.settings_demo_warning),
+                color = AccentOrange,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+            )
+            SettingDivider()
+            SettingToggleRow(
+                title = stringResource(R.string.settings_demo_mode_title),
+                description = stringResource(R.string.settings_demo_mode_description),
+                checked = state.demoModeEnabled,
+                enabled = !state.demoModeBusy,
+                onCheckedChange = viewModel::setDemoMode,
+            )
+            SettingDivider()
+            SettingActionRow(
+                title = stringResource(R.string.settings_demo_refresh_title),
+                description = stringResource(R.string.settings_demo_refresh_description),
+                buttonLabel = stringResource(R.string.settings_demo_refresh_button),
+                onClick = viewModel::refreshDemoData,
+                style = SettingButtonStyle.Primary,
+                enabled = state.demoModeEnabled && !state.demoModeBusy,
+            )
+            if (state.demoModeBusy) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = AccentOrange,
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(stringResource(R.string.settings_demo_working), color = TextSecondary, fontSize = 12.sp)
+                }
+            }
+            state.demoModeStatus?.let { status ->
+                Text(status, color = TextSecondary, fontSize = 12.sp)
+            }
+        }
     }
 }
 
@@ -2549,4 +2610,3 @@ private fun ModelPickerDialog(
         }
     }
 }
-

@@ -94,7 +94,12 @@ fun DashboardScreen(
             .background(Brush.verticalGradient(listOf(NavyDark, NavyDeep)))
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
-        TopBar(isServiceRunning = state.isServiceRunning, vehicleDataConnected = state.vehicleDataConnected, adbConnected = state.adbConnected)
+        TopBar(
+            isServiceRunning = state.isServiceRunning,
+            vehicleDataConnected = state.vehicleDataConnected,
+            adbConnected = state.adbConnected,
+            isDemo = state.demoModeEnabled,
+        )
         Spacer(modifier = Modifier.height(4.dp))
 
         Row(
@@ -105,7 +110,7 @@ fun DashboardScreen(
             Box(modifier = Modifier.weight(0.4f)) {
                 // Ghost car background
                 Image(
-                    painter = painterResource(R.drawable.leopard3),
+                    painter = painterResource(R.drawable.nav_byd_sealion_7),
                     contentDescription = null,
                     modifier = Modifier
                         .fillMaxSize()
@@ -518,7 +523,12 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun TopBar(isServiceRunning: Boolean, vehicleDataConnected: Boolean, adbConnected: Boolean? = null) {
+private fun TopBar(
+    isServiceRunning: Boolean,
+    vehicleDataConnected: Boolean,
+    adbConnected: Boolean? = null,
+    isDemo: Boolean = false,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -535,6 +545,18 @@ private fun TopBar(isServiceRunning: Boolean, vehicleDataConnected: Boolean, adb
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            if (isDemo) {
+                Text(
+                    text = stringResource(R.string.dashboard_demo_badge),
+                    color = NavyDark,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .background(AccentOrange, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
             if (isServiceRunning && !vehicleDataConnected) {
                 Text(
                     text = stringResource(R.string.dashboard_vehicle_data_offline),

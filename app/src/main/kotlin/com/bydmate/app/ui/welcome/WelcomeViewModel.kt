@@ -7,6 +7,7 @@ import com.bydmate.app.R
 import com.bydmate.app.data.local.HistoryImporter
 import com.bydmate.app.data.repository.SettingsRepository
 import com.bydmate.app.data.repository.TripRepository
+import com.bydmate.app.demo.DemoMode
 import com.bydmate.app.service.TrackingService
 import com.bydmate.app.util.appLocalizedContext
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -78,9 +79,9 @@ class WelcomeViewModel @Inject constructor(
             }
             settingsRepository.setString(SettingsRepository.KEY_TRIP_COST_TARIFF, tariffValue)
 
-            // Detect upgrade vs fresh install
-            val tripCount = tripRepository.getTripCount()
-            val isUpgrade = tripCount > 0
+            // Dev Demo never imports the car's real EnergyData history.
+            val demoEnabled = DemoMode.isEnabled(appContext)
+            val isUpgrade = !demoEnabled && tripRepository.getTripCount() > 0
 
             _uiState.update {
                 it.copy(importStatus = if (isUpgrade)
@@ -89,10 +90,12 @@ class WelcomeViewModel @Inject constructor(
                     ctx.getString(R.string.welcome_importing_trips_status))
             }
 
-            if (isUpgrade) {
-                historyImporter.deduplicateWithExisting()
+            if (!demoEnabled) {
+                if (isUpgrade) {
+                    historyImporter.deduplicateWithExisting()
+                }
+                historyImporter.runSync()
             }
-            historyImporter.runSync()
 
             // Mark setup complete
             settingsRepository.setSetupCompleted()

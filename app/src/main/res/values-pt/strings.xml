@@ -1051,4 +1051,19 @@
     <string name="settings_hud_status_on">Transmissão para o HUD ativa</string>
     <string name="settings_hud_status_bind_failed">Falha ao conectar ao barramento SOME/IP</string>
     <string name="settings_hud_hint">Requer versão com head-up display. Os dados vêm da janela do Yandex Navigator</string>
+
+    <!-- Dev demo environment -->
+    <string name="settings_section_developer_title">DEV</string>
+    <string name="settings_demo_header">Ambiente de teste</string>
+    <string name="settings_demo_warning">Somente no BYDMate Dev. No modo Demo, o app não lê o veículo nem executa comandos, automações ou importação do histórico.</string>
+    <string name="settings_demo_mode_title">Dados de demonstração</string>
+    <string name="settings_demo_mode_description">Mostra telemetria, viagens, rotas e recargas realistas para testes no computador.</string>
+    <string name="settings_demo_refresh_title">Atualizar histórico de teste</string>
+    <string name="settings_demo_refresh_description">Recria viagens e recargas de demonstração com base na data atual.</string>
+    <string name="settings_demo_refresh_button">Atualizar</string>
+    <string name="settings_demo_working">Preparando dados de teste…</string>
+    <string name="settings_demo_ready_status">Pronto: %1$d viagens e %2$d recargas.</string>
+    <string name="settings_demo_disabled_status">Demo desativado. Removidos: %1$d viagens e %2$d recargas.</string>
+    <string name="settings_demo_error_status">Erro do modo Demo: %1$s</string>
+    <string name="dashboard_demo_badge">DEMO</string>
 </resources>

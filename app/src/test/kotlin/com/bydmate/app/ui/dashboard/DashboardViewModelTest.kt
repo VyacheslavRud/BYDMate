@@ -26,6 +26,7 @@ import com.bydmate.app.data.repository.BatteryHealthRepository
 import com.bydmate.app.data.repository.SettingsRepository
 import com.bydmate.app.data.repository.TripRepository
 import com.bydmate.app.domain.battery.BatteryStateRepository
+import com.bydmate.app.demo.DemoMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -57,6 +58,7 @@ class DashboardViewModelTest {
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
+        DemoMode.setEnabled(ApplicationProvider.getApplicationContext(), false)
     }
 
     @After

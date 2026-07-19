@@ -8,6 +8,8 @@ import com.bydmate.app.data.charging.AutoserviceChargingDetector
 import com.bydmate.app.data.local.dao.BatterySnapshotDao
 import com.bydmate.app.data.local.dao.ChargeSummary
 import com.bydmate.app.data.local.entity.ChargeEntity
+import com.bydmate.app.demo.DemoDataSeeder
+import com.bydmate.app.demo.DemoMode
 import com.bydmate.app.data.repository.ChargeRepository
 import com.bydmate.app.data.repository.SettingsRepository
 import com.bydmate.app.domain.battery.BatteryStateRepository
@@ -119,6 +121,11 @@ class ChargesViewModel @Inject constructor(
         loadAll()
         loadLifetimeStats()
         loadHealthSeries()
+        viewModelScope.launch {
+            DemoMode.dataRevision.collect {
+                if (DemoMode.enabled.value) loadLifetimeStats()
+            }
+        }
     }
 
     fun setPeriod(period: ChargesPeriod) {
@@ -269,6 +276,21 @@ class ChargesViewModel @Inject constructor(
 
     private fun loadAutoserviceState() {
         viewModelScope.launch {
+            if (DemoMode.isEnabled(appContext)) {
+                _uiState.update {
+                    it.copy(
+                        initialAutoserviceCheckDone = true,
+                        autoserviceConnected = true,
+                        autoserviceAllSentinel = false,
+                        hasLegacyCharges = false,
+                        bmsLifetimeKm = 28_431.7,
+                        bmsLifetimeKwh = 5_184.2,
+                        sohFactor = 0.974,
+                    )
+                }
+                return@launch
+            }
+
             // Phase 1: fast read from Room — no Binder probe yet.
             // Setting initialAutoserviceCheckDone = true immediately suppresses the
             // OnboardingEmptyState flash that was visible during the ~1-2 s Binder probe.
@@ -308,6 +330,24 @@ class ChargesViewModel @Inject constructor(
 
     private fun loadLifetimeStats() {
         viewModelScope.launch {
+            if (DemoMode.isEnabled(appContext)) {
+                val charges = chargeRepository.getAllCharges().first()
+                    .filter { it.detectionSource == DemoDataSeeder.DEMO_SOURCE }
+                val ac = charges.filter { it.type == "AC" }.sumOf { it.kwhCharged ?: 0.0 }
+                val dc = charges.filter { it.type == "DC" }.sumOf { it.kwhCharged ?: 0.0 }
+                val total = ac + dc
+                val nominal = _uiState.value.nominalCapacityKwh
+                _uiState.update {
+                    it.copy(
+                        lifetimeAcKwh = ac,
+                        lifetimeDcKwh = dc,
+                        lifetimeTotalKwh = total,
+                        equivCycles = if (nominal > 0) total / nominal else 0.0,
+                    )
+                }
+                return@launch
+            }
+
             val stats = runCatching { chargeRepository.getLifetimeStats() }.getOrNull()
                 ?: return@launch
             val nominal = _uiState.value.nominalCapacityKwh
@@ -325,6 +365,18 @@ class ChargesViewModel @Inject constructor(
 
     private fun loadHealthSeries() {
         viewModelScope.launch {
+            if (DemoMode.isEnabled(appContext)) {
+                _uiState.update {
+                    it.copy(
+                        sohSeries = listOf(98.2f, 98.0f, 97.8f, 97.6f, 97.4f),
+                        capacitySeries = listOf(81.0f, 80.9f, 80.7f, 80.5f, 80.4f),
+                        cellDeltaSeries = listOf(0.021f, 0.019f, 0.018f, 0.016f, 0.014f),
+                        batTempSeries = listOf(24f, 26f, 25f, 28f, 27f),
+                    )
+                }
+                return@launch
+            }
+
             val snapshots = batterySnapshotDao.getAll().first().reversed()
             val soh = snapshots.mapNotNull { it.sohPercent?.toFloat() }
             val cap = snapshots.mapNotNull { it.calculatedCapacityKwh?.toFloat() }

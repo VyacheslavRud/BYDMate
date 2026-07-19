@@ -36,6 +36,9 @@ import com.bydmate.app.data.remote.IternioServerErrorException
 import com.bydmate.app.data.repository.SettingsRepository
 import com.bydmate.app.data.remote.IternioTelemetryClient
 import com.bydmate.app.data.repository.ChargeRepository
+import com.bydmate.app.demo.DemoDataSeeder
+import com.bydmate.app.demo.DemoMode
+import com.bydmate.app.demo.DemoVehicleDataFactory
 import com.bydmate.app.domain.tracker.TripState
 import com.bydmate.app.domain.tracker.TripTracker
 import com.bydmate.app.domain.calculator.BigNumberCalculator
@@ -56,6 +59,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -95,6 +99,7 @@ class TrackingService : Service(), LocationListener {
     @Inject lateinit var voiceGate: com.bydmate.app.voice.VoiceGate
     @Inject lateinit var audioCapture: com.bydmate.app.voice.AudioCapture
     @Inject lateinit var hudController: com.bydmate.app.hud.HudController
+    @Inject lateinit var demoDataSeeder: DemoDataSeeder
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pollingJob: Job? = null
@@ -102,6 +107,7 @@ class TrackingService : Service(), LocationListener {
     private var wakeLockRenewer: WakeLockRenewer? = null
     private var locationManager: LocationManager? = null
     private var firstDataReceived = false
+    @Volatile private var demoServiceActive = false
 
     // Widget session (ignition-on → ignition-off) — decoupled from TripTracker GPS state.
     // Primary signal: DiPars powerState ≥ 1. Fallback when powerState is unreliable:
@@ -337,7 +343,7 @@ class TrackingService : Service(), LocationListener {
          */
         fun fireAutomationButton(buttonId: Int, onResult: (matched: Int) -> Unit) {
             val svc = instance
-            if (svc == null) {
+            if (svc == null || svc.demoServiceActive) {
                 onResult(0)
                 return
             }
@@ -369,6 +375,14 @@ class TrackingService : Service(), LocationListener {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.service_foreground_content_starting)))
         ChainLog.append(this, "startForeground OK")
+
+        // Dev Demo is an intentionally sealed execution path: no helper daemon,
+        // autoservice, vehicle writes, automation, GPS, imports, voice or wake lock.
+        if (DemoMode.isEnabled(this)) {
+            startDemoMode()
+            return
+        }
+
         acquireWakeLock()
         startLocationUpdates()
         // HUD output resumes with the service on cars where the user enabled it.
@@ -571,7 +585,44 @@ class TrackingService : Service(), LocationListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         maybeAttachWidget()
-        return START_STICKY
+        return if (BuildConfig.DEBUG) START_NOT_STICKY else START_STICKY
+    }
+
+    private fun startDemoMode() {
+        demoServiceActive = true
+        val startedAt = System.currentTimeMillis()
+        val simulatedSessionStart = startedAt - 23L * 60L * 1000L
+
+        instance = this
+        _isRunning.value = true
+        _vehicleDataConnected.value = true
+        _sessionStartedAt.value = simulatedSessionStart
+        _tripDistanceKm.value = 12.4
+        _lastRangeKm.value = 365.0
+        ChainLog.append(this, "TrackingService DEMO started")
+
+        pollingJob = serviceScope.launch {
+            runCatching { demoDataSeeder.ensureSeeded() }
+                .onFailure { Log.w(TAG, "Demo data seed failed", it) }
+
+            while (isActive && demoServiceActive) {
+                val now = System.currentTimeMillis()
+                val elapsedSeconds = ((now - startedAt) / 1000L).coerceAtLeast(0L)
+                val data = DemoVehicleDataFactory.snapshot(elapsedSeconds)
+                _lastData.value = data
+                _lastRangeKm.value = (365.0 - elapsedSeconds * 0.003).coerceAtLeast(0.0)
+                _tripDistanceKm.value = 12.4 + elapsedSeconds * (46.0 / 3600.0)
+                ConsumptionAggregator.onSample(
+                    now = now,
+                    displayValue = 16.8 + kotlin.math.sin(elapsedSeconds / 8.0) * 0.4,
+                    recentAvg = 17.2,
+                    shortAvg = 16.5,
+                )
+                updateNotification(data)
+                delay(1_000L)
+            }
+        }
+        Log.i(TAG, "Dev Demo Mode started; all vehicle integrations are bypassed")
     }
 
     private fun maybeAttachWidget() {
@@ -793,6 +844,26 @@ class TrackingService : Service(), LocationListener {
 
     override fun onDestroy() {
         Log.i(TAG, "onDestroy: stopping TrackingService")
+
+        if (demoServiceActive) {
+            demoServiceActive = false
+            com.bydmate.app.ui.widget.WidgetController.detach()
+            pollingJob?.cancel()
+            ConsumptionAggregator.reset()
+            _lastData.value = null
+            _lastRangeKm.value = null
+            _tripDistanceKm.value = null
+            _sessionStartedAt.value = null
+            _vehicleDataConnected.value = true
+            instance = null
+            _isRunning.value = false
+            serviceScope.cancel()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            ChainLog.append(this, "TrackingService DEMO stopped")
+            super.onDestroy()
+            return
+        }
+
         com.bydmate.app.ui.widget.WidgetController.detach()
         ChainLog.append(this, "TrackingService onDestroy")
         pollingJob?.cancel()

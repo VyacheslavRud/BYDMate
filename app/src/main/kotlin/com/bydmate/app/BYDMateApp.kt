@@ -21,6 +21,7 @@ import com.bydmate.app.data.local.LocalePreferences
 import com.bydmate.app.data.local.decideLanguage
 import com.bydmate.app.data.local.dao.ChargeDao
 import com.bydmate.app.data.remote.InsightsManager
+import com.bydmate.app.demo.DemoMode
 import com.bydmate.app.data.repository.SettingsRepository
 import com.bydmate.app.ui.widget.WidgetController
 import com.bydmate.app.ui.widget.WidgetPreferences
@@ -58,6 +59,7 @@ class BYDMateApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        DemoMode.initialize(this)
         // Allow in-process ServiceManager.getService() on Android 9+ to reach the helper
         // binder service without hidden-API restrictions (UnsatisfiedLinkError / NoSuchMethodError).
         // Guarded: under JVM/Robolectric unit tests the HiddenApiBypass static initializer throws
@@ -89,11 +91,14 @@ class BYDMateApp : Application(), Configuration.Provider {
                 settingsRepository.setMigrationV2_4_17Done()
                 android.util.Log.i("BYDMateApp", "v2.4.17 migration: removed $removed phantom autoservice rows")
             }
-            // One-time cleanup of existing duplicates from v2.0.0
-            historyImporter.cleanupDuplicates()
-            // Only sync if setup is completed (prevents duplicates during first wizard run)
-            if (settingsRepository.isSetupCompleted()) {
-                historyImporter.runSync()
+            // Demo stays fully local: never scan or import the head unit's real history.
+            if (!DemoMode.isEnabled(this@BYDMateApp)) {
+                // One-time cleanup of existing duplicates from v2.0.0
+                historyImporter.cleanupDuplicates()
+                // Only sync if setup is completed (prevents duplicates during first wizard run)
+                if (settingsRepository.isSetupCompleted()) {
+                    historyImporter.runSync()
+                }
             }
         }
         scheduleDataThinning()

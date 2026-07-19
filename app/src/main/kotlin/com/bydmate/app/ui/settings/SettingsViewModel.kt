@@ -28,6 +28,8 @@ import com.bydmate.app.data.remote.LlmHttpException
 import com.bydmate.app.data.remote.OpenRouterClient
 import com.bydmate.app.data.remote.OpenRouterModel
 import com.bydmate.app.data.local.entity.PlaceEntity
+import com.bydmate.app.demo.DemoDataSeeder
+import com.bydmate.app.demo.DemoMode
 import com.bydmate.app.data.repository.ChargeRepository
 import com.bydmate.app.data.repository.PlaceRepository
 import com.bydmate.app.data.repository.SettingsRepository
@@ -55,6 +57,7 @@ import kotlinx.coroutines.withContext
 import com.bydmate.app.data.vehicle.SeatChannel
 import com.bydmate.app.data.vehicle.SeatChannelStore
 import com.bydmate.app.service.BootReceiver
+import com.bydmate.app.service.TrackingService
 import com.bydmate.app.ui.widget.WidgetController
 import com.bydmate.app.cluster.DEFAULT_VOICE_KEYCODE
 import com.bydmate.app.voice.AgentPersona
@@ -175,7 +178,10 @@ data class SettingsUiState(
     val customModelsError: String? = null,
     val showCustomModelPicker: Boolean = false,
     val customModelsLoading: Boolean = false,
-
+    // Dev-build-only isolated demo environment.
+    val demoModeEnabled: Boolean = false,
+    val demoModeBusy: Boolean = false,
+    val demoModeStatus: String? = null,
 ) {
     val openRouterConfigured: Boolean get() = openRouterApiKey.isNotBlank() && openRouterModel.isNotBlank()
     val zaiConfigured: Boolean get() = zaiApiKey.isNotBlank()
@@ -219,6 +225,7 @@ class SettingsViewModel @Inject constructor(
     private val openRouterClient: OpenRouterClient,
     private val placeRepository: PlaceRepository,
     private val energyDataDeadDetector: com.bydmate.app.data.local.EnergyDataDeadDetector,
+    private val demoDataSeeder: DemoDataSeeder,
 ) : ViewModel() {
 
     private val _appLanguage = MutableStateFlow(localePreferences.getLanguage() ?: "ru")
@@ -258,7 +265,8 @@ class SettingsViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(SettingsUiState(
         appVersion = getVersion(),
-        autoCheckUpdates = UpdateChecker.isAutoCheckEnabled(appContext)
+        autoCheckUpdates = UpdateChecker.isAutoCheckEnabled(appContext),
+        demoModeEnabled = DemoMode.isEnabled(appContext),
     ))
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
@@ -271,6 +279,69 @@ class SettingsViewModel @Inject constructor(
 
     init {
         loadSettings()
+    }
+
+    fun setDemoMode(enabled: Boolean) {
+        if (!com.bydmate.app.BuildConfig.DEBUG || _uiState.value.demoModeBusy) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(demoModeBusy = true, demoModeStatus = null) }
+            TrackingService.stop(appContext)
+            delay(300L)
+
+            val outcome = runCatching {
+                if (enabled) {
+                    DemoMode.setEnabled(appContext, true)
+                    demoDataSeeder.ensureSeeded(forceRefresh = true)
+                } else {
+                    val removed = demoDataSeeder.clear()
+                    DemoMode.setEnabled(appContext, false)
+                    removed
+                }
+            }
+
+            TrackingService.start(appContext)
+            _uiState.update {
+                val result = outcome.getOrNull()
+                it.copy(
+                    demoModeEnabled = DemoMode.isEnabled(appContext),
+                    demoModeBusy = false,
+                    demoModeStatus = if (result != null) {
+                        appContext.getString(
+                            if (enabled) R.string.settings_demo_ready_status else R.string.settings_demo_disabled_status,
+                            result.trips,
+                            result.charges,
+                        )
+                    } else {
+                        appContext.getString(
+                            R.string.settings_demo_error_status,
+                            outcome.exceptionOrNull()?.message ?: "?",
+                        )
+                    },
+                )
+            }
+        }
+    }
+
+    fun refreshDemoData() {
+        if (!com.bydmate.app.BuildConfig.DEBUG || !_uiState.value.demoModeEnabled || _uiState.value.demoModeBusy) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(demoModeBusy = true, demoModeStatus = null) }
+            val outcome = runCatching { demoDataSeeder.ensureSeeded(forceRefresh = true) }
+            _uiState.update {
+                val result = outcome.getOrNull()
+                it.copy(
+                    demoModeBusy = false,
+                    demoModeStatus = if (result != null) {
+                        appContext.getString(R.string.settings_demo_ready_status, result.trips, result.charges)
+                    } else {
+                        appContext.getString(
+                            R.string.settings_demo_error_status,
+                            outcome.exceptionOrNull()?.message ?: "?",
+                        )
+                    },
+                )
+            }
+        }
     }
 
     /** Load all settings from the repository on init. */

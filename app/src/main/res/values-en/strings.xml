@@ -1054,4 +1054,19 @@
     <string name="settings_hud_status_on">Streaming to the HUD</string>
     <string name="settings_hud_status_bind_failed">Could not connect to the SOME/IP bus</string>
     <string name="settings_hud_hint">Requires a trim with the head-up display. Data comes from the Yandex Navigator window</string>
+
+    <!-- Dev demo environment -->
+    <string name="settings_section_developer_title">DEV</string>
+    <string name="settings_demo_header">Test environment</string>
+    <string name="settings_demo_warning">BYDMate Dev only. In Demo Mode the app does not read the vehicle or run commands, automations, or history imports.</string>
+    <string name="settings_demo_mode_title">Demo data</string>
+    <string name="settings_demo_mode_description">Show realistic telemetry, trips, routes, and charging sessions for testing on a computer.</string>
+    <string name="settings_demo_refresh_title">Refresh test history</string>
+    <string name="settings_demo_refresh_description">Recreate demo trips and charges relative to the current date.</string>
+    <string name="settings_demo_refresh_button">Refresh</string>
+    <string name="settings_demo_working">Preparing test data…</string>
+    <string name="settings_demo_ready_status">Ready: %1$d trips and %2$d charges.</string>
+    <string name="settings_demo_disabled_status">Demo disabled. Removed: %1$d trips and %2$d charges.</string>
+    <string name="settings_demo_error_status">Demo Mode error: %1$s</string>
+    <string name="dashboard_demo_badge">DEMO</string>
 </resources>

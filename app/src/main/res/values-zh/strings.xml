@@ -1172,4 +1172,19 @@
     <string name="settings_hud_status_on">正在向 HUD 传输</string>
     <string name="settings_hud_status_bind_failed">无法连接 SOME/IP 总线</string>
     <string name="settings_hud_hint">需要配备抬头显示的车型。数据来自 Yandex 导航窗口</string>
+
+    <!-- Dev demo environment -->
+    <string name="settings_section_developer_title">DEV</string>
+    <string name="settings_demo_header">测试环境</string>
+    <string name="settings_demo_warning">仅用于 BYDMate Dev。演示模式不会读取车辆，也不会执行命令、自动化或导入真实历史。</string>
+    <string name="settings_demo_mode_title">演示数据</string>
+    <string name="settings_demo_mode_description">显示逼真的遥测、行程、路线和充电记录，用于电脑端测试。</string>
+    <string name="settings_demo_refresh_title">刷新测试历史</string>
+    <string name="settings_demo_refresh_description">按当前日期重新创建演示行程和充电记录。</string>
+    <string name="settings_demo_refresh_button">刷新</string>
+    <string name="settings_demo_working">正在准备测试数据…</string>
+    <string name="settings_demo_ready_status">已就绪：%1$d 次行程，%2$d 次充电。</string>
+    <string name="settings_demo_disabled_status">演示已关闭。已删除：%1$d 次行程，%2$d 次充电。</string>
+    <string name="settings_demo_error_status">演示模式错误：%1$s</string>
+    <string name="dashboard_demo_badge">DEMO</string>
 </resources>

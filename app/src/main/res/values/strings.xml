@@ -1209,4 +1209,19 @@
     <string name="settings_hud_status_on">Передача на HUD активна</string>
     <string name="settings_hud_status_bind_failed">Не удалось подключиться к шине SOME/IP</string>
     <string name="settings_hud_hint">Нужна комплектация с проекционным дисплеем. Данные берутся из окна Яндекс Навигатора</string>
+
+    <!-- Dev demo environment -->
+    <string name="settings_section_developer_title">DEV</string>
+    <string name="settings_demo_header">Среда тестирования</string>
+    <string name="settings_demo_warning">Только для BYDMate Dev. В демо-режиме приложение не читает автомобиль и не выполняет команды, автоматизации или импорт истории.</string>
+    <string name="settings_demo_mode_title">Демонстрационные данные</string>
+    <string name="settings_demo_mode_description">Показывать реалистичную телеметрию, поездки, маршруты и зарядки для проверки экранов на компьютере.</string>
+    <string name="settings_demo_refresh_title">Обновить тестовую историю</string>
+    <string name="settings_demo_refresh_description">Пересоздать демонстрационные поездки и зарядки относительно текущей даты.</string>
+    <string name="settings_demo_refresh_button">Обновить</string>
+    <string name="settings_demo_working">Подготавливаем тестовые данные…</string>
+    <string name="settings_demo_ready_status">Готово: %1$d поездок и %2$d зарядок.</string>
+    <string name="settings_demo_disabled_status">Демо выключено. Удалено: %1$d поездок и %2$d зарядок.</string>
+    <string name="settings_demo_error_status">Ошибка Demo Mode: %1$s</string>
+    <string name="dashboard_demo_badge">DEMO</string>
 </resources>
