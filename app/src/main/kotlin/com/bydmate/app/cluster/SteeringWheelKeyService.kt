@@ -8,6 +8,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import com.bydmate.app.navdata.NavA11yFeed
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,8 +16,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 /**
  * Steering-wheel key filter for cluster projection. When the settings master switch
  * ([ClusterProjectionManager.KEY_MIRROR_ENABLED]) is ON, a short press of the configured trigger
- * button (keycode in [ClusterProjectionManager.KEY_TRIGGER_KEYCODE], default
- * [DEFAULT_TRIGGER_KEYCODE] = the right star) toggles Yandex Navi between the cluster and the centre
+ * button (keycode in [ClusterProjectionManager.KEY_TRIGGER_KEYCODE], learned on the target car)
+ * toggles Waze between the cluster and the centre
  * screen and is consumed; every other key (switch OFF, a non-trigger button, the right-star
  * long-press that opens the native action menu) passes through untouched.
  *
@@ -36,7 +37,7 @@ class SteeringWheelKeyService : AccessibilityService() {
         val info = serviceInfo ?: AccessibilityServiceInfo()
         info.flags = info.flags or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS  // 32
         info.flags = info.flags or AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
-        // Windows-aware reads: the Navigator projected to the instrument cluster lives on
+        // Windows-aware reads: Waze projected to the instrument cluster lives on
         // display 2 and is invisible to rootInActiveWindow; these flags open getWindows()/
         // getWindowsOnAllDisplays(). Not-important views: some guidance widgets are marked
         // not-important-for-accessibility on the 2026 Navigator build (Codex fix 5).
@@ -97,30 +98,53 @@ class SteeringWheelKeyService : AccessibilityService() {
             .fromApplication(applicationContext, ClusterEntryPoint::class.java)
             .also { cachedEntryPoint = it }
 
-    /** Root of the Navigator window wherever it lives: the active window, a minimized
+    /** Root of the Waze window wherever it lives: the active window, a minimized
      *  mini-window, or the instrument cluster (display 2, projection mode). Caller must
      *  recycle the returned node. Null when the Navigator has no window anywhere. */
-    fun findNavigatorRoot(): android.view.accessibility.AccessibilityNodeInfo? {
-        val active = runCatching { rootInActiveWindow }.getOrNull()
-        if (active != null) {
-            if (active.packageName?.toString() in com.bydmate.app.navdata.NavPackages.YANDEX_NAVI) return active
-            @Suppress("DEPRECATION") runCatching { active.recycle() }
+    fun findNavigatorRoot(): AccessibilityNodeInfo? {
+        var fallback: AccessibilityNodeInfo? = null
+
+        fun consider(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+            if (!com.bydmate.app.navdata.NavPackages.isNavigationPackage(
+                    root.packageName?.toString(),
+                )) {
+                @Suppress("DEPRECATION") runCatching { root.recycle() }
+                return null
+            }
+            // Waze can expose more than one window while projected/minimized. The window with
+            // the navigation bar is the route screen; keep a package-only root merely as fallback.
+            if (com.bydmate.app.navdata.WazeAccessibilityReader.hasRouteAnchor(root)) {
+                fallback?.let { old ->
+                    if (old !== root) {
+                        @Suppress("DEPRECATION") runCatching { old.recycle() }
+                    }
+                }
+                fallback = null
+                return root
+            }
+            if (fallback == null) fallback = root
+            else if (fallback !== root) {
+                @Suppress("DEPRECATION") runCatching { root.recycle() }
+            }
+            return null
         }
+
+        val active = runCatching { rootInActiveWindow }.getOrNull()
+        if (active != null) consider(active)?.let { return it }
         val windowList = runCatching {
             if (android.os.Build.VERSION.SDK_INT >= 30) {
                 val byDisplay = windowsOnAllDisplays
                 (0 until byDisplay.size()).flatMap { byDisplay.valueAt(it) }
             } else windows
-        }.getOrNull() ?: return null
+        }.getOrNull() ?: return fallback
         for (window in windowList) {
             val root = runCatching { window.root }.getOrNull() ?: continue
-            if (root.packageName?.toString() in com.bydmate.app.navdata.NavPackages.YANDEX_NAVI) return root
-            @Suppress("DEPRECATION") runCatching { root.recycle() }
+            consider(root)?.let { return it }
         }
-        return null
+        return fallback
     }
 
-    // Single volatile read when the HUD feature is off - see NavA11yFeed.enabled.
+    // Single volatile read when the HUD feature is off - see NavA11yFeed.isEnabled.
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         NavA11yFeed.onEvent(this, event)
     }

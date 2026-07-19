@@ -88,7 +88,7 @@ class AgentToolsLaunchTest {
         val out = JSONObject(tools().execute(
             AgentToolCall("1", "navigate_to", """{"destination":"улица Ленина 5"}""")))
         assertTrue(out.getBoolean("ok"))
-        assertEquals("search", out.getString("mode"))
+        assertEquals("route_requested", out.getString("mode"))
         val payload = JSONObject(captured.captured.payload!!)
         assertEquals("улица Ленина 5", payload.getString("query"))
     }
@@ -223,7 +223,7 @@ class AgentToolsLaunchTest {
 
     // Four-app fixture: label -> package. Includes «Навигатор» and «Настройки».
     private val launcherFixture = listOf(
-        "Навигатор" to "ru.yandex.yandexnavi",
+        "Waze" to "com.waze",
         "Настройки" to "com.android.settings",
         "Яндекс Музыка" to "ru.yandex.music",
         "Телефон" to "com.android.dialer",
@@ -238,7 +238,7 @@ class AgentToolsLaunchTest {
         assertTrue(out.getBoolean("ok"))
         assertEquals("app_launch", captured.captured.kind)
         val payload = JSONObject(captured.captured.payload!!)
-        assertEquals("ru.yandex.yandexnavi", payload.getString("packageName"))
+        assertEquals("com.waze", payload.getString("packageName"))
     }
 
     // (b) partial unambiguous match -> launches Settings.

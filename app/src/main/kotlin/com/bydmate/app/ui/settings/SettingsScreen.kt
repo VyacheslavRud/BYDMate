@@ -6,14 +6,12 @@ import android.net.Uri
 import android.provider.Settings as AndroidSettings
 import com.bydmate.app.cluster.ClusterEntryPoint
 import com.bydmate.app.cluster.ClusterProjectionManager
-import com.bydmate.app.cluster.CENTER_OFFSET_PCT
 import com.bydmate.app.cluster.MAX_OFFSET_PCT
 import com.bydmate.app.cluster.MAX_PROJECTION_PCT
 import com.bydmate.app.cluster.MIN_OFFSET_PCT
 import com.bydmate.app.cluster.MIN_PROJECTION_PCT
 import com.bydmate.app.cluster.MIN_SCALE_PCT
 import com.bydmate.app.cluster.MAX_SCALE_PCT
-import com.bydmate.app.cluster.DEFAULT_SCALE_PCT
 import com.bydmate.app.cluster.NAVI_PACKAGE
 import dagger.hilt.android.EntryPointAccessors
 import kotlin.math.roundToInt
@@ -119,6 +117,7 @@ import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
 import androidx.compose.material.icons.outlined.Mic
 import com.bydmate.app.cluster.DEFAULT_VOICE_KEYCODE
+import com.bydmate.app.data.vehicle.VehicleProfile
 import com.bydmate.app.voice.AgentPersona
 import com.bydmate.app.voice.TtsGender
 import com.bydmate.app.voice.TtsVoiceCatalog
@@ -885,6 +884,7 @@ private fun DisplaySection() {
     val prefs = remember {
         context.getSharedPreferences(ClusterProjectionManager.PREFS_NAME, Context.MODE_PRIVATE)
     }
+    val projectionPreset = VehicleProfile.CURRENT.clusterProjectionPreset
     val entryPoint = remember {
         EntryPointAccessors.fromApplication(context.applicationContext, ClusterEntryPoint::class.java)
     }
@@ -892,19 +892,19 @@ private fun DisplaySection() {
         mutableStateOf(prefs.getBoolean(ClusterProjectionManager.KEY_MIRROR_ENABLED, false))
     }
     var widthPct by remember {
-        mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_WIDTH_PCT, MAX_PROJECTION_PCT))
+        mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_WIDTH_PCT, projectionPreset.widthPct))
     }
     var heightPct by remember {
-        mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_HEIGHT_PCT, MAX_PROJECTION_PCT))
+        mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_HEIGHT_PCT, projectionPreset.heightPct))
     }
     var offsetXPct by remember {
-        mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_OFFSET_X_PCT, CENTER_OFFSET_PCT))
+        mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_OFFSET_X_PCT, projectionPreset.offsetXPct))
     }
     var offsetYPct by remember {
-        mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_OFFSET_Y_PCT, CENTER_OFFSET_PCT))
+        mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_OFFSET_Y_PCT, projectionPreset.offsetYPct))
     }
     var scalePct by remember {
-        mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_SCALE_PCT, DEFAULT_SCALE_PCT))
+        mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_SCALE_PCT, projectionPreset.scalePct))
     }
     var targetPkg by remember {
         mutableStateOf(prefs.getString(ClusterProjectionManager.KEY_TARGET_PACKAGE, NAVI_PACKAGE) ?: NAVI_PACKAGE)
@@ -921,7 +921,7 @@ private fun DisplaySection() {
         mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_TRIGGER_KEYCODE, DEFAULT_TRIGGER_KEYCODE))
     }
     var autoContainer by remember {
-        mutableStateOf(prefs.getBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, true))
+        mutableStateOf(prefs.getBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, false))
     }
     val rebootPending = remember {
         prefs.getBoolean(ClusterProjectionManager.KEY_FREEFORM_REBOOT_PENDING, false)
@@ -974,7 +974,7 @@ private fun DisplaySection() {
                 )
             }
             SettingDivider()
-            // App to project — defaults to Yandex Navi. Takes effect on the next star press, not live.
+            // App to project — defaults to Waze. Takes effect on the next star press, not live.
             SettingValueRow(
                 title = stringResource(R.string.settings_display_app_title),
                 value = targetLabel,
@@ -1023,6 +1023,7 @@ private fun DisplaySection() {
                         HudController.Status.ON -> stringResource(R.string.settings_hud_status_on)
                         HudController.Status.UNSUPPORTED -> stringResource(R.string.settings_hud_status_unsupported)
                         HudController.Status.BIND_FAILED -> stringResource(R.string.settings_hud_status_bind_failed)
+                        HudController.Status.SEND_FAILED -> stringResource(R.string.settings_hud_status_send_failed)
                         else -> stringResource(R.string.settings_hud_status_connecting)
                     },
                     ok = hudStatus == HudController.Status.ON,
@@ -1073,10 +1074,8 @@ private fun DisplaySection() {
         ClusterProjectionManager.reproject(
             context, entryPoint.helperClient(), entryPoint.helperBootstrap())
     }
-    // Defaults (100/100 size, centered, scale 100) reproduce the plain fullscreen projection, so
-    // cars without a native mini zone (e.g. Leopard 3) need no tuning. The offset sliders only
-    // matter once the window is smaller than the panel; on Sea Lion 07 they let the user move the
-    // window into the native mini-cluster zone (#48).
+    // Fresh installs use the owner-tested Sea Lion mini-zone preset from VehicleProfile. Existing
+    // custom geometry remains untouched by the one-shot migration above.
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = CardSurfaceElevated),
@@ -1158,6 +1157,7 @@ private fun resolveAppLabel(context: Context, pkg: String): String =
 /** Human label for a steering-wheel keycode: known name, else "Кнопка (код N)". */
 @Composable
 private fun steeringButtonLabel(keyCode: Int): String {
+    if (keyCode <= 0) return stringResource(R.string.steering_button_unassigned)
     val res = com.bydmate.app.cluster.knownButtonNameRes(keyCode)
     return if (res != 0) stringResource(res)
     else stringResource(R.string.steering_button_unknown, keyCode)

@@ -66,7 +66,7 @@ class AgentToolsNavigateVerifyTest {
         }
         val out = JSONObject(t.execute(call("navigate_to", """{"lat":55.0,"lon":37.0}""")))
         assertTrue(out.has("error"))
-        assertTrue(out.getString("error").contains("не вышел на передний план"))
+        assertTrue(out.getString("error").contains("не удалось подтвердить"))
     }
 
     /** Seam returns false on the first poll, true on the second: dispatch must be reported ok. */
@@ -76,6 +76,18 @@ class AgentToolsNavigateVerifyTest {
         val t = tools().also {
             it.naviForegroundCheck = { callCount.incrementAndGet() >= 2 }
             it.naviVerifyAttempts = 3
+            it.naviVerifyIntervalMs = 1L
+        }
+        val out = JSONObject(t.execute(call("navigate_to", """{"lat":55.0,"lon":37.0}""")))
+        assertTrue(out.getBoolean("ok"))
+    }
+
+    @Test fun `verified helper delivery skips unreliable foreground inference`() = runTest {
+        coEvery { dispatcher.dispatch(any(), any()) } returns
+            DispatchResult(success = true, launchDelivered = true)
+        val t = tools().also {
+            it.naviForegroundCheck = { throw AssertionError("must not infer after verified delivery") }
+            it.naviVerifyAttempts = 1
             it.naviVerifyIntervalMs = 1L
         }
         val out = JSONObject(t.execute(call("navigate_to", """{"lat":55.0,"lon":37.0}""")))
@@ -97,7 +109,7 @@ class AgentToolsNavigateVerifyTest {
     }
 
     /** When home shortcut dispatch succeeds but Navigator never surfaces, the error must say
-     *  "не вышел на передний план" rather than the generic "адрес не найден" fallback. */
+     *  the verification reason rather than the generic "адрес не найден" fallback. */
     @Test fun `home shortcut failure reports foreground reason`() = runTest {
         coEvery { places.getAllSnapshot() } returns emptyList()
         coEvery { dispatcher.dispatch(any(), any()) } returns DispatchResult(true)
@@ -108,7 +120,7 @@ class AgentToolsNavigateVerifyTest {
         }
         val out = JSONObject(t.execute(call("navigate_to", """{"destination":"домой"}""")))
         assertTrue(out.has("error"))
-        assertTrue(out.getString("error").contains("не вышел на передний план"))
+        assertTrue(out.getString("error").contains("не удалось подтвердить"))
         assertFalse(out.getString("error").contains("адрес не найден"))
     }
 }

@@ -54,6 +54,9 @@ interface HelperClient {
     ): Int?
     suspend fun releaseVirtualDisplay(displayId: Int): Boolean
     suspend fun launchApp(packageName: String): Boolean
+    /** Deliver an official https://waze.com/ul deep link through shell uid, avoiding Android's
+     *  silent background-activity-start block. The daemon accepts Waze links only. */
+    suspend fun launchWazeDeepLink(uri: String): Boolean
     /** Task id of [packageName]'s running task, or null if not running / channel unavailable. */
     suspend fun getTaskId(packageName: String): Int?
     suspend fun moveTaskToDisplay(taskId: Int, displayId: Int): Boolean
@@ -175,6 +178,14 @@ open class HelperClientImpl @Inject constructor() : HelperClient {
     override suspend fun launchApp(packageName: String): Boolean =
         statusOk(HelperBinderProtocol.TX_LAUNCH_APP) { it.writeString(packageName) }
 
+    // The daemon waits for `am start -W`, so a cold Waze launch on a slower DiLink head unit can
+    // legitimately exceed the normal 2-second binder budget. Keep the longer timeout scoped to
+    // this strictly validated, fixed-component transaction.
+    override suspend fun launchWazeDeepLink(uri: String): Boolean =
+        statusOk(HelperBinderProtocol.TX_LAUNCH_WAZE_DEEP_LINK, timeoutMs = FORCE_TIMEOUT_MS) {
+            it.writeString(uri)
+        }
+
     override suspend fun getTaskId(packageName: String): Int? =
         transact(HelperBinderProtocol.TX_GET_TASK_ID) { it.writeString(packageName) }
             ?.let { (status, value) -> if (readAccepted(status) && value > 0) value else null }
@@ -267,8 +278,14 @@ open class HelperClientImpl @Inject constructor() : HelperClient {
         } ?: false
 
     /** (status,value) reply; true iff status == 0. Shared by the boolean projection ops. */
-    private suspend fun statusOk(code: Int, writeArgs: (Parcel) -> Unit): Boolean =
-        transact(code, writeArgs)?.let { (status, _) -> readAccepted(status) } ?: false
+    private suspend fun statusOk(
+        code: Int,
+        timeoutMs: Long = REQ_TIMEOUT_MS,
+        writeArgs: (Parcel) -> Unit,
+    ): Boolean = transactParsed(code, writeArgs, timeoutMs = timeoutMs) { reply ->
+        val status = if (reply.dataAvail() >= 4) reply.readInt() else return@transactParsed false
+        readAccepted(status)
+    } ?: false
 
     /** Returns the parsed reply or null on any failure. Retries ONCE on a dead cached binder. */
     private suspend fun <T> transactParsed(

@@ -1,5 +1,7 @@
 package com.bydmate.app.data.loop
 
+import com.bydmate.app.data.charging.ChargeGunState
+
 enum class LoopState { DRIVE, CHARGE, PARKED, IDLE }
 
 data class CadenceConfig(
@@ -30,9 +32,8 @@ object LoopFsm {
     // powerState (DiParsData.kt:21): 0=OFF, 1=ON, 2=DRIVE. gear (DiParsData.kt:20): 1=P, 4=D.
     // speed (DiParsData.kt:5): Int? km/h.
     fun classify(data: com.bydmate.app.data.remote.DiParsData): LoopState {
-        // Gun fid 876609586: 1=NONE, 2..5=connected. NONE is 1, not 0 -- comparing
-        // to 0 pinned the cadence to CHARGE whenever the fid was readable.
-        if ((data.chargeGunState ?: 0) >= 2) return LoopState.CHARGE
+        // V2L/VTOL (state 5) exports energy and must not enter the charge pipeline.
+        if (ChargeGunState.isCharging(data.chargeGunState)) return LoopState.CHARGE
         val ignitionActive = when {
             data.powerState != null -> data.powerState in 1..2
             else -> data.gear == 4 || ((data.speed ?: 0) > 0)

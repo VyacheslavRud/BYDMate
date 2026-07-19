@@ -113,8 +113,6 @@ class AutoserviceChargingDetector @Inject constructor(
         // longer the true charge start, so we skip reconstruction. Applies ONLY
         // to socDelta below SOC_DELTA_TRUSTED_CHARGE (i.e. exactly 2%).
         const val ODOMETER_MOVED_EPSILON_KM = 1.0f
-        // Gun not connected — autoservice gunConnectState value meaning "no gun".
-        private const val GUN_STATE_NONE = 1
         // A transient gun-fid glitch clears within a read or two; a gun fid
         // that stays silent across this many consecutive runs while sibling
         // fids answer is unsupported firmware — stop deferring so charge
@@ -163,8 +161,8 @@ class AutoserviceChargingDetector @Inject constructor(
      */
     suspend fun recordParkedAnchor(data: DiParsData, now: Long = System.currentTimeMillis()): Boolean {
         val gun = data.chargeGunState
-        val gunConnected = gun != null && gun != GUN_STATE_NONE && gun != 0
-        if (gunConnected) return false                 // live charge — keep the start anchor
+        val gunIsChargingInput = ChargeGunState.isCharging(gun)
+        if (gunIsChargingInput) return false           // live charge — keep the start anchor
         val soc = data.soc?.takeIf { it in 0..100 } ?: return false
         return mutex.withLock {
             val prevSoc = stateStore.load().socPercent
@@ -271,7 +269,7 @@ class AutoserviceChargingDetector @Inject constructor(
             // is the steady-state value doesn't permanently block charge logging.
             val gunResolved = gun?.takeIf { it != 0 }
             if (gunResolved != null) consecutiveGunGlitches = 0
-            val gunIsConnected = gunResolved != null && gunResolved != GUN_STATE_NONE
+            val gunIsChargingInput = ChargeGunState.isCharging(gunResolved)
             // Only DYNAMIC charging fids vouch for the gun fid. batteryType is
             // a constant (LFP) that stays readable on firmwares where the gun
             // fid is simply unsupported — counting it turned every catch-up
@@ -290,7 +288,7 @@ class AutoserviceChargingDetector @Inject constructor(
                     gunGlitch = false
                 }
             }
-            if (gunIsConnected || gunGlitch) {
+            if (gunIsChargingInput || gunGlitch) {
                 // Persist the evidence that a session is in progress around the
                 // stored baseline. The gun physically blocks driving, so if the
                 // odometer later moves before a successful catch-up, the charge
@@ -438,7 +436,7 @@ class AutoserviceChargingDetector @Inject constructor(
                 status = "COMPLETED",
                 lifetimeKwhAtStart = null,
                 lifetimeKwhAtFinish = null,
-                gunState = charging?.gunConnectState?.takeIf { it != GUN_STATE_NONE },
+                gunState = charging?.gunConnectState?.takeIf(ChargeGunState::isCharging),
                 detectionSource = detectionSource
             )
 

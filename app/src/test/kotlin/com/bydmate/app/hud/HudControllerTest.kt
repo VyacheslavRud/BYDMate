@@ -54,7 +54,7 @@ class HudControllerTest {
 
     @Before fun reset() {
         NavGuidanceHub.reset()
-        NavA11yFeed.enabled = false
+        NavA11yFeed.disable()
         context.getSharedPreferences(HudController.PREFS_NAME, Context.MODE_PRIVATE)
             .edit().clear().commit()
     }
@@ -63,7 +63,7 @@ class HudControllerTest {
         val c = controller()
         c.setEnabled(true)
         assertEquals(HudController.Status.UNSUPPORTED, c.status.value)
-        assertFalse(NavA11yFeed.enabled)
+        assertFalse(NavA11yFeed.isEnabled)
         assertFalse(c.requiresA11y())
         assertFalse(context.getSharedPreferences(HudController.PREFS_NAME, Context.MODE_PRIVATE)
             .getBoolean(HudController.KEY_SUPPORTED, true))
@@ -78,11 +78,27 @@ class HudControllerTest {
         val c = controller(bridge)
         c.setEnabled(true)
         assertEquals(HudController.Status.ON, c.status.value)
-        assertTrue(NavA11yFeed.enabled)
+        assertTrue(NavA11yFeed.isEnabled)
         assertTrue(c.requiresA11y())
         coVerify { helperClient.enableAccessibilityService() }
         verify { bridge.startService(HudSomeIpBridge.SERVICE_ID_NAVI) }
         c.setEnabled(false)   // stop the push loop so it does not leak into other tests
+    }
+
+    @Test fun `rejected HUD frame is visible as send failure`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        every { bridge.fireEvent(any(), any()) } returns -7
+        NavGuidanceHub.update(
+            com.bydmate.app.navdata.NavGuidance(maneuverGaode = 2, distanceMeters = 250),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = System.currentTimeMillis(),
+        )
+        val c = controller(bridge)
+        c.setEnabled(true)
+        assertEquals(HudController.Status.SEND_FAILED, c.status.value)
+        c.setEnabled(false)
     }
 
     @Test fun `stop sends clear frame before stopService and unbind`() {
@@ -97,7 +113,7 @@ class HudControllerTest {
             bridge.stopService(HudSomeIpBridge.SERVICE_ID_NAVI)
             bridge.unbind()
         }
-        assertFalse(NavA11yFeed.enabled)
+        assertFalse(NavA11yFeed.isEnabled)
         assertEquals(HudController.Status.OFF, c.status.value)
     }
 
@@ -141,7 +157,7 @@ class HudControllerTest {
         assertEquals(HudController.Status.ON, c.status.value)
         onLost()   // gateway binding died
         awaitTrue { c.status.value == HudController.Status.BIND_FAILED }
-        assertFalse(NavA11yFeed.enabled)
+        assertFalse(NavA11yFeed.isEnabled)
         c.startIfEnabled()   // TrackingService restart on next ignition
         awaitTrue { c.status.value == HudController.Status.ON }
         verify(exactly = 2) { bridge.startService(HudSomeIpBridge.SERVICE_ID_NAVI) }

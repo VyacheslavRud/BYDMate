@@ -4,6 +4,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SteeringWheelKeyDecisionVoiceTest {
+
+    @Test fun `fresh profile does not assume a voice key`() {
+        assertEquals(0, DEFAULT_VOICE_KEYCODE)
+        assertEquals(
+            VoiceKeyDecision.IGNORE,
+            voiceDecision(0, isDown = true, voiceEnabled = true, voiceKeyCode = 0),
+        )
+    }
     @Test fun triggers_on_configured_voice_key_down() {
         assertEquals(VoiceKeyDecision.TRIGGER, voiceDecision(320, isDown = true, voiceEnabled = true, voiceKeyCode = 320))
     }

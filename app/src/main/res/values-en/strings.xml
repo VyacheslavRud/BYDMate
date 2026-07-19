@@ -15,7 +15,7 @@
     <string name="settings_display_mirror_title">Projection to cluster via wheel button</string>
     <string name="settings_display_mirror_desc">A short press of the chosen steering-wheel button moves the selected app to the cluster and back.</string>
     <string name="settings_cluster_auto_container_title">Show on the cluster right away</string>
-    <string name="settings_cluster_auto_container_desc">Switch the cluster into projection mode automatically</string>
+    <string name="settings_cluster_auto_container_desc">Off by default: verify manual projection on your cluster first</string>
     <string name="settings_cluster_direct_reboot_hint">For the voice agent to see the navigator on the cluster, reboot the DiLink head unit once: press and hold the volume knob. Simply turning the car off is not enough. Until the reboot projection still works, but the agent cannot see the route.</string>
     <string name="settings_display_app_title">App on cluster</string>
     <string name="settings_display_size_header">Cluster window size</string>
@@ -38,6 +38,7 @@
     <string name="steering_button_aux_left">Aux left</string>
     <string name="steering_button_aux_right">Aux right</string>
     <string name="steering_button_unknown">Button (code %1$d)</string>
+    <string name="steering_button_unassigned">Not assigned</string>
     <!-- Cluster trigger-button picker + learn dialog -->
     <string name="settings_display_button_title">Trigger button</string>
     <string name="settings_display_button_change">Change</string>
@@ -68,7 +69,7 @@
 
     <!-- Settings: Trips section -->
     <string name="settings_trips_datasource_header">Trip data source</string>
-    <string name="settings_trips_datasource_note">Titan 3 — BYD energydata.\nSong and other models without built-in DB — DiPlus TripInfo.</string>
+    <string name="settings_trips_datasource_note">Target profile: Sea Lion 07 EV 2025. BYDMate uses energydata when available and otherwise records trips from live telemetry.</string>
     <string name="settings_trips_datasource_hint">If the list stays empty after 2–3 drives — switch the mode.</string>
     <string name="settings_trips_system_header">System data (beta)</string>
     <string name="settings_trips_system_note">Extended vehicle data: battery SoH, BMS mileage, charge statistics. Read-only.</string>
@@ -116,7 +117,7 @@
     <string name="settings_widget_left_tap_zoning_label">Tap zoning</string>
     <string name="settings_widget_left_tap_zoning_description">Left 1/3 - opens the selected app; the rest - BYDMate.</string>
     <string name="settings_widget_left_tap_label">App for left tap</string>
-    <string name="settings_widget_left_tap_description">Default is Yandex Navigator. If the app is removed, the tap will not work.</string>
+    <string name="settings_widget_left_tap_description">Default is Waze. If the app is removed, the tap will not work.</string>
     <string name="settings_widget_buttons_label">Widget buttons</string>
     <string name="settings_widget_buttons_description">A single tap slides out 4 buttons, a double tap opens BYDMate. A button runs a rule with the "Button press" trigger.</string>
     <string name="settings_places_section_header">Places</string>
@@ -142,7 +143,7 @@
     <string name="settings_autoservice_disconnected_title">not connected</string>
     <string name="settings_autoservice_disconnected_detail">restart the app if ADB is enabled in Developer settings</string>
     <string name="settings_autoservice_sentinel_title">connected, but data is not readable</string>
-    <string name="settings_autoservice_sentinel_detail">the feature may work only on Leopard 3</string>
+    <string name="settings_autoservice_sentinel_detail">compatibility depends on the vehicle firmware</string>
     <string name="settings_autoservice_connected_title">connected</string>
     <string name="settings_autoservice_connected_detail">SoH %1$s • lifetime %2$s / %3$s</string>
     <string name="settings_update_dialog_title">Updates</string>
@@ -317,7 +318,7 @@
     <string name="automation_action_app_launch">Launch app</string>
     <string name="automation_action_yandex_music">Yandex Music</string>
     <string name="automation_action_call">Call</string>
-    <string name="automation_action_navigate">Route in Y.Navigator</string>
+    <string name="automation_action_navigate">Route in Waze</string>
     <string name="automation_action_url">Open URL</string>
     <string name="automation_action_delay">Delay</string>
     <string name="automation_action_media_volume">Media volume</string>
@@ -350,7 +351,7 @@
     <string name="automation_call_phone_label">Phone number</string>
     <string name="automation_call_auto_dial_label">Call automatically</string>
     <string name="automation_call_auto_dial_hint">Without pressing the green button</string>
-    <string name="automation_navigate_dialog_title">Route in Y.Navigator</string>
+    <string name="automation_navigate_dialog_title">Route in Waze</string>
     <string name="automation_navigate_no_places_hint">Add a place in Settings -> Places first</string>
     <string name="automation_navigate_pick_place_placeholder">Choose a place...</string>
     <string name="automation_url_dialog_title">Open URL</string>
@@ -380,13 +381,13 @@
     <string name="place_edit_radius_label">Radius, m</string>
     <string name="place_edit_error_min_radius">Minimum radius is 20 m</string>
     <string name="welcome_step_indicator">Step %1$d of 2</string>
-    <string name="welcome_model_step_title">Which BYD model do you have?</string>
-    <string name="welcome_model_step_description">This determines the trip data source.\nTitan 3 stores data in the BYD built-in database (energydata).\nSong and other models — only in DiPlus.</string>
+    <string name="welcome_model_step_title">Vehicle profile</string>
+    <string name="welcome_model_step_description">This dev build targets the 2025 BYD Sea Lion 07 EV, 610 Zhijia RWD (China).</string>
     <string name="welcome_model_song_label">Song / other</string>
     <string name="welcome_model_change_later">You can change this later in settings.</string>
     <string name="welcome_next_button">Next</string>
     <string name="welcome_battery_section_title">Battery</string>
-    <string name="welcome_battery_capacity_hint">Leopard 3: 72.9 kWh (BEV) or 31.8 kWh (PHEV)</string>
+    <string name="welcome_battery_capacity_hint">Sea Lion 07 EV 2025 (610 Zhijia RWD): 80.64 kWh</string>
     <string name="welcome_tariff_section_title">Tariffs</string>
     <string name="welcome_tariff_home_label">Home AC charge (%1$s/kWh)</string>
     <string name="welcome_tariff_dc_label">Fast DC charge (%1$s/kWh)</string>
@@ -405,7 +406,7 @@
     <string name="welcome_autostart_dilink_hint">If autostart did not work, add this in Di+:</string>
     <string name="welcome_autostart_dilink_instruction">Di+ -> Predefined -> Startup tasks</string>
     <string name="welcome_autostart_command_copied_toast">Copied!</string>
-    <string name="welcome_autostart_command_explanation">打开应用 = \"open app\" + package name.\nFor two apps separated by semicolon:\n打开应用ru.yandex.yandexnavi;打开应用%1$s</string>
+    <string name="welcome_autostart_command_explanation">打开应用 = \"open app\" + package name.\nFor two apps separated by semicolon:\n打开应用com.waze;打开应用%1$s</string>
     <string name="welcome_system_settings_section_title">System settings</string>
     <string name="welcome_autostart_open_settings_button">Open autostart settings</string>
     <string name="welcome_autostart_open_settings_error">Could not open DiLink autostart settings. App settings were opened.</string>
@@ -850,7 +851,7 @@
     <string name="automation_setting_play_sound">Play sound on trigger</string>
     <string name="auto_act_launch_app">Launch app</string>
     <string name="auto_act_call">Call</string>
-    <string name="auto_act_navigate">Route in Y.Navigator</string>
+    <string name="auto_act_navigate">Route in Waze</string>
     <string name="auto_act_open_url">Open URL</string>
     <string name="auto_act_yandex_music">Yandex Music</string>
     <string name="auto_msg_media_volume_missing">Action #%1$d: volume level not set</string>
@@ -1011,8 +1012,8 @@
     <string name="settings_tariff_home_desc">Cost of 1 kWh when charging at home (AC)</string>
     <string name="settings_tariff_dc_desc">Cost of 1 kWh at DC fast chargers</string>
     <string name="settings_tariff_trip_desc">Which tariff to use for trip costs</string>
-    <string name="settings_consumption_good_desc">Trips with lower consumption are highlighted green</string>
-    <string name="settings_consumption_bad_desc">Trips with higher consumption are highlighted red</string>
+    <string name="settings_consumption_good_desc">UI heuristic (default 18), not the official rated consumption</string>
+    <string name="settings_consumption_bad_desc">UI heuristic (default 24), not the official rated consumption</string>
     <string name="settings_widget_show_desc">Battery charge on top of any app</string>
     <string name="settings_widget_reset_position_desc">Return the widget to its default position</string>
     <string name="settings_export_csv_desc">Full trip history as one file in the Download folder</string>
@@ -1046,14 +1047,15 @@
     <!-- HUD navigation -->
     <string name="settings_hud_header">HUD (head-up display)</string>
     <string name="settings_hud_title">Navigation on HUD</string>
-    <string name="settings_hud_desc">Yandex Navigator guidance on the head-up display: maneuver, distance, street, arrival</string>
+    <string name="settings_hud_desc">Waze guidance on the head-up display: maneuver, distance, street, arrival</string>
     <string name="settings_hud_speed_sign_title">Speed sign under the arrow</string>
     <string name="settings_hud_speed_sign_desc">Red speed-limit sign in the lower HUD slot</string>
     <string name="settings_hud_status_unsupported">SOME/IP bus not found: HUD output is unavailable on this car</string>
     <string name="settings_hud_status_connecting">Connecting to the bus…</string>
     <string name="settings_hud_status_on">Streaming to the HUD</string>
     <string name="settings_hud_status_bind_failed">Could not connect to the SOME/IP bus</string>
-    <string name="settings_hud_hint">Requires a trim with the head-up display. Data comes from the Yandex Navigator window</string>
+    <string name="settings_hud_status_send_failed">Bus connected, but the HUD frame was rejected</string>
+    <string name="settings_hud_hint">Requires a trim with the head-up display. Data comes from the Waze window and navigation notification</string>
 
     <!-- Dev demo environment -->
     <string name="settings_section_developer_title">DEV</string>

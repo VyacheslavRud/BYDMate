@@ -15,6 +15,8 @@
 
 **Real consumption, GPS routes, automation, AI analytics. Local-first; cloud features are optional.**
 
+**Target dev configuration:** 2025 BYD Sea Lion 07 EV (China), 610 Zhijia / 610智驾版, rear-wheel drive.
+
 **English** | [中文](README.zh.md) | [Русский](README.md)
 
 [Features](#features) | [Screenshots](#screenshots) | [Automation](#automation) | [Projection to cluster](#projection-to-cluster) | [AI Insights](#ai-insights) | [ABRP](#abrp--live-telemetry) | [Install](#install) | [Build](#build-from-source) | [Sponsor](SUPPORT.md)
@@ -25,7 +27,7 @@
 
 ## About
 
-BYDMate is an Android app for the BYD DiLink 5.0 head unit (Leopard 3 / Fangchengbao Tai 3). It logs trips, GPS routes, real energy consumption from the BMS, charging sessions, and provides AI-driven driving analytics. No Google Play Services required.
+BYDMate is an Android app for BYD DiLink head units. This dev branch targets the 2025 Chinese-market Sea Lion 07 EV 610 Zhijia RWD. It logs trips, GPS routes, real energy consumption from the BMS, charging sessions, and provides AI-driven driving analytics. No Google Play Services required.
 
 The stock onboard computer **underestimates consumption by 10-30%**. BYDMate reads data directly from the BMS (energydata SQLite) and shows the real figure. Plus data the stock system does not surface: idle drain, cell balance, trip cost, AI insights.
 
@@ -39,7 +41,7 @@ Core features (trips, charges, automations, local insights, offline voice agent)
 
 The assistant is **Russian-only by design** — the stock BYD assistant already covers English and Chinese, so BYDMate fills the language the car lacks. It is documented in full in the [Russian README](README.md#голосовой-ai-агент).
 
-Also in 3.5: voice-driven Yandex Navigator projection to the cluster, a new "spoken phrase" automation trigger, and weekly/monthly insights computed on-device.
+The current dev build routes voice navigation through Waze. It also includes the "spoken phrase" automation trigger and weekly/monthly insights computed on-device.
 
 ---
 
@@ -49,7 +51,7 @@ A major update. BYDMate moved to its own data stack and learned to mirror naviga
 
 **Own data stack, no D+.** Earlier BYDMate relied on the third-party D+ (迪加) app to reach car data. Now everything is read and every command is sent directly through the car's system service, with no middleman. After installing and verifying BYDMate, D+ can be removed from DiLink. SOC, power, temperatures, capacity, voltage, charge-gun state, SoH and mileage are read from the source. Lights, climate, windows, mirrors and the trunk are controlled directly too.
 
-**Yandex Navigator on the cluster.** The right steering-wheel star moves navigation onto the instrument cluster and back to the center screen. Yandex Navigator is the default, but any app can be picked. See the "Projection to cluster" section.
+**Waze on the cluster.** The right steering-wheel star moves navigation onto the instrument cluster and back to the center screen. Waze is the navigation default in the dev build. See the "Projection to cluster" section.
 
 **Sleep charging.** A charge that finished while the car was fully asleep and the app was off is now reconstructed correctly from two SOC points. Such a session could previously be lost.
 
@@ -69,7 +71,7 @@ A major update. BYDMate moved to its own data stack and learned to mirror naviga
 | **Bat** | Battery health | Temperature, SoH (on Leopard 3), cell balance, 12V |
 | **Map** | Route map | osmdroid (OpenStreetMap) inside trip detail |
 | **Rules** | Automation | WHEN→THEN rules: parameter triggers → vehicle commands |
-| **Cluster** | Projection to cluster | Mirror the selected app onto the instrument cluster via a steering-wheel button (right star by default) |
+| **Cluster** | Projection to cluster | Mirror the selected app onto the instrument cluster via a learned steering-wheel button |
 | **Widget** | Floating widget | 7-field overlay above other apps: SOC, range, consumption + trend, time, cabin t°, battery t°, 12V |
 | **Auto** | Autostart | WorkManager, starts on boot |
 | **CSV** | Data export | Trips and charges export to CSV |
@@ -162,7 +164,9 @@ BYDMate can mirror the selected app (navigation by default) onto the instrument 
 
 - **A short press of the chosen button** moves the app to the cluster.
 - **Another short press** brings it back to the center screen.
-- **Holding the right star** keeps the stock behavior (car menu); BYDMate does not intercept it.
+- **If the right star is assigned:** holding it keeps the stock behavior (car menu); BYDMate does not intercept it.
+
+The Sea Lion profile starts with no button assigned, so BYDMate never intercepts an unverified keycode.
 
 ### Enabling
 
@@ -178,19 +182,21 @@ Before the first use, set up the stock navigation output to the cluster once, ot
 
 **3.** In BYDMate, open **Settings → Display** and turn on "Projection to cluster via wheel button". The app enables the required service itself (ADB activation done during install is required, see "Install"), no manual setup needed.
 
-After that, a short press of the chosen steering-wheel button (right star by default) moves the selected app to the cluster and back.
+After that, assign a button in this section; a short press then moves the selected app to the cluster and back.
 
 ### Which app to project
 
-Yandex Navigator is projected by default. Below the enable toggle there is an app picker: choose any installed app (another navigator, a media player, etc.). The new choice applies on the next star press.
+Waze is projected by default. The projection app picker remains generic, but all BYDMate route commands, navigation automations, and HUD data use Waze only. Google Maps is not added as a navigation provider. A new projection choice applies on the next star press.
 
-### Window size
+### Window size and position
 
-In **Settings → Display → "Cluster window size"** two sliders (width and height, 50% to 100%) set the projection size. A smaller window is centered, and the native cluster shows through around it.
+In **Settings → Display → "Cluster window size"**, five sliders control width and height (20–100%), horizontal and vertical position (0–100%), and content scale (50–150%). This dev build starts with the Sea Lion 07 mini-zone preset **32 / 92 / 100 / 6 / 90**. Use **100 / 100 / 50 / 50 / 100** for a conventional full-screen cluster. Automatic system-container power is off by default; confirm both geometry and container compatibility on the car before enabling it.
 
 ### How it works
 
 The projection goes through the car's system service: BYDMate launches the chosen app as a window directly on the instrument-cluster display, so the voice agent and the HUD can see the route during projection. This mode needs a one-time head-unit reboot after installation (long-press the volume knob); until then the old virtual-display path is used automatically. To intercept the steering-wheel buttons, the app enables its own accessibility service. It works only while the toggle is on and is used solely for the star. It does not change the firmware or the car itself, and it is fully reversible.
+
+Waze package `com.waze` must be installed. Factory-HUD guidance is read from Waze accessibility fields; its SOME/IP transport cannot be validated on an emulator and still requires an on-car compatibility test, especially on Sea Lion 07.
 
 ---
 
@@ -264,8 +270,8 @@ If BYDMate is running during the charge, the record appears immediately. If the 
 
 The charge type is decided by two signals, in priority order:
 
-1. **Gun-state from the onboard system**: gun-state 2 = AC, 3 or 4 = DC. On some BYD models this value is not always present; the next step handles those.
-2. **Average session power**: above 15 kW = DC, otherwise AC. AC physically does not exceed 11 kW, DC stations start at 22 kW (CCS slow), so the 15 kW threshold confidently splits the two modes.
+1. **Energy-flow state from the onboard system**: gun-state 2 = AC, 3 or 4 = DC. State 5 is V2L/VTOL energy export and is not charging. If the signal is unavailable, the next step is used.
+2. **Average session power**: above 15 kW = DC, otherwise AC. This is a fallback heuristic, not a GB/T protocol boundary; a slow or heavily tapered DC session can occasionally be classified as AC and may be corrected manually.
 
 The Charges tab has three filters: "All", "AC", "DC".
 
@@ -304,15 +310,14 @@ On cars without onboard-system access (older firmware, non-DiLink) the app falls
 
 ---
 
-## If you don't have a Leopard 3
+## Target profile and compatibility status
 
-BYDMate is developed and tested on BYD Leopard 3 (Fangchengbao Tai 3). On other BYD models most features still work, with some differences. Before the first launch, check:
+This dev branch is configured for the **2025 Chinese-market BYD Sea Lion 07 EV, 610 Zhijia / 610智驾版, RWD**. The low-level FID/SOME-IP contracts, SoH and automatic charge logging were originally validated on Leopard 3, so each of those paths still needs staged on-car verification on the Sea Lion.
 
-- **Trip logging**: on Leopard 3 trips come from the built-in BMS `energydata` database. On models without it (Song, Yuan and similar) BYDMate records trips natively from the live data stream, so the Trips list fills up on its own. Consumption from the SOC delta is a bit coarser than the BMS figure, but the list is no longer empty.
-- **Battery capacity**: defaults to 72.9 kWh (Leopard 3). Go to **Settings → Battery** and set your own. For example: Atto 3 = 60.5 kWh, Seal AWD = 82.5 kWh, Han EV = 85.4 kWh. Without this, range and trip-cost calculations will be off.
-- **SoH**: shown only on Leopard 3. On other models the "Battery health" card works without the SoH field.
-- **Charges**: the AC/DC algorithm was tuned for Leopard 3. On other models records may appear with delay or wrong power, especially for DC. Use manual add and edit when automation misses.
-- **Automation and floating widget**: work the same on every model since they use the car's system service.
+- **Default battery capacity:** 80.64 kWh nominal/advertised. Usable capacity and nominal pack voltage remain unknown rather than being inferred.
+- **Consumption thresholds:** 18/24 kWh/100 km are UI colour heuristics, not the official 15.2 kWh/100 km rated consumption.
+- **Trip logging:** uses BMS `energydata` when available and otherwise records from live telemetry.
+- **SoH, charging, commands and HUD:** considered unverified on Sea Lion until the corresponding on-car test passes.
 
 If something does not work or shows strange values, open an [Issue](https://github.com/AndyShaman/BYDMate/issues) with your car model and DiLink firmware version. We need reports like that to widen support.
 
@@ -322,11 +327,18 @@ If something does not work or shows strange values, open an [Issue](https://gith
 
 | Parameter | Value |
 |-----------|-------|
-| Platform | DiLink 5.0 (Android 12, API 32) |
-| SoC | Snapdragon 780G |
-| Screen | 15.6" landscape, 1920x1200 |
-| GMS | No (AOSP without Google Play Services) |
-| Tested on | BYD Leopard 3 (Fangchengbao Tai 3) |
+| Vehicle | 2025 BYD Sea Lion 07 EV, China |
+| Trim / model code | 610 Zhijia / 610智驾版; BYD6486SBEV2 |
+| Drivetrain | Rear single motor, RWD; 230 kW; 380 N·m |
+| Battery / architecture | LFP Blade; 80.64 kWh nominal; 800 V architecture |
+| Range / rated consumption | 610 km CLTC; 15.2 kWh/100 km |
+| Curb weight | 2,210 kg |
+| Dimensions / wheelbase / seats | 4,830×1,925×1,620 mm; 2,930 mm; 5 seats |
+| Gross weight / maximum speed | 2,585 kg; 225 km/h |
+| Tires / pressures | 235/50 R19 front; 255/45 R19 rear; 250 kPa comfort / 290 kPa economy |
+| Charging standard | GB/T (China) |
+| ADAS | DiPilot 300; 1 lidar |
+| Head unit / firmware | Record during on-car testing; do not assume Leopard 3 hardware values |
 
 ---
 
@@ -418,9 +430,9 @@ If you used earlier versions and installed D+, you can remove it from DiLink onc
 ### 6. Configuration (optional)
 
 In **Settings** you can change:
-- **Battery capacity** — default 72.9 kWh (Leopard 3)
+- **Battery capacity** — default 80.64 kWh (Sea Lion 07 EV 610 Zhijia RWD)
 - **Tariffs** — home (AC) and fast charging (DC), currency
-- **Consumption thresholds** — bounds for color coding (green/yellow/red)
+- **Consumption thresholds** — 18/24 UI colour heuristics, not official rated consumption
 
 ---
 
@@ -587,7 +599,7 @@ cd BYDMate
 
 - **[BYD Trip Info](https://www.byd-seal-forum.de/forum/thread/1811-byd-trip-info-app/)** (`org.jayb.bydapp`) by jayb — the original DiLink trip app, inspiration for BYDMate
 - **[DiPlus](https://www.dilink.cn/)** (迪加) by Van Design — the bridge app for car data, used in early BYDMate versions (no longer required since 3.0.0)
-- **@RBGboost** — reverse engineering of the factory HUD SOME/IP protocol and the original YandexHUD implementation. Yandex Navigator guidance on the HUD in BYDMate is his code and his achievement. You can thank him on Telegram: [@RBGboost](https://t.me/RBGboost)
+- **@RBGboost** — reverse engineering of the factory HUD SOME/IP protocol and the original YandexHUD implementation. BYDMate retains that transport/protobuf foundation while the current dev build feeds it with Waze data. You can thank him on Telegram: [@RBGboost](https://t.me/RBGboost)
 
 ---
 

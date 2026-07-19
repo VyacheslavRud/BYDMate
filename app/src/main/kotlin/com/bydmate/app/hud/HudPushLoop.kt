@@ -18,6 +18,7 @@ class HudPushLoop(
     private val sink: HudEventSink,
     private val speedSignEnabled: () -> Boolean = { true },
     private val nowMsProvider: () -> Long = { System.currentTimeMillis() },
+    private val onDeliveryResult: (Int) -> Unit = {},
 ) {
     companion object {
         private const val TAG = "HudPushLoop"
@@ -48,7 +49,11 @@ class HudPushLoop(
         val s = NavGuidanceHub.snapshot(nowMsProvider())
         if (!s.active) {
             if (wasActive) {
-                sink.fireEvent(HudSomeIpBridge.TOPIC_NAVI, HudProtobufBuilder.buildClearFrame(counter++))
+                val rc = sink.fireEvent(
+                    HudSomeIpBridge.TOPIC_NAVI,
+                    HudProtobufBuilder.buildClearFrame(counter++),
+                )
+                onDeliveryResult(rc)
                 Log.i(TAG, "guidance ended, clear frame sent")
             }
             return false
@@ -64,7 +69,7 @@ class HudPushLoop(
             maneuverIconPng = HudIconLoader.iconFor(s.maneuverGaode),
             speedSignPng = signPng,
         )
-        sink.fireEvent(HudSomeIpBridge.TOPIC_NAVI, frame)
+        onDeliveryResult(sink.fireEvent(HudSomeIpBridge.TOPIC_NAVI, frame))
         return true
     }
 

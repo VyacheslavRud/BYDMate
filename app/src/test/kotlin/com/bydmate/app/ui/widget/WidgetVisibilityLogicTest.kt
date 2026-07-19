@@ -28,7 +28,7 @@ class WidgetVisibilityLogicTest {
         assertTrue(CameraStateMonitor.isYoutubePackage("anddea.youtube"))
         assertTrue(CameraStateMonitor.isYoutubePackage("com.google.android.youtube"))
         assertTrue(CameraStateMonitor.isYoutubePackage("app.revanced.android.youtube"))
-        assertFalse(CameraStateMonitor.isYoutubePackage("ru.yandex.yandexnavi"))
+        assertFalse(CameraStateMonitor.isYoutubePackage("com.waze"))
         assertFalse(CameraStateMonitor.isYoutubePackage(null))
     }
 }

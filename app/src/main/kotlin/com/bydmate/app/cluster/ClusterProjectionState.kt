@@ -1,7 +1,11 @@
 package com.bydmate.app.cluster
 
+import com.bydmate.app.data.vehicle.ClusterProjectionPreset
+import com.bydmate.app.data.vehicle.VehicleProfile
+import com.bydmate.app.navigation.WazeNavigation
+
 /** Default projection target. The actual package is user-selectable in settings (KEY_TARGET_PACKAGE). */
-const val NAVI_PACKAGE = "ru.yandex.yandexnavi"
+const val NAVI_PACKAGE = WazeNavigation.PACKAGE_NAME
 
 /** Cluster projection state (OFF / FULLSCREEN). */
 enum class ClusterMode { OFF, FULLSCREEN }
@@ -39,6 +43,69 @@ const val CENTER_OFFSET_PCT = 50
 const val MIN_SCALE_PCT = 50
 const val MAX_SCALE_PCT = 150
 const val DEFAULT_SCALE_PCT = 100
+
+internal data class ClusterDefaultsSnapshot(
+    val migrationDone: Boolean,
+    val widthPct: Int?,
+    val heightPct: Int?,
+    val offsetXPct: Int?,
+    val offsetYPct: Int?,
+    val scalePct: Int?,
+    val autoContainer: Boolean?,
+)
+
+internal data class ClusterDefaultsMigration(
+    /** Complete geometry to persist, or null when the existing complete custom tuple is safe. */
+    val geometryToPersist: ClusterProjectionPreset?,
+    /** null means an explicit stored choice must be preserved. */
+    val autoContainer: Boolean?,
+    val markDone: Boolean,
+)
+
+/**
+ * Replaces an effective old full-screen tuple with the Sea Lion preset. A partial custom tuple is
+ * completed with the legacy runtime defaults and persisted: otherwise its absent fields would
+ * silently start using the new Sea Lion fallbacks after the update and change the user's actual
+ * geometry. A complete custom tuple needs no write. Auto-container is switched off only when the
+ * old build never persisted an explicit user choice.
+ */
+internal fun planClusterDefaultsMigration(
+    snapshot: ClusterDefaultsSnapshot,
+    preset: ClusterProjectionPreset = VehicleProfile.CURRENT.clusterProjectionPreset,
+): ClusterDefaultsMigration {
+    if (snapshot.migrationDone) {
+        return ClusterDefaultsMigration(null, null, markDone = false)
+    }
+
+    val storedGeometry = listOf(
+        snapshot.widthPct, snapshot.heightPct, snapshot.offsetXPct,
+        snapshot.offsetYPct, snapshot.scalePct,
+    )
+    val effectiveLegacyGeometry = ClusterProjectionPreset(
+        widthPct = snapshot.widthPct ?: MAX_PROJECTION_PCT,
+        heightPct = snapshot.heightPct ?: MAX_PROJECTION_PCT,
+        offsetXPct = snapshot.offsetXPct ?: CENTER_OFFSET_PCT,
+        offsetYPct = snapshot.offsetYPct ?: CENTER_OFFSET_PCT,
+        scalePct = snapshot.scalePct ?: DEFAULT_SCALE_PCT,
+    )
+    val oldFullScreenGeometry = ClusterProjectionPreset(
+        widthPct = MAX_PROJECTION_PCT,
+        heightPct = MAX_PROJECTION_PCT,
+        offsetXPct = CENTER_OFFSET_PCT,
+        offsetYPct = CENTER_OFFSET_PCT,
+        scalePct = DEFAULT_SCALE_PCT,
+    )
+    val geometryToPersist = when {
+        effectiveLegacyGeometry == oldFullScreenGeometry -> preset
+        storedGeometry.any { it == null } -> effectiveLegacyGeometry
+        else -> null
+    }
+    return ClusterDefaultsMigration(
+        geometryToPersist = geometryToPersist,
+        autoContainer = false.takeIf { snapshot.autoContainer == null },
+        markDone = true,
+    )
+}
 
 /**
  * Geometry for [mode] on a [clusterW] x [clusterH] cluster. OFF → null. FULLSCREEN → a
@@ -104,11 +171,12 @@ fun nextMode(current: ClusterMode): ClusterMode =
  * True when a compositor-on marker persisted by a PRIOR process should be recovered at service
  * start: the car shut down mid-projection, the off sequence (18 -> pause -> 0) never ran, and the
  * compositor woke up in projection mode with nobody drawing — a black cluster. A live projection
- * in THIS process ([mode] != OFF) owns the compositor and must not be powered down under it; with
- * auto-container off the user manages compositor power manually.
+ * in THIS process ([mode] != OFF) owns the compositor and must not be powered down under it. The
+ * surviving marker is proof that BYDMate powered the compositor, so recovery remains our
+ * responsibility even if auto-container is now disabled or its default changed between versions.
  */
-fun shouldRecoverCompositor(markerSet: Boolean, mode: ClusterMode, autoContainer: Boolean): Boolean =
-    markerSet && mode == ClusterMode.OFF && autoContainer
+fun shouldRecoverCompositor(markerSet: Boolean, mode: ClusterMode): Boolean =
+    markerSet && mode == ClusterMode.OFF
 
 /** Direct-task crash recovery fires only when a marker survives AND no projection is live. */
 fun shouldRecoverDirectTask(markerDisplayId: Int, mode: ClusterMode): Boolean =

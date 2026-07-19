@@ -40,11 +40,13 @@ class ActionDispatcherLaunchTest {
 
     init {
         every { context.packageManager } returns packageManager
+        every { context.packageName } returns "com.bydmate.app.dev"
         every { context.getSystemService(Context.NOTIFICATION_SERVICE) } returns notificationManager
         dispatcher = ActionDispatcher(vehicleApi, helper, context,
             dagger.Lazy { mockk<com.bydmate.app.voice.VoiceAutomationActions>(relaxed = true) },
             mockk<ClusterVoiceControl>(relaxed = true),
             mockk<com.bydmate.app.voice.AudioCapture>(relaxed = true))
+        dispatcher.navigationAppInstalled = { true }
     }
 
     private fun launchAction(pkg: String) = ActionDef(
@@ -89,22 +91,26 @@ class ActionDispatcherLaunchTest {
 
     // --- navigate ---
 
-    @Test fun `navigate by free-text query opens Navigator map search`() {
+    @Test fun `navigate by free-text query opens Waze route request`() {
         val query = "аэропорт Сочи"
         val action = ActionDef(command = "", displayName = "nav", kind = "navigate",
             payload = """{"query":"$query"}""")
         val (result, intent) = dispatchAndCapture(action)
         assertTrue(result.success)
         assertEquals(Intent.ACTION_VIEW, intent.action)
-        assertEquals("yandexnavi://map_search?text=${Uri.encode(query)}", intent.dataString)
+        assertEquals("com.waze", intent.`package`)
+        assertEquals(query, intent.data?.getQueryParameter("q"))
+        assertEquals("yes", intent.data?.getQueryParameter("navigate"))
     }
 
-    @Test fun `navigate by lat lon keeps build_route_on_map deeplink`() {
+    @Test fun `navigate by lat lon uses Waze coordinate deeplink`() {
         val action = ActionDef(command = "", displayName = "nav", kind = "navigate",
             payload = """{"lat":43.4,"lon":39.9}""")
         val (result, intent) = dispatchAndCapture(action)
         assertTrue(result.success)
-        assertEquals("yandexnavi://build_route_on_map?lat_to=43.4&lon_to=39.9", intent.dataString)
+        assertEquals("com.waze", intent.`package`)
+        assertEquals("43.4,39.9", intent.data?.getQueryParameter("ll"))
+        assertEquals("yes", intent.data?.getQueryParameter("navigate"))
     }
 
     // --- yandex_music ---

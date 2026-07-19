@@ -1,10 +1,10 @@
 package com.bydmate.app.navdata
 
-/** Yandex Navigator package variants (donor set minus Yandex Maps, which is deferred). */
+import com.bydmate.app.navigation.WazeNavigation
+
+/** Navigation packages whose window/notification data may feed BYDMate and the factory HUD. */
 object NavPackages {
-    val YANDEX_NAVI = setOf(
-        "ru.yandex.yandexnavi",
-        "ru.yandex.yandexnavi.inhouse",
-        "ru.yandex.yandexnavi.rustore",
-    )
+    val WAZE = setOf(WazeNavigation.PACKAGE_NAME)
+
+    fun isNavigationPackage(packageName: String?): Boolean = packageName in WAZE
 }

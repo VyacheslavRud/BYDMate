@@ -120,7 +120,7 @@ class IternioIntervalPolicyTest {
     @Test
     fun `classifyFromDiPars chargeGunState 3 (DC) is CHARGING`() {
         // DC fast charge — gunConnectState 3 from DiPars (rare but observed on
-        // some firmwares). Same DCFC_GUN_STATES whitelist as IternioTelemetryClient.
+        // some firmwares). Uses the same canonical ChargeGunState input classification.
         assertEquals(TelemetryState.CHARGING, IternioIntervalPolicy.classifyFromDiPars(di(gear = 1, chargeGunState = 3)))
     }
 
@@ -130,7 +130,7 @@ class IternioIntervalPolicyTest {
     }
 
     @Test
-    fun `classifyFromDiPars chargeGunState 5 (VTOL) is CHARGING`() {
-        assertEquals(TelemetryState.CHARGING, IternioIntervalPolicy.classifyFromDiPars(di(gear = 1, chargeGunState = 5)))
+    fun `classifyFromDiPars chargeGunState 5 (V2L) is PARKED not CHARGING`() {
+        assertEquals(TelemetryState.PARKED, IternioIntervalPolicy.classifyFromDiPars(di(gear = 1, chargeGunState = 5)))
     }
 }

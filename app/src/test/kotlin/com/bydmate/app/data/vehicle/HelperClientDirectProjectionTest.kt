@@ -56,21 +56,21 @@ class HelperClientDirectProjectionTest {
         var code = -1; var pkg: String? = null; val nums = IntArray(5)
         val result = clientWith(fakeWithStatus(0, capture = {
             pkg = it.readString(); for (i in 0..4) nums[i] = it.readInt()
-        }, seenCode = { code = it })).launchFreeform("ru.yandex.yandexnavi", 4, 0, 38, 1280, 441)
+        }, seenCode = { code = it })).launchFreeform("com.waze", 4, 0, 38, 1280, 441)
         assertEquals(FreeformLaunchResult.OK, result)
         assertEquals(HelperBinderProtocol.TX_LAUNCH_FREEFORM, code)
-        assertEquals("ru.yandex.yandexnavi", pkg)
+        assertEquals("com.waze", pkg)
         assertArrayEquals(intArrayOf(4, 0, 38, 1280, 441), nums)
     }
 
     @Test
     fun `launchFreeform maps -2 to UNAVAILABLE and other failures to FAILED`() = runBlocking {
         assertEquals(FreeformLaunchResult.UNAVAILABLE,
-            clientWith(fakeWithStatus(-2)).launchFreeform("ru.yandex.yandexnavi", 4, 0, 0, 10, 10))
+            clientWith(fakeWithStatus(-2)).launchFreeform("com.waze", 4, 0, 0, 10, 10))
         assertEquals(FreeformLaunchResult.FAILED,
-            clientWith(fakeWithStatus(-1)).launchFreeform("ru.yandex.yandexnavi", 4, 0, 0, 10, 10))
+            clientWith(fakeWithStatus(-1)).launchFreeform("com.waze", 4, 0, 0, 10, 10))
         assertEquals(FreeformLaunchResult.FAILED,
-            clientWith(null).launchFreeform("ru.yandex.yandexnavi", 4, 0, 0, 10, 10))
+            clientWith(null).launchFreeform("com.waze", 4, 0, 0, 10, 10))
     }
 
     @Test

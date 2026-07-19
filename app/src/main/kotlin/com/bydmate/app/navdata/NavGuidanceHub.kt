@@ -2,134 +2,196 @@ package com.bydmate.app.navdata
 
 import android.util.Log
 
-/** Unified guidance snapshot: ONE source of truth for both the HUD push loop and the
- *  voice agent's get_route_info. Written by NavA11yFeed (a11y thread) and the
- *  notification listener (binder thread), read from coroutines; hence @Synchronized
- *  writers and a @Volatile snapshot.
+/**
+ * Source-aware route state shared by HUD and the voice agent.
  *
- *  Semantics (donor-derived):
- *  - field-wise merge: a partial update never wipes known values;
- *  - active expires 90 s after the last update of any source;
- *  - speed limit has its own 30 s freshness (a limit sign must not outlive its road);
- *  - a successful Navigator-window read WITHOUT guidance widgets is an explicit
- *    "route ended" signal: 10 s of that deactivates the snapshot (markNoGuidance). */
+ * Accessibility and notifications intentionally keep independent snapshots. A current Waze
+ * window is more precise and wins field-by-field; a fresh notification fills only values that
+ * the window does not expose. Replacing each source snapshot (instead of merging it forever)
+ * ensures a reroute can clear an old street, distance or maneuver.
+ */
 object NavGuidanceHub {
     private const val TAG = "NavGuidanceHub"
     const val ACTIVE_TIMEOUT_MS = 90_000L
     const val SPEED_LIMIT_TIMEOUT_MS = 30_000L
     const val NO_GUIDANCE_DEACTIVATE_MS = 10_000L
+    /** A11Y is richer, but only wins briefly when a notification event is newer. */
+    const val A11Y_PRIORITY_GRACE_MS = 5_000L
+    /** Never fill a current route with fields from a source that has stopped updating. */
+    const val CROSS_SOURCE_FALLBACK_MAX_AGE_MS = 5_000L
 
     enum class Source { A11Y, NOTIFICATION }
 
     data class Snapshot(
         val active: Boolean = false,
+        val source: Source? = null,
         val maneuverGaode: Int = 0,
-        val maneuverGaodeMs: Long = 0L,
         val distanceMeters: Int = 0,
         val road: String = "",
         val etaSeconds: Int = 0,
         val totalDistMeters: Int = 0,
         val speedLimit: Int = 0,
-        val speedLimitMs: Long = 0L,
         val lastUpdateMs: Long = 0L,
     )
 
-    @Volatile private var current = Snapshot()
-    @Volatile private var noGuidanceSinceMs = 0L
-    @Volatile private var lastA11yMs = 0L
+    private data class SourceSnapshot(
+        val data: NavGuidance,
+        val updatedAtMs: Long,
+        val speedLimitAtMs: Long,
+    )
 
-    // @Synchronized because expiry writes back: an unsynchronized write here could
-    // clobber a concurrent update() with a stale copy.
+    @Volatile private var a11y: SourceSnapshot? = null
+    @Volatile private var notification: SourceSnapshot? = null
+    @Volatile private var noGuidanceSinceMs = 0L
+
     @Synchronized
     fun snapshot(nowMs: Long = System.currentTimeMillis()): Snapshot {
-        var s = current
-        if (s.active && nowMs - s.lastUpdateMs > ACTIVE_TIMEOUT_MS) {
-            s = s.copy(active = false)
-            current = s
-            Log.i(TAG, "guidance inactive: no source updated for ${ACTIVE_TIMEOUT_MS / 1000}s")
-        }
-        // A started no-guidance streak expires by TIME, not by a second event: after a
-        // route ends the Navigator may go silent (window closed, no more a11y events),
-        // so the deadline must fire from the reader side (Codex audit fix 2).
-        if (s.active && noGuidanceSinceMs != 0L && nowMs - noGuidanceSinceMs >= NO_GUIDANCE_DEACTIVATE_MS) {
-            s = s.copy(active = false)
-            current = s
+        if (noGuidanceSinceMs != 0L && nowMs - noGuidanceSinceMs >= NO_GUIDANCE_DEACTIVATE_MS) {
+            a11y = null
+            notification = null
             noGuidanceSinceMs = 0L
             Log.i(TAG, "guidance inactive: route ended (no-guidance deadline)")
+            return Snapshot()
         }
-        if (s.speedLimit > 0 && nowMs - s.speedLimitMs > SPEED_LIMIT_TIMEOUT_MS) {
-            s = s.copy(speedLimit = 0)
-            current = s
+
+        a11y = a11y.freshOrNull(nowMs)
+        notification = notification.freshOrNull(nowMs)
+        val a11ySnapshot = a11y
+        val notificationSnapshot = notification
+        if (a11ySnapshot == null && notificationSnapshot == null) return Snapshot()
+
+        val primarySource = when {
+            a11ySnapshot == null -> Source.NOTIFICATION
+            notificationSnapshot == null -> Source.A11Y
+            notificationSnapshot.updatedAtMs <= a11ySnapshot.updatedAtMs -> Source.A11Y
+            nowMs - a11ySnapshot.updatedAtMs <= A11Y_PRIORITY_GRACE_MS ->
+                Source.A11Y
+            else -> Source.NOTIFICATION
         }
-        return s
+        val first = if (primarySource == Source.A11Y) a11ySnapshot!! else notificationSnapshot!!
+        val other = if (primarySource == Source.A11Y) notificationSnapshot else a11ySnapshot
+        val second = other?.takeIf {
+            nowMs - it.updatedAtMs <= CROSS_SOURCE_FALLBACK_MAX_AGE_MS
+        }
+        // Speed-limit signs update less often than route text, so their independent 30 s TTL may
+        // use the other source even when it is too old to supply a street or maneuver.
+        val speedSource = choose(first, other) {
+            it.data.speedLimit > 0 && nowMs - it.speedLimitAtMs <= SPEED_LIMIT_TIMEOUT_MS
+        }
+        val data = NavGuidance(
+            maneuverGaode = chooseValue(first, second, 0) { maneuverGaode },
+            distanceMeters = chooseValue(first, second, 0) { distanceMeters },
+            road = chooseValue(first, second, "") { road },
+            etaSeconds = chooseValue(first, second, 0) { etaSeconds },
+            totalDistMeters = chooseValue(first, second, 0) { totalDistMeters },
+            speedLimit = speedSource?.data?.speedLimit ?: 0,
+        )
+        return Snapshot(
+            active = true,
+            source = primarySource,
+            maneuverGaode = data.maneuverGaode,
+            distanceMeters = data.distanceMeters,
+            road = data.road,
+            etaSeconds = data.etaSeconds,
+            totalDistMeters = data.totalDistMeters,
+            speedLimit = data.speedLimit,
+            // Age of the selected primary, not the newest unrelated fallback event.
+            lastUpdateMs = first.updatedAtMs,
+        )
     }
 
     @Synchronized
     fun update(data: NavGuidance, source: Source, nowMs: Long = System.currentTimeMillis()) {
-        noGuidanceSinceMs = 0L
-        val prev = current
-        if (!prev.active) Log.i(TAG, "guidance active (source=$source)")
-        current = prev.copy(
-            active = true,
-            maneuverGaode = if (data.maneuverGaode > 0) data.maneuverGaode else prev.maneuverGaode,
-            maneuverGaodeMs = if (data.maneuverGaode > 0) nowMs else prev.maneuverGaodeMs,
-            distanceMeters = if (data.distanceMeters > 0) data.distanceMeters else prev.distanceMeters,
-            road = data.road.ifEmpty { prev.road },
-            etaSeconds = if (data.etaSeconds > 0) data.etaSeconds else prev.etaSeconds,
-            totalDistMeters = if (data.totalDistMeters > 0) data.totalDistMeters else prev.totalDistMeters,
-            speedLimit = if (data.speedLimit > 0) data.speedLimit else prev.speedLimit,
-            speedLimitMs = if (data.speedLimit > 0) nowMs else prev.speedLimitMs,
-            lastUpdateMs = nowMs,
+        if (!data.hasUsefulValue()) return
+        // Evaluate route-end/expiry before accepting a new event, so a new route cannot inherit
+        // state through a deadline that no reader happened to observe.
+        snapshot(nowMs)
+        if (source == Source.NOTIFICATION && noGuidanceSinceMs != 0L &&
+            (a11y?.updatedAtMs ?: 0L) <= noGuidanceSinceMs
+        ) {
+            // Waze's window was observed without route widgets after the last A11Y update.
+            // A valid newer notification resumes guidance, but the pre-loss A11Y maneuver must
+            // not regain priority merely because its broad 90 s route TTL has not elapsed.
+            a11y = null
+        }
+        val previous = when (source) {
+            Source.A11Y -> a11y
+            Source.NOTIFICATION -> notification
+        }
+        val replacement = SourceSnapshot(
+            data = data.copy(
+                speedLimit = data.speedLimit.takeIf { it > 0 } ?: previous?.data?.speedLimit ?: 0,
+            ),
+            updatedAtMs = nowMs,
+            speedLimitAtMs = if (data.speedLimit > 0) nowMs else previous?.speedLimitAtMs ?: 0L,
         )
-        if (source == Source.A11Y) lastA11yMs = nowMs
+        when (source) {
+            Source.A11Y -> a11y = replacement
+            Source.NOTIFICATION -> notification = replacement
+        }
+        // Either source can prove that guidance resumed after a transient empty Waze root.
+        noGuidanceSinceMs = 0L
     }
 
-    /** Notification channel entry point (older Navigator builds; the 2026 build posts a
-     *  static stub, see NaviScreenReader). Ignores updates carrying nothing useful. */
-    @Synchronized
-    fun updateFromNotification(
-        maneuverRes: String?, distanceText: String?, street: String?,
-        nowMs: Long = System.currentTimeMillis(),
-    ) {
-        val gaode = NavManeuverCodes.fromNotificationRes(maneuverRes)
-        val meters = NavGuidanceParser.parseDistanceText(distanceText)
-        if (gaode == 0 && meters == 0 && street.isNullOrBlank()) return
-        update(NavGuidance(maneuverGaode = gaode, distanceMeters = meters, road = street ?: ""),
-            Source.NOTIFICATION, nowMs)
+    /** Waze navigation-notification entry point. Blank/community-alert updates are ignored. */
+    fun updateFromNotification(data: NavGuidance, nowMs: Long = System.currentTimeMillis()) {
+        update(data, Source.NOTIFICATION, nowMs)
     }
 
+    /** A reachable Waze window without route widgets is stronger than a lagging notification. */
     @Synchronized
     fun markNoGuidance(nowMs: Long = System.currentTimeMillis()) {
-        val s = current
-        if (!s.active) { noGuidanceSinceMs = 0L; return }
-        if (noGuidanceSinceMs == 0L) { noGuidanceSinceMs = nowMs; return }
-        if (nowMs - noGuidanceSinceMs >= NO_GUIDANCE_DEACTIVATE_MS) {
-            current = s.copy(active = false)
+        if (a11y == null && notification == null) {
             noGuidanceSinceMs = 0L
-            Log.i(TAG, "guidance inactive: route ended (no-guidance streak)")
+            return
         }
+        if (noGuidanceSinceMs == 0L) noGuidanceSinceMs = nowMs
+        if (nowMs - noGuidanceSinceMs >= NO_GUIDANCE_DEACTIVATE_MS) snapshot(nowMs)
     }
 
-    /** Legacy notification channel reported route end (the guidance notification was
-     *  removed). A11Y is the authoritative source: if it updated recently the removal
-     *  is ignored, otherwise deactivate immediately (Codex audit fix 3). */
+    /** Notification removal clears only that source; fresh accessibility guidance remains live. */
     @Synchronized
     fun markNotificationEnded(nowMs: Long = System.currentTimeMillis()) {
-        val s = current
-        if (!s.active) return
-        // Only guard against deactivation when the a11y source has actually updated:
-        // if lastA11yMs is 0 the notification channel is the sole source and the
-        // removal must be honoured immediately (Codex audit fix 3).
-        if (lastA11yMs != 0L && nowMs - lastA11yMs <= NO_GUIDANCE_DEACTIVATE_MS) return
-        current = s.copy(active = false)
-        noGuidanceSinceMs = 0L
-        Log.i(TAG, "guidance inactive: guidance notification removed")
+        notification = null
+        if (a11y.freshOrNull(nowMs) == null) {
+            a11y = null
+            noGuidanceSinceMs = 0L
+            Log.i(TAG, "guidance inactive: guidance notification removed")
+        }
     }
 
     @Synchronized
     fun reset() {
-        current = Snapshot()
+        a11y = null
+        notification = null
         noGuidanceSinceMs = 0L
-        lastA11yMs = 0L
+    }
+
+    private fun NavGuidance.hasUsefulValue(): Boolean =
+        maneuverGaode > 0 || distanceMeters > 0 || road.isNotBlank() || etaSeconds > 0 ||
+            totalDistMeters > 0 || speedLimit > 0
+
+    private fun SourceSnapshot?.freshOrNull(nowMs: Long): SourceSnapshot? =
+        this?.takeIf { nowMs - it.updatedAtMs <= ACTIVE_TIMEOUT_MS }
+
+    private inline fun choose(
+        first: SourceSnapshot,
+        second: SourceSnapshot?,
+        predicate: (SourceSnapshot) -> Boolean,
+    ): SourceSnapshot? = when {
+        predicate(first) -> first
+        second != null && predicate(second) -> second
+        else -> null
+    }
+
+    private inline fun <T> chooseValue(
+        first: SourceSnapshot,
+        second: SourceSnapshot?,
+        empty: T,
+        value: NavGuidance.() -> T,
+    ): T {
+        val firstValue = first.data.value()
+        if (firstValue != empty) return firstValue
+        return second?.data?.value()?.takeIf { it != empty } ?: empty
     }
 }

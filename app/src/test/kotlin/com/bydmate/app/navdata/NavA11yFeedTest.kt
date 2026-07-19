@@ -11,9 +11,9 @@ class NavA11yFeedTest {
     private val stateChanged = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
     private val clicked = AccessibilityEvent.TYPE_VIEW_CLICKED
 
-    @Test fun `navigator content change passes`() {
-        assertTrue(NavA11yFeed.shouldProcess("ru.yandex.yandexnavi", contentChanged, nowMs = 1000, lastMs = 0))
-        assertTrue(NavA11yFeed.shouldProcess("ru.yandex.yandexnavi.inhouse", stateChanged, nowMs = 1000, lastMs = 0))
+    @Test fun `Waze content change passes`() {
+        assertTrue(NavA11yFeed.shouldProcess("com.waze", contentChanged, nowMs = 1000, lastMs = 0))
+        assertTrue(NavA11yFeed.shouldProcess("com.waze", stateChanged, nowMs = 1000, lastMs = 0))
     }
 
     @Test fun `foreign package filtered`() {
@@ -22,11 +22,11 @@ class NavA11yFeedTest {
     }
 
     @Test fun `irrelevant event types filtered`() {
-        assertFalse(NavA11yFeed.shouldProcess("ru.yandex.yandexnavi", clicked, nowMs = 1000, lastMs = 0))
+        assertFalse(NavA11yFeed.shouldProcess("com.waze", clicked, nowMs = 1000, lastMs = 0))
     }
 
     @Test fun `debounce blocks rapid events`() {
-        assertFalse(NavA11yFeed.shouldProcess("ru.yandex.yandexnavi", contentChanged, nowMs = 1400, lastMs = 1000))
-        assertTrue(NavA11yFeed.shouldProcess("ru.yandex.yandexnavi", contentChanged, nowMs = 1500, lastMs = 1000))
+        assertFalse(NavA11yFeed.shouldProcess("com.waze", contentChanged, nowMs = 1400, lastMs = 1000))
+        assertTrue(NavA11yFeed.shouldProcess("com.waze", contentChanged, nowMs = 1500, lastMs = 1000))
     }
 }

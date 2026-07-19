@@ -79,9 +79,9 @@ class HelperClientProjectionTest {
 
     @Test
     fun `getTaskId returns id, or null when not found`() = runBlocking {
-        assertEquals(57, clientWith(capturingFake(status = 0, value = 57)).getTaskId("ru.yandex.yandexnavi"))
-        assertNull(clientWith(capturingFake(status = 0, value = -1)).getTaskId("ru.yandex.yandexnavi"))
-        assertNull(clientWith(capturingFake(status = -1, value = 0)).getTaskId("ru.yandex.yandexnavi"))
+        assertEquals(57, clientWith(capturingFake(status = 0, value = 57)).getTaskId("com.waze"))
+        assertNull(clientWith(capturingFake(status = 0, value = -1)).getTaskId("com.waze"))
+        assertNull(clientWith(capturingFake(status = -1, value = 0)).getTaskId("com.waze"))
     }
 
     @Test
@@ -114,11 +114,11 @@ class HelperClientProjectionTest {
         var pkg: String? = null; val nums = IntArray(3)
         val ok = clientWith(capturingFake(status = 0, value = 0) {
             pkg = it.readString(); nums[0] = it.readInt(); nums[1] = it.readInt(); nums[2] = it.readInt()
-        }).launchAndForce("ru.yandex.yandexnavi", 2, 1280, 480)
+        }).launchAndForce("com.waze", 2, 1280, 480)
         assertTrue(ok)
-        assertEquals("ru.yandex.yandexnavi", pkg)
+        assertEquals("com.waze", pkg)
         assertArrayEquals(intArrayOf(2, 1280, 480), nums)
         assertFalse(clientWith(capturingFake(status = -1, value = 0))
-            .launchAndForce("ru.yandex.yandexnavi", 2, 1280, 480))
+            .launchAndForce("com.waze", 2, 1280, 480))
     }
 }

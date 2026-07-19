@@ -211,6 +211,37 @@ class IternioTelemetryClientTest {
     }
 
     @Test
+    fun `V2L is energy export and omits charging session fields`() = runTest {
+        val capt = CapturingInterceptor()
+        val client = makeClient(capt)
+        val v2l = ChargingReading(
+            gunConnectState = 5,
+            chargingType = 1,
+            chargeBatteryVoltV = 400,
+            batteryType = 1,
+            chargingCapacityKwh = 8.0f,
+            bmsState = 1,
+            readAtMs = 0L,
+        )
+
+        client.send(
+            apiKey = "k",
+            userToken = "tok",
+            // Stale DiPars says AC; authoritative autoservice V2L must still win.
+            data = drivingData(chargeGunState = 2, power = 7.0, gear = 1),
+            nominalCapacityKwh = 80.64,
+            battery = null,
+            charging = v2l,
+            carModel = null,
+        )
+
+        val tlm = capt.lastTlmJson!!
+        assertEquals(0, tlm.getInt("is_charging"))
+        assertFalse(tlm.has("is_dcfc"))
+        assertFalse(tlm.has("kwh_charged"))
+    }
+
+    @Test
     fun `soh sent when battery reading provides it`() = runTest {
         val capt = CapturingInterceptor()
         val client = makeClient(capt)

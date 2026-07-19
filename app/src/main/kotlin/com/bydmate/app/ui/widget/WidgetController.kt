@@ -52,7 +52,7 @@ object WidgetController {
     private const val TRASH_RADIUS_DP = 48
     private const val LONG_PRESS_MS = 1500L
     // Tap on the left third of the widget launches the user-configured app
-    // (default Yandex Navigator) when zoning is enabled in WidgetPreferences;
+    // (default Waze) when zoning is enabled in WidgetPreferences;
     // the right two thirds always open BYDMate. Threshold uses the live view
     // width, so it stays proportional across the 70-200% widget size range.
     private const val LEFT_TAP_FRACTION = 1f / 3f

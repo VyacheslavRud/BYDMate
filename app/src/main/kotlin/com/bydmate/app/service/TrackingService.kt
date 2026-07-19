@@ -27,6 +27,7 @@ import com.bydmate.app.MainActivity
 import com.bydmate.app.R
 import com.bydmate.app.cluster.ClusterProjectionManager
 import com.bydmate.app.data.automation.AutomationEngine
+import com.bydmate.app.data.charging.ChargeGunState
 import com.bydmate.app.data.remote.AlicePollingManager
 import com.bydmate.app.data.nativestack.ParsReader
 import com.bydmate.app.data.remote.DiParsData
@@ -1020,7 +1021,7 @@ class TrackingService : Service(), LocationListener {
                     // during the session and hand it to runCatchUp on the disconnect
                     // edge so short sessions don't fall back to the kwh/hours
                     // heuristic.
-                    if ((data.power ?: 0.0) < 0.0) {
+                    if (ChargeGunState.isCharging(data.chargeGunState) && (data.power ?: 0.0) < 0.0) {
                         val abs = -(data.power ?: 0.0)
                         synchronized(powerLock) {
                             if (abs > observedChargingPowerKwAbs) observedChargingPowerKwAbs = abs

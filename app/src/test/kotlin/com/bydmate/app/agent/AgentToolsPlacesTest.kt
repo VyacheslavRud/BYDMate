@@ -185,7 +185,7 @@ class AgentToolsPlacesTest {
         val out = JSONObject(tools().execute(
             AgentToolCall("1", "navigate_to", """{"destination":"Тьмутаракань"}""")))
         assertTrue(out.getBoolean("ok"))
-        assertEquals("search", out.getString("mode"))
+        assertEquals("route_requested", out.getString("mode"))
         val payload = JSONObject(captured.captured.payload!!)
         assertEquals("Тьмутаракань", payload.getString("query"))
     }
@@ -199,7 +199,7 @@ class AgentToolsPlacesTest {
         val out = JSONObject(tools().execute(
             AgentToolCall("1", "navigate_to", """{"destination":"Тьмутаракань"}""")))
         assertTrue(out.getBoolean("ok"))
-        assertEquals("search", out.getString("mode"))
+        assertEquals("route_requested", out.getString("mode"))
         val payload = JSONObject(captured.captured.payload!!)
         assertEquals("Тьмутаракань", payload.getString("query"))
     }

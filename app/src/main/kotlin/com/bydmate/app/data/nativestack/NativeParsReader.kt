@@ -2,6 +2,7 @@ package com.bydmate.app.data.nativestack
 
 import com.bydmate.app.data.autoservice.AutoserviceClient
 import com.bydmate.app.data.autoservice.SentinelDecoder
+import com.bydmate.app.data.charging.ChargeGunState
 import com.bydmate.app.data.remote.DiParsData
 import com.bydmate.app.data.repository.SettingsRepository
 import com.bydmate.app.data.vehicle.BatchReadItem
@@ -174,12 +175,9 @@ class NativeParsReader @Inject constructor(
         val bmsState = field<Int>("bmsState")
         val chargingStatus = when {
             chargeGunState == null -> null
-            // Not plugged in. gun<2 covers both 1=NONE and the 0 cold-start
-            // sentinel (SentinelDecoder passes 0 through unfiltered), matching the
-            // gun>=2==connected convention every other consumer already uses
-            // (LoopState, AgentTools, AutoserviceChargingDetector, Iternio). A bare
-            // ==1 would let a cold-start 0 fall through to connected/charging.
-            chargeGunState < 2 -> 0
+            // Only energy-input states count as charging. This also maps the 0 cold-start
+            // sentinel, 1=NONE and 5=V2L/VTOL energy export to "not charging".
+            !ChargeGunState.isCharging(chargeGunState) -> 0
             bmsState == 1 -> 2
             else -> 1
         }

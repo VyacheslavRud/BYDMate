@@ -1,80 +1,135 @@
 package com.bydmate.app.media
 
 import android.app.Notification
-import android.widget.RemoteViews
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29, 32])
 class NaviNotificationParserTest {
 
-    // -- pure mapping (no framework) --
-
-    private fun rv(view: String, method: String, value: String) =
-        NaviNotificationParser.RvAction(view, method, value)
-
-    @Test fun `maps content actions to maneuver distance street`() {
-        val parsed = NaviNotificationParser.fromActions(
-            content = listOf(
-                rv("primaryIconTinted", "setImageResource", "notification_right_sdl"),
-                rv("titleView", "setText", "350 м"),
-                rv("descriptionView", "setText", "улица Ленина"),
-            ),
-            big = listOf(
-                rv("123", "setText", "18:40"),
-                rv("124", "setText", "42 км"),
-            ),
+    @Test fun `maps standard Waze lines to maneuver distance and street`() {
+        val parsed = NaviNotificationParser.fromText(
+            title = "350 m",
+            text = "Turn right onto Main Street",
+            subText = "18 min",
+            bigText = "12 km · 18 min",
         )
         assertEquals("направо", parsed.maneuver)
-        assertEquals("notification_right_sdl", parsed.maneuverResource)
-        assertEquals("350 м", parsed.distance)
-        assertEquals("улица Ленина", parsed.street)
-        assertEquals(listOf("18:40", "42 км"), parsed.bigTexts)
+        assertEquals("350 m", parsed.distance)
+        assertEquals("Main Street", parsed.street)
+        assertEquals(2, parsed.guidance?.maneuverGaode)
+        assertEquals(350, parsed.guidance?.distanceMeters)
+        assertEquals("12 km", parsed.remainingDistance)
+        assertEquals("18 min", parsed.remainingTime)
+        assertTrue(parsed.bigTexts.contains("18 min"))
     }
 
-    @Test fun `unknown maneuver resource keeps raw name with null phrase`() {
-        val parsed = NaviNotificationParser.fromActions(
-            content = listOf(rv("primaryIconTinted", "setImageResource", "notification_new_thing")),
-            big = emptyList(),
+    @Test fun `Russian Waze instruction is parsed`() {
+        val parsed = NaviNotificationParser.fromText(
+            title = "Через 1,2 км поверните налево на улицу Ленина",
+            text = null,
+            subText = null,
+            bigText = null,
         )
-        assertNull(parsed.maneuver)
-        assertEquals("notification_new_thing", parsed.maneuverResource)
+        assertEquals("налево", parsed.maneuver)
+        assertEquals("1,2 км", parsed.distance)
+        assertEquals(1200, parsed.guidance?.distanceMeters)
+        assertEquals("Ленина", parsed.street)
     }
 
-    @Test fun `empty actions produce empty parsed`() {
-        val parsed = NaviNotificationParser.fromActions(emptyList(), emptyList())
-        assertNull(parsed.maneuver)
-        assertNull(parsed.distance)
-        assertNull(parsed.street)
+    @Test fun `generic running notification is not guidance`() {
+        val parsed = NaviNotificationParser.fromText(
+            title = "Waze",
+            text = "Running. Tap to open.",
+            subText = null,
+            bigText = null,
+        )
+        assertFalse(parsed.hasGuidance)
         assertTrue(parsed.bigTexts.isEmpty())
     }
 
-    // -- reflection plumbing against a real RemoteViews (Robolectric runs framework code) --
+    @Test fun `road-only Waze alert cannot become route guidance`() {
+        val parsed = NaviNotificationParser.fromText(
+            title = "Police reported ahead",
+            text = "D1",
+            subText = null,
+            bigText = null,
+        )
+        assertFalse(parsed.hasGuidance)
+    }
 
-    @Test fun `parse extracts setText action from real contentView`() {
-        val ctx = RuntimeEnvironment.getApplication()
-        val views = RemoteViews(ctx.packageName, android.R.layout.simple_list_item_1)
-        views.setTextViewText(android.R.id.text1, "350 м")
-        @Suppress("DEPRECATION")
-        val notification = Notification().apply { contentView = views }
+    @Test fun `distance-only Waze alert cannot become route guidance`() {
+        val parsed = NaviNotificationParser.fromText(
+            title = "Police reported 500 m ahead",
+            text = "D1",
+            subText = null,
+            bigText = null,
+        )
+        assertFalse(parsed.hasGuidance)
+        assertNull(parsed.distance)
+    }
 
-        val parsed = NaviNotificationParser.parse(notification) { id ->
-            if (id == android.R.id.text1) "titleView" else null
+    @Test fun `unknown channel rejects distance-only alert but trusted channel accepts it`() {
+        assertFalse(MediaSessionListenerService.shouldAcceptNavigationNotification(
+            category = null,
+            channelId = "COMMUNITY_ALERTS",
+        ))
+        assertTrue(MediaSessionListenerService.shouldAcceptNavigationNotification(
+            category = null,
+            channelId = MediaSessionListenerService.WAZE_NAVIGATION_CHANNEL,
+        ))
+    }
+
+    @Test fun `unknown channel is rejected even when its text resembles a maneuver`() {
+        val engagement = NaviNotificationParser.fromText(
+            title = "Continue your drive with Waze",
+            text = "Your destination is waiting",
+            subText = null,
+            bigText = null,
+        )
+        assertTrue(engagement.hasGuidance)
+        assertFalse(MediaSessionListenerService.shouldAcceptNavigationNotification(
+            category = null,
+            channelId = "ENGAGEMENT",
+        ))
+    }
+
+    @Test fun `parse reads Android notification extras`() {
+        val notification = Notification().apply {
+            extras.putString(Notification.EXTRA_TITLE, "500 m")
+            extras.putString(Notification.EXTRA_TEXT, "Keep left toward Brno")
+            extras.putString(Notification.EXTRA_SUB_TEXT, "24 min")
         }
-
-        assertEquals("350 м", parsed.distance)
+        val parsed = NaviNotificationParser.parse(notification)
+        assertEquals("левее", parsed.maneuver)
+        assertEquals(500, parsed.guidance?.distanceMeters)
+        assertEquals("Brno", parsed.street)
     }
 
-    @Test fun `parse survives notification without custom views`() {
-        val parsed = NaviNotificationParser.parse(Notification()) { null }
+    @Test fun `parse survives notification without extras content`() {
+        val parsed = NaviNotificationParser.parse(Notification())
         assertNull(parsed.distance)
-        assertTrue(parsed.bigTexts.isEmpty())
+        assertFalse(parsed.hasGuidance)
+    }
+
+    @Test fun `remaining route summary is not next maneuver distance`() {
+        val parsed = NaviNotificationParser.fromText(
+            title = "12 km · 18 min",
+            text = "D1",
+            subText = null,
+            bigText = null,
+        )
+
+        assertNull(parsed.distance)
+        assertEquals("12 km", parsed.remainingDistance)
+        assertEquals("18 min", parsed.remainingTime)
+        assertFalse(parsed.hasGuidance)
     }
 }

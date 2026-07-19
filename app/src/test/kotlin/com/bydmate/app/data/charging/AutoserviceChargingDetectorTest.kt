@@ -13,6 +13,7 @@ import com.bydmate.app.data.repository.BatteryHealthRepository
 import com.bydmate.app.data.repository.ChargeRepository
 import com.bydmate.app.data.local.LocalePreferences
 import com.bydmate.app.data.repository.SettingsRepository
+import com.bydmate.app.data.vehicle.VehicleProfile
 import io.mockk.mockk
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -25,6 +26,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AutoserviceChargingDetectorTest {
+
+    private val nominalCapacityKwh = VehicleProfile.CURRENT.nominalBatteryKwh
+
+    private fun socEnergy(socStart: Int, socEnd: Int, sohFactor: Double = 1.0): Double =
+        (socEnd - socStart) / 100.0 * nominalCapacityKwh * sohFactor
 
     // --- fakes ---
 
@@ -286,11 +292,12 @@ class AutoserviceChargingDetectorTest {
 
     @Test
     fun `gate B SOC up and cap counter reset to current`() = runTest {
-        // prevCap=8.0 (last session), currentCap=6.0 → delta=-2.0 (BMS reset)
-        // Gate A skipped; Gate B uses currentCap=6.0 (in range)
+        // The BMS counter reset below its previous value. Gate A is skipped; Gate B uses the
+        // current counter when it remains plausible against this profile's SOC estimate.
+        val currentSessionKwh = socEnergy(80, 91) * 0.75
         val setup = build(
             battery = battery(soc = 91f),
-            charging = charging(capKwh = 6.0f),
+            charging = charging(capKwh = currentSessionKwh.toFloat()),
             prevSoc = 80,
             prevCapacityKwh = 8.0f
         )
@@ -300,7 +307,7 @@ class AutoserviceChargingDetectorTest {
         assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
         assertEquals(1, setup.chargeDao.inserted.size)
         val ch = setup.chargeDao.inserted.single()
-        assertEquals(6.0, ch.kwhCharged!!, 0.01)
+        assertEquals(currentSessionKwh, ch.kwhCharged!!, 0.01)
         assertEquals("autoservice_cap_session", ch.detectionSource)
     }
 
@@ -319,8 +326,7 @@ class AutoserviceChargingDetectorTest {
         assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
         assertEquals(1, setup.chargeDao.inserted.size)
         val ch = setup.chargeDao.inserted.single()
-        // (91-80)/100 * 72.9 = 8.019
-        assertEquals(8.019, ch.kwhCharged!!, 0.01)
+        assertEquals(socEnergy(80, 91), ch.kwhCharged!!, 0.01)
         assertEquals("autoservice_soc_estimate", ch.detectionSource)
     }
 
@@ -338,9 +344,9 @@ class AutoserviceChargingDetectorTest {
 
         assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
         val ch = setup.chargeDao.inserted.single()
-        // (91-80)/100 * 72.9 * 0.90 = 7.2171
-        assertEquals(7.2171, ch.kwhCharged!!, 0.01)
-        assertEquals(7.2171, ch.kwhChargedSoc!!, 0.01)
+        val expected = socEnergy(80, 91, sohFactor = 0.90)
+        assertEquals(expected, ch.kwhCharged!!, 0.01)
+        assertEquals(expected, ch.kwhChargedSoc!!, 0.01)
         assertEquals("autoservice_soc_estimate", ch.detectionSource)
     }
 
@@ -357,7 +363,7 @@ class AutoserviceChargingDetectorTest {
         setup.detector.runCatchUp(now = 1500L)
 
         val ch = setup.chargeDao.inserted.single()
-        assertEquals(8.019, ch.kwhCharged!!, 0.01)
+        assertEquals(socEnergy(80, 91), ch.kwhCharged!!, 0.01)
     }
 
     @Test
@@ -394,7 +400,7 @@ class AutoserviceChargingDetectorTest {
     @Test
     fun `gate A cap delta below MIN_DELTA_KWH falls back to SOC when gate B diverges`() = runTest {
         // prevCap=7.0, currentCap=7.2, delta=0.2 < 0.5 → Gate A skipped.
-        // Gate B candidate=7.2 vs socEstimate=5/100*72.9=3.645 → ratio 1.97 → SOC fallback.
+        // Gate B candidate=7.2 remains far above the profile-based SOC estimate → SOC fallback.
         val setup = build(
             battery = battery(soc = 65f),
             charging = charging(capKwh = 7.2f),
@@ -406,7 +412,7 @@ class AutoserviceChargingDetectorTest {
 
         assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
         val ch = setup.chargeDao.inserted.single()
-        assertEquals(3.645, ch.kwhCharged!!, 0.01)
+        assertEquals(socEnergy(60, 65), ch.kwhCharged!!, 0.01)
         assertEquals("autoservice_soc_fallback", ch.detectionSource)
     }
 
@@ -414,7 +420,7 @@ class AutoserviceChargingDetectorTest {
     fun `gate A cap delta above 200 falls through to gate C`() = runTest {
         // prevCap=0.5, currentCap=250 → delta=249.5 > 200 → Gate A fails plausibility
         // Gate B: currentCap=250 > 200 → Gate B also fails plausibility
-        // Gate C: SOC estimate (91-80)/100 * 72.9 = 8.019
+        // Gate C: use the current vehicle profile's nominal capacity.
         val setup = build(
             battery = battery(soc = 91f),
             charging = charging(capKwh = 250.0f),
@@ -426,7 +432,7 @@ class AutoserviceChargingDetectorTest {
 
         assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
         val ch = setup.chargeDao.inserted.single()
-        assertEquals(8.019, ch.kwhCharged!!, 0.01)
+        assertEquals(socEnergy(80, 91), ch.kwhCharged!!, 0.01)
         assertEquals("autoservice_soc_estimate", ch.detectionSource)
     }
 
@@ -434,8 +440,8 @@ class AutoserviceChargingDetectorTest {
     fun `gate A cap delta underreports versus SOC falls back to SOC estimate`() = runTest {
         // Real-world v2.5.15 regression: overnight AC 48→99 (51%), BMS counter
         // shows only 21.5 kWh because the per-session counter resets across
-        // BMS pause/resume sub-phases. socEstimate = 51/100 * 72.9 = 37.179.
-        // Ratio 21.5/37.179 = 0.578 < SOC_SANITY_RATIO_LOW(0.70) → SOC fallback.
+        // BMS pause/resume sub-phases. The counter is below 70% of the profile-based SOC estimate,
+        // so the detector must fall back to the latter.
         val setup = build(
             battery = battery(soc = 99f),
             charging = charging(capKwh = 21.5f),
@@ -447,7 +453,7 @@ class AutoserviceChargingDetectorTest {
 
         assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
         val ch = setup.chargeDao.inserted.single()
-        assertEquals(37.179, ch.kwhCharged!!, 0.01)
+        assertEquals(socEnergy(48, 99), ch.kwhCharged!!, 0.01)
         assertEquals("autoservice_soc_fallback", ch.detectionSource)
         assertEquals(48, ch.socStart)
         assertEquals(99, ch.socEnd)
@@ -456,7 +462,7 @@ class AutoserviceChargingDetectorTest {
     @Test
     fun `gate B cap session overreports versus SOC falls back to SOC estimate`() = runTest {
         // BMS counter overruns SOC: 80→84 (4%), but cap=12 (likely stale residue).
-        // socEstimate = 4/100 * 72.9 = 2.916. Ratio 12/2.916 = 4.12 → fallback.
+        // The 12 kWh counter is far above the profile-based 4% SOC estimate → fallback.
         val setup = build(
             battery = battery(soc = 84f),
             charging = charging(capKwh = 12.0f),
@@ -468,17 +474,17 @@ class AutoserviceChargingDetectorTest {
 
         assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
         val ch = setup.chargeDao.inserted.single()
-        assertEquals(2.916, ch.kwhCharged!!, 0.01)
+        assertEquals(socEnergy(80, 84), ch.kwhCharged!!, 0.01)
         assertEquals("autoservice_soc_fallback", ch.detectionSource)
     }
 
     @Test
     fun `gate A cap delta within sanity ratio low boundary still trusts BMS`() = runTest {
-        // socEstimate = 10/100 * 72.9 = 7.29. capDelta = 7.29 * 0.71 = 5.176 → ratio 0.71
-        // just above LOW(0.70) → trust BMS.
+        // Set capDelta to 71% of this profile's estimate, just above LOW(0.70) → trust BMS.
+        val capDelta = socEnergy(80, 90) * 0.71
         val setup = build(
             battery = battery(soc = 90f),
-            charging = charging(capKwh = 5.176f),
+            charging = charging(capKwh = capDelta.toFloat()),
             prevSoc = 80,
             prevCapacityKwh = 0.0f
         )
@@ -487,7 +493,7 @@ class AutoserviceChargingDetectorTest {
 
         assertEquals(CatchUpOutcome.SESSION_CREATED, result.outcome)
         val ch = setup.chargeDao.inserted.single()
-        assertEquals(5.176, ch.kwhCharged!!, 0.01)
+        assertEquals(capDelta, ch.kwhCharged!!, 0.01)
         assertEquals("autoservice_cap_delta", ch.detectionSource)
     }
 
@@ -574,21 +580,22 @@ class AutoserviceChargingDetectorTest {
         assertEquals(8.0, r1.deltaKwh!!, 0.01)
 
         // After first session, state is (soc=91, cap=8.0)
-        // Second session: SOC 91→95, cap 8.0→10.92 → Gate A: delta=2.92
-        // socEstimate=4/100*72.9=2.916 → ratio 1.001, BMS trusted.
+        // Second session: make the BMS counter delta equal the profile-based SOC estimate.
+        val secondDelta = socEnergy(91, 95)
+        val secondCapacity = 8.0 + secondDelta
         setup.auto.battery = battery(soc = 95f)
-        setup.auto.charging = charging(capKwh = 10.92f)
+        setup.auto.charging = charging(capKwh = secondCapacity.toFloat())
 
         val r2 = setup.detector.runCatchUp(now = 2500L)
         assertEquals(CatchUpOutcome.SESSION_CREATED, r2.outcome)
         assertEquals(2, setup.chargeDao.inserted.size)
         val second = setup.chargeDao.inserted[1]
-        assertEquals(2.92, second.kwhCharged!!, 0.01)
+        assertEquals(secondDelta, second.kwhCharged!!, 0.01)
         assertEquals("autoservice_cap_delta", second.detectionSource)
-        // State should now be (soc=95, cap=10.92)
+        // State should now contain the latest cumulative session counter.
         val state = setup.stateStore.load()
         assertEquals(95, state.socPercent)
-        assertEquals(10.92f, state.capacityKwh!!, 0.01f)
+        assertEquals(secondCapacity.toFloat(), state.capacityKwh!!, 0.01f)
     }
 
     @Test
@@ -630,6 +637,22 @@ class AutoserviceChargingDetectorTest {
         val result = setup.detector.runCatchUp(now = 1500L)
 
         assertEquals(CatchUpOutcome.STILL_CHARGING, result.outcome)
+        assertEquals(0, setup.chargeDao.inserted.size)
+    }
+
+    @Test
+    fun `V2L does not defer catch-up or set charge pending`() = runTest {
+        val setup = build(
+            battery = battery(soc = 25f),
+            charging = charging(capKwh = 0.0f, gunState = 5),
+            prevSoc = 30,
+            prevCapacityKwh = 0.0f,
+        )
+
+        val result = setup.detector.runCatchUp(now = 1500L)
+
+        assertEquals(CatchUpOutcome.NO_DELTA, result.outcome)
+        assertFalse(setup.stateStore.loadChargePending())
         assertEquals(0, setup.chargeDao.inserted.size)
     }
 
@@ -921,10 +944,10 @@ class AutoserviceChargingDetectorTest {
         val ch = setup.chargeDao.inserted.single()
         assertEquals(10, ch.socStart)
         assertEquals(80, ch.socEnd)
-        // (80-10)/100 * 72.9 = 51.03
-        assertEquals(51.03, ch.kwhCharged!!, 0.1)
+        val expected = socEnergy(10, 80)
+        assertEquals(expected, ch.kwhCharged!!, 0.1)
         assertEquals("autoservice_soc_estimate", ch.detectionSource)
-        // 51.03 kWh over 4h = 12.76 kW < 15 kW threshold → AC
+        // Profile-based energy over four hours remains below the 15 kW classifier threshold → AC.
         assertEquals("AC", ch.type)
         // baseline rolled forward to the new SOC
         assertEquals(80, setup.stateStore.load().socPercent)
@@ -1286,6 +1309,19 @@ class AutoserviceChargingDetectorTest {
 
         assertFalse(rearm)
         assertEquals(50, setup.stateStore.load().socPercent)
+    }
+
+    @Test
+    fun `recordParkedAnchor follows SOC drop during V2L export`() = runTest {
+        val setup = build(battery = battery(soc = 50f), prevSoc = 50)
+
+        val rearm = setup.detector.recordParkedAnchor(
+            parkedSample(soc = 44, mileage = 2100.0, gun = 5, power = 4.0),
+            now = 2000L,
+        )
+
+        assertFalse(rearm)
+        assertEquals(44, setup.stateStore.load().socPercent)
     }
 
     @Test

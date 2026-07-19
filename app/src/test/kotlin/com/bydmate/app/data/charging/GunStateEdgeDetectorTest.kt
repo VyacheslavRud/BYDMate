@@ -55,10 +55,25 @@ class GunStateEdgeDetectorTest {
     }
 
     @Test
-    fun `VTOL connected then disconnected fires edge`() {
+    fun `V2L connected then disconnected does not finalize a charge`() {
         val d = GunStateEdgeDetector()
-        d.onSample(5)             // VTOL
-        assertTrue(d.onSample(1))
+        d.onSample(5)
+        assertFalse(d.onSample(1))
+    }
+
+    @Test
+    fun `charging input changing directly to V2L finalizes the charge`() {
+        val d = GunStateEdgeDetector()
+        d.onSample(2)
+        assertTrue(d.onSample(5))
+        assertFalse(d.onSample(1))
+    }
+
+    @Test
+    fun `cold-start sentinel does not finalize a charge`() {
+        val d = GunStateEdgeDetector()
+        d.onSample(2)
+        assertFalse(d.onSample(0))
     }
 
     @Test

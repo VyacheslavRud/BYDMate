@@ -12,6 +12,7 @@ import com.bydmate.app.demo.DemoDataSeeder
 import com.bydmate.app.demo.DemoMode
 import com.bydmate.app.data.repository.ChargeRepository
 import com.bydmate.app.data.repository.SettingsRepository
+import com.bydmate.app.data.vehicle.VehicleProfile
 import com.bydmate.app.domain.battery.BatteryStateRepository
 import com.bydmate.app.util.appLocalizedContext
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -67,7 +68,7 @@ data class ChargesUiState(
     val lifetimeDcKwh: Double = 0.0,
     val lifetimeTotalKwh: Double = 0.0,
     val equivCycles: Double = 0.0,
-    val nominalCapacityKwh: Double = 72.9,
+    val nominalCapacityKwh: Double = VehicleProfile.CURRENT.nominalBatteryKwh,
     // BMS-reported SOH as a 0..1 factor; 1.0 when unavailable or implausible (#28)
     val sohFactor: Double = 1.0,
     val sohSeries: List<Float> = emptyList(),

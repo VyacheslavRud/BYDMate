@@ -19,7 +19,7 @@
     <string name="settings_display_mirror_title">Вывод на приборку кнопкой руля</string>
     <string name="settings_display_mirror_desc">Короткое нажатие выбранной кнопки руля переносит выбранное приложение на приборку и обратно.</string>
     <string name="settings_cluster_auto_container_title">Сразу показывать на приборке</string>
-    <string name="settings_cluster_auto_container_desc">Автоматически переводить приборку в режим проекции</string>
+    <string name="settings_cluster_auto_container_desc">По умолчанию выключено: сначала проверьте ручную проекцию на вашей приборке</string>
     <string name="settings_cluster_direct_reboot_hint">Чтобы голосовой агент видел навигатор на приборке, один раз перезагрузите ДиЛинк: зажмите и удерживайте колёсико громкости. Просто заглушить машину недостаточно. До перезагрузки проекция работает, но агент не видит маршрут.</string>
     <string name="settings_display_app_title">Приложение на приборку</string>
     <string name="settings_display_size_header">Размер окна на приборке</string>
@@ -42,6 +42,7 @@
     <string name="steering_button_aux_left">Доп. левая</string>
     <string name="steering_button_aux_right">Доп. правая</string>
     <string name="steering_button_unknown">Кнопка (код %1$d)</string>
+    <string name="steering_button_unassigned">Не назначена</string>
     <!-- Cluster trigger-button picker + learn dialog -->
     <string name="settings_display_button_title">Кнопка запуска</string>
     <string name="settings_display_button_change">Изменить</string>
@@ -75,7 +76,7 @@
 
     <!-- Settings: Trips section -->
     <string name="settings_trips_datasource_header">Источник данных поездок</string>
-    <string name="settings_trips_datasource_note">Titan 3 — BYD energydata.\nSong и другие модели без встроенной БД — DiPlus TripInfo.</string>
+    <string name="settings_trips_datasource_note">Целевой профиль — Sea Lion 07 EV 2025. BYDMate использует energydata, а при её отсутствии записывает поездки из живой телеметрии.</string>
     <string name="settings_trips_datasource_hint">Если список пуст после 2-3 поездок — переключите режим.</string>
     <string name="settings_trips_system_header">Системные данные (бета)</string>
     <string name="settings_trips_system_note">Расширенные данные авто: SoH батареи, пробег BMS, статистика зарядок. Только чтение.</string>
@@ -130,7 +131,7 @@
     <string name="settings_widget_left_tap_zoning_label">Зонирование тапов</string>
     <string name="settings_widget_left_tap_zoning_description">Левая 1/3 - открывает выбранное приложение; остальное - BYDMate.</string>
     <string name="settings_widget_left_tap_label">Приложение для левого тапа</string>
-    <string name="settings_widget_left_tap_description">По умолчанию Яндекс.Навигатор. Если приложение удалено, тап не сработает.</string>
+    <string name="settings_widget_left_tap_description">По умолчанию Waze. Если приложение удалено, тап не сработает.</string>
     <string name="settings_widget_buttons_label">Кнопки на виджете</string>
     <string name="settings_widget_buttons_description">Один тап по виджету выдвигает 4 кнопки, двойной тап открывает BYDMate. Кнопка запускает правило с триггером «Нажатие кнопки».</string>
 
@@ -162,7 +163,7 @@
     <string name="settings_autoservice_disconnected_title">не подключено</string>
     <string name="settings_autoservice_disconnected_detail">перезапусти приложение, если ADB включён в Настройках разработчика</string>
     <string name="settings_autoservice_sentinel_title">подключено, но данные не читаются</string>
-    <string name="settings_autoservice_sentinel_detail">возможно функция работает только на Leopard 3</string>
+    <string name="settings_autoservice_sentinel_detail">совместимость зависит от прошивки автомобиля</string>
     <string name="settings_autoservice_connected_title">подключено</string>
     <string name="settings_autoservice_connected_detail">SoH %1$s • lifetime %2$s / %3$s</string>
 
@@ -374,7 +375,7 @@
     <string name="automation_action_app_launch">Запуск приложения</string>
     <string name="automation_action_yandex_music">Яндекс.Музыка</string>
     <string name="automation_action_call">Звонок</string>
-    <string name="automation_action_navigate">Маршрут в Я.Навигаторе</string>
+    <string name="automation_action_navigate">Маршрут в Waze</string>
     <string name="automation_action_url">Открыть URL</string>
     <string name="automation_action_delay">Пауза</string>
     <string name="automation_action_media_volume">Громкость медиа</string>
@@ -417,7 +418,7 @@
     <string name="automation_call_auto_dial_hint">Без нажатия зелёной кнопки</string>
 
     <!-- Navigate edit dialog -->
-    <string name="automation_navigate_dialog_title">Маршрут в Я.Навигаторе</string>
+    <string name="automation_navigate_dialog_title">Маршрут в Waze</string>
     <string name="automation_navigate_no_places_hint">Сначала добавьте место в Настройки → Места</string>
     <string name="automation_navigate_pick_place_placeholder">Выберите место…</string>
 
@@ -461,13 +462,13 @@
 
     <!-- Welcome Wizard -->
     <string name="welcome_step_indicator">Шаг %1$d из 2</string>
-    <string name="welcome_model_step_title">Какая у тебя модель BYD?</string>
-    <string name="welcome_model_step_description">Это определит источник данных поездок.\nTitan 3 хранит данные во встроенной БД BYD (energydata).\nSong и другие модели — только в DiPlus.</string>
+    <string name="welcome_model_step_title">Профиль автомобиля</string>
+    <string name="welcome_model_step_description">Эта dev-версия настроена для BYD Sea Lion 07 EV 2025, 610 Zhijia RWD (Китай).</string>
     <string name="welcome_model_song_label">Song / другая</string>
     <string name="welcome_model_change_later">Можно поменять позже в настройках.</string>
     <string name="welcome_next_button">Далее</string>
     <string name="welcome_battery_section_title">Батарея</string>
-    <string name="welcome_battery_capacity_hint">Leopard 3: 72.9 кВт·ч (BEV) или 31.8 кВт·ч (PHEV)</string>
+    <string name="welcome_battery_capacity_hint">Sea Lion 07 EV 2025 (610 Zhijia RWD): 80,64 кВт·ч</string>
     <string name="welcome_tariff_section_title">Тарифы</string>
     <string name="welcome_tariff_home_label">Домашняя зарядка (%1$s/кВт·ч)</string>
     <string name="welcome_tariff_dc_label">Быстрая зарядка DC (%1$s/кВт·ч)</string>
@@ -486,7 +487,7 @@
     <string name="welcome_autostart_dilink_hint">Если автозапуск не сработал, добавьте в Di+:</string>
     <string name="welcome_autostart_dilink_instruction">Di+ → Predefined → Startup tasks</string>
     <string name="welcome_autostart_command_copied_toast">Скопировано!</string>
-    <string name="welcome_autostart_command_explanation">打开应用 = «открыть приложение» + имя пакета.\nДля двух приложений через точку с запятой:\n打开应用ru.yandex.yandexnavi;打开应用%1$s</string>
+    <string name="welcome_autostart_command_explanation">打开应用 = «открыть приложение» + имя пакета.\nДля двух приложений через точку с запятой:\n打开应用com.waze;打开应用%1$s</string>
     <string name="welcome_system_settings_section_title">Системные настройки</string>
     <string name="welcome_autostart_open_settings_button">Открыть настройки автозапуска</string>
     <string name="welcome_autostart_open_settings_error">Не удалось открыть настройки автозапуска DiLink. Открыты настройки приложения.</string>
@@ -1004,7 +1005,7 @@
     <string name="automation_setting_play_sound">Выполнять со звуком</string>
     <string name="auto_act_launch_app">Запуск приложения</string>
     <string name="auto_act_call">Звонок</string>
-    <string name="auto_act_navigate">Маршрут в Я.Навигаторе</string>
+    <string name="auto_act_navigate">Маршрут в Waze</string>
     <string name="auto_act_open_url">Открыть URL</string>
     <string name="auto_act_yandex_music">Яндекс.Музыка</string>
     <string name="auto_msg_media_volume_missing">Действие #%1$d: уровень громкости не задан</string>
@@ -1166,8 +1167,8 @@
     <string name="settings_tariff_home_desc">Стоимость 1 кВт·ч при зарядке дома (AC)</string>
     <string name="settings_tariff_dc_desc">Стоимость 1 кВт·ч на быстрых зарядках</string>
     <string name="settings_tariff_trip_desc">Каким тарифом считать стоимость поездок</string>
-    <string name="settings_consumption_good_desc">Поездки с меньшим расходом подсвечиваются зелёным</string>
-    <string name="settings_consumption_bad_desc">Поездки с большим расходом подсвечиваются красным</string>
+    <string name="settings_consumption_good_desc">Эвристика интерфейса (по умолчанию 18): не паспортный расход</string>
+    <string name="settings_consumption_bad_desc">Эвристика интерфейса (по умолчанию 24): не паспортный расход</string>
     <string name="settings_widget_show_desc">Заряд батареи поверх любого приложения</string>
     <string name="settings_widget_reset_position_desc">Вернуть виджет на место по умолчанию</string>
     <string name="settings_export_csv_desc">Вся история поездок одним файлом в папку Download</string>
@@ -1201,14 +1202,15 @@
     <!-- HUD navigation -->
     <string name="settings_hud_header">HUD (проекционный дисплей)</string>
     <string name="settings_hud_title">Навигация на HUD</string>
-    <string name="settings_hud_desc">Подсказки Яндекс Навигатора на проекционном дисплее: манёвр, дистанция, улица, прибытие</string>
+    <string name="settings_hud_desc">Подсказки Waze на проекционном дисплее: манёвр, дистанция, улица, прибытие</string>
     <string name="settings_hud_speed_sign_title">Знак скорости под стрелкой</string>
     <string name="settings_hud_speed_sign_desc">Красный знак ограничения скорости в нижнем слоте HUD</string>
     <string name="settings_hud_status_unsupported">Шина SOME/IP не найдена: на этой машине вывод на HUD недоступен</string>
     <string name="settings_hud_status_connecting">Подключение к шине…</string>
     <string name="settings_hud_status_on">Передача на HUD активна</string>
     <string name="settings_hud_status_bind_failed">Не удалось подключиться к шине SOME/IP</string>
-    <string name="settings_hud_hint">Нужна комплектация с проекционным дисплеем. Данные берутся из окна Яндекс Навигатора</string>
+    <string name="settings_hud_status_send_failed">Шина подключена, но кадр HUD отклонён</string>
+    <string name="settings_hud_hint">Нужна комплектация с проекционным дисплеем. Данные читаются из окна и навигационного уведомления Waze</string>
 
     <!-- Dev demo environment -->
     <string name="settings_section_developer_title">DEV</string>

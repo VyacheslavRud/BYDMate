@@ -1,20 +1,12 @@
 package com.bydmate.app.media
 
 import android.view.accessibility.AccessibilityNodeInfo
+import com.bydmate.app.navdata.WazeAccessibilityReader
 
-/** On-demand a11y read of the Navigator screen.
- *
- *  Originally added for speed limit and exit number (absent from the guidance notification).
- *  As of the 2026 Navigator build (Maps engine, package ru.yandex.yandexnavi) the app posts a
- *  static stub notification ("Навигатор запущен", contentView=null, never updated), so this
- *  screen reader is now the FALLBACK data source for all guidance fields: maneuver distance,
- *  remaining distance / time, arrival time, current street.  Notification (NaviRouteHolder) stays
- *  primary when it carries real data (older Navigator builds).
- *
- *  View ids are stable on the 2026 build (validated live during active guidance twice); they may
- *  vanish with a future Navigator update, so every field is optional. */
+/** On-demand read of Waze route widgets, including a Waze window projected to display 2. */
 object NaviScreenReader {
     data class ScreenInfo(
+        val maneuver: String?,
         val speedLimit: String?,
         val exitNumber: String?,
         val maneuverDistance: String?,   // "250 м" — distance + metrics joined, trimmed
@@ -25,24 +17,16 @@ object NaviScreenReader {
     )
 
     fun read(root: AccessibilityNodeInfo?): ScreenInfo? {
-        if (root == null) return null
-        val pkg = root.packageName?.toString() ?: return null
-        if (pkg !in com.bydmate.app.navdata.NavPackages.YANDEX_NAVI) return null
-        val maneuverDist = textOf(root, "$pkg:id/text_maneuverballoon_distance")
-        val maneuverMetrics = textOf(root, "$pkg:id/text_maneuverballoon_metrics")
+        val fields = WazeAccessibilityReader.read(root) ?: return null
         return ScreenInfo(
-            speedLimit = textOf(root, "$pkg:id/text_speedlimit"),
-            exitNumber = textOf(root, "$pkg:id/exit_number_text"),
-            maneuverDistance = maneuverDist?.let { (it + (maneuverMetrics ?: "")).trim() },
-            remainingDistance = textOf(root, "$pkg:id/textview_eta_distance"),
-            remainingTime = textOf(root, "$pkg:id/textview_eta_time"),
-            arrivalTime = textOf(root, "$pkg:id/textview_eta_arrival"),
-            street = textOf(root, "$pkg:id/status_panel_text"),
+            maneuver = fields.maneuver,
+            speedLimit = fields.speedLimit,
+            exitNumber = fields.exitNumber,
+            maneuverDistance = fields.maneuverDistance,
+            remainingDistance = fields.remainingDistance,
+            remainingTime = fields.remainingTime,
+            arrivalTime = fields.arrivalTime,
+            street = fields.street,
         )
     }
-
-    private fun textOf(root: AccessibilityNodeInfo, viewId: String): String? = runCatching {
-        root.findAccessibilityNodeInfosByViewId(viewId)
-            ?.firstOrNull()?.text?.toString()?.takeIf { it.isNotBlank() }
-    }.getOrNull()
 }

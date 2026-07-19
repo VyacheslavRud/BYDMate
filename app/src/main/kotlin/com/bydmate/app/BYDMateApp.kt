@@ -23,13 +23,17 @@ import com.bydmate.app.data.local.dao.ChargeDao
 import com.bydmate.app.data.remote.InsightsManager
 import com.bydmate.app.demo.DemoMode
 import com.bydmate.app.data.repository.SettingsRepository
+import com.bydmate.app.cluster.ClusterProjectionManager
+import com.bydmate.app.navigation.NavigationPreferenceMigration
 import com.bydmate.app.ui.widget.WidgetController
 import com.bydmate.app.ui.widget.WidgetPreferences
 import com.bydmate.app.util.CrashLog
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.osmdroid.config.Configuration as OsmdroidConfig
@@ -50,7 +54,11 @@ class BYDMateApp : Application(), Configuration.Provider {
     @Inject lateinit var localePreferences: LocalePreferences
     @Inject lateinit var insightsManager: InsightsManager
 
-    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val appScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, error ->
+            android.util.Log.e("BYDMateApp", "background startup task failed", error)
+        },
+    )
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
@@ -60,6 +68,14 @@ class BYDMateApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         DemoMode.initialize(this)
+        // One-way navigation migration for upgrades: old builds persisted Yandex as the default
+        // in two independent preference files. Fresh installs already default to Waze.
+        NavigationPreferenceMigration.run(this)
+        ClusterProjectionManager.migrateVehicleProfileDefaults(this)
+        // Gate startup consumers on the one-time vehicle-default migration. Without this, the
+        // first Settings/telemetry read after an upgrade can briefly see Leopard values while an
+        // IO coroutine is still replacing them. Room dispatches suspend DAO work off main.
+        runBlocking { settingsRepository.migrateVehicleProfileDefaultsIfNeeded() }
         // Allow in-process ServiceManager.getService() on Android 9+ to reach the helper
         // binder service without hidden-API restrictions (UnsatisfiedLinkError / NoSuchMethodError).
         // Guarded: under JVM/Robolectric unit tests the HiddenApiBypass static initializer throws
@@ -103,6 +119,12 @@ class BYDMateApp : Application(), Configuration.Provider {
         }
         scheduleDataThinning()
         registerActivityLifecycleCallbacks(WidgetLifecycleCallbacks(this))
+    }
+
+    /** Robolectric calls this between application instances; Android devices kill the process. */
+    override fun onTerminate() {
+        appScope.cancel()
+        super.onTerminate()
     }
 
     /**

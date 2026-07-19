@@ -52,7 +52,7 @@ class AutomationEngineVoiceFireTest {
 
     private val appAction = ActionDef(
         command = "", displayName = "Навигатор", kind = "app_launch",
-        payload = """{"packageName":"ru.yandex.yandexnavi"}"""
+        payload = """{"packageName":"com.waze"}"""
     )
 
     @Test fun `missing rule returns NotFound`() = runBlocking {

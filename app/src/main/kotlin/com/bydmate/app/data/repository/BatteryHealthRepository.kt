@@ -2,6 +2,7 @@ package com.bydmate.app.data.repository
 
 import com.bydmate.app.data.local.dao.BatterySnapshotDao
 import com.bydmate.app.data.local.entity.BatterySnapshotEntity
+import com.bydmate.app.data.vehicle.VehicleProfile
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -35,9 +36,12 @@ class BatteryHealthRepository @Inject constructor(
 
     /**
      * Calculate SOH based on calculated capacity vs nominal.
-     * Leopard 3 nominal: 72.9 kWh
+     * The configured vehicle profile supplies the default; a user setting can still override it.
      */
-    fun calculateSoh(calculatedCapacityKwh: Double, nominalCapacityKwh: Double = 72.9): Double {
+    fun calculateSoh(
+        calculatedCapacityKwh: Double,
+        nominalCapacityKwh: Double = VehicleProfile.CURRENT.nominalBatteryKwh,
+    ): Double {
         return (calculatedCapacityKwh / nominalCapacityKwh * 100.0).coerceIn(0.0, 110.0)
     }
 }

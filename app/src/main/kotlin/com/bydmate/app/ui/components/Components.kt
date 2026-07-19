@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import com.bydmate.app.R
 import com.bydmate.app.data.local.entity.ChargeEntity
 import com.bydmate.app.data.local.entity.TripEntity
+import com.bydmate.app.data.vehicle.VehicleProfile
 import com.bydmate.app.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -62,7 +63,10 @@ fun socColor(soc: Int): Color = when {
 
 data class ConsumptionThresholds(val good: Double, val bad: Double) {
     companion object {
-        val Default = ConsumptionThresholds(good = 20.0, bad = 30.0)
+        val Default = ConsumptionThresholds(
+            good = VehicleProfile.CURRENT.consumptionGoodHeuristicKwhPer100Km.toDouble(),
+            bad = VehicleProfile.CURRENT.consumptionBadHeuristicKwhPer100Km.toDouble(),
+        )
     }
 }
 

@@ -51,7 +51,7 @@ class NaviRouteHolderTest {
         NaviRouteHolder.update(
             NaviRouteHolder.NAVI_PACKAGE, "5 км", null, null, 1L,
             NaviNotificationParser.Parsed(
-                maneuver = "направо", maneuverResource = "notification_right_sdl",
+                maneuver = "направо",
                 distance = "350 м", street = "улица Ленина", bigTexts = listOf("18:40", "42 км"),
             ),
         )
@@ -63,15 +63,15 @@ class NaviRouteHolderTest {
     }
 
     @Test
-    fun `maneuverIcon is set from parsed maneuverResource`() {
+    fun `parsed distance is stored without a maneuver`() {
         NaviRouteHolder.update(
             NaviRouteHolder.NAVI_PACKAGE, "5 км", null, null, 1L,
             NaviNotificationParser.Parsed(
-                maneuver = null, maneuverResource = "notification_right_sdl",
+                maneuver = null,
                 distance = "350 м", street = null, bigTexts = emptyList(),
             ),
         )
-        assertEquals("notification_right_sdl", NaviRouteHolder.latest?.maneuverIcon)
+        assertEquals("350 м", NaviRouteHolder.latest?.maneuverDistance)
     }
 
     @Test
@@ -79,10 +79,17 @@ class NaviRouteHolderTest {
         NaviRouteHolder.update(
             NaviRouteHolder.NAVI_PACKAGE, null, null, null, 1L,
             NaviNotificationParser.Parsed(
-                maneuver = "направо", maneuverResource = null,
+                maneuver = "направо",
                 distance = "350 м", street = null, bigTexts = emptyList(),
             ),
         )
         assertEquals("350 м", NaviRouteHolder.latest?.maneuverDistance)
+    }
+
+    @Test fun `snapshot expires even if notification removal callback was missed`() {
+        NaviRouteHolder.update(NaviRouteHolder.NAVI_PACKAGE, "old", null, null, 1_000L)
+        assertNotNull(NaviRouteHolder.snapshot(1_000L + NaviRouteHolder.ROUTE_TIMEOUT_MS))
+        assertNull(NaviRouteHolder.snapshot(1_001L + NaviRouteHolder.ROUTE_TIMEOUT_MS))
+        assertNull(NaviRouteHolder.latest)
     }
 }

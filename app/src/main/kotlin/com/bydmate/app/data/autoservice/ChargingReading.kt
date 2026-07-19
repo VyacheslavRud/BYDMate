@@ -3,7 +3,7 @@ package com.bydmate.app.data.autoservice
 /**
  * One snapshot of charging-related autoservice fids.
  *
- * gunConnectState: 1=NONE, 2=AC, 3=DC, 4=GB_DC. Survives DiLink sleep
+ * gunConnectState: 1=NONE, 2=AC, 3=DC, 4=AC_DC, 5=V2L/VTOL. Survives DiLink sleep
  * as long as the gun stays physically inserted. Resets to 1 after gun
  * removal.
  *

@@ -4,13 +4,32 @@ import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import com.bydmate.app.navdata.NavPackages
+import java.util.concurrent.ConcurrentHashMap
 
 /** Listener with two narrow jobs: (1) its mere enabled existence lets
  *  MediaSessionManager.getActiveSessions() accept our component (Wave G, music playback);
- *  (2) it passively mirrors the Yandex Navigator ongoing notification into NaviRouteHolder
+ *  (2) it passively mirrors Waze navigation notifications into NaviRouteHolder
  *  for the get_route_info voice tool. No other package's notifications are read or stored.
  *  Listener access is self-granted through the helper daemon (see MediaSessionGrant). */
 class MediaSessionListenerService : NotificationListenerService() {
+
+    companion object {
+        // Exact Waze 5.21 channel used by its Android Auto/Automotive navigation path.
+        // Standalone Waze normally exposes only CLOSE_WAZE_CHANNEL, which is intentionally ignored.
+        internal const val WAZE_NAVIGATION_CHANNEL = "Waze Navigation Instructions"
+
+        internal fun shouldAcceptNavigationNotification(
+            category: String?,
+            channelId: String?,
+        ): Boolean =
+            category == Notification.CATEGORY_NAVIGATION ||
+                channelId == WAZE_NAVIGATION_CHANNEL
+    }
+
+    /** Waze also posts "Waze is running" and hazard notifications. Only keys accepted as
+     *  navigation guidance may end a route when removed. */
+    private val navigationNotificationKeys = ConcurrentHashMap.newKeySet<String>()
 
     // Both callbacks run on the framework binder thread: an uncaught exception there kills
     // the process AND unbinds this listener, breaking music-session access (Wave G role)
@@ -18,21 +37,19 @@ class MediaSessionListenerService : NotificationListenerService() {
     // parsing failures must degrade to "no route info", never to a crash.
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         runCatching {
-            if (sbn.packageName !in com.bydmate.app.navdata.NavPackages.YANDEX_NAVI) return
+            if (!NavPackages.isNavigationPackage(sbn.packageName)) return
+            // Unknown Waze channels include police/hazard/community/engagement alerts. Do not
+            // infer their purpose from wording: only Android's navigation category or Waze's
+            // confirmed navigation channel may feed the route/HUD fallback.
+            if (!shouldAcceptNavigationNotification(
+                    sbn.notification.category,
+                    sbn.notification.channelId,
+                )) return
             val extras = sbn.notification.extras
-            // RemoteViews reflection may break on any Navigator/Android update;
-            // extras keep working as the raw fallback.
-            val resolver = naviResourceResolver(sbn.packageName)
-            val parsed = runCatching {
-                NaviNotificationParser.parse(sbn.notification, resolver)
-            }.getOrNull()
-            // Calibration path (spec: debug dump). When the mapped fields come back empty,
-            // the Navigator layout likely changed - dump the raw actions so an on-car
-            // logcat grab is enough to re-map without a special build.
-            if (parsed == null || (parsed.maneuver == null && parsed.distance == null && parsed.bigTexts.isEmpty()) || (parsed.maneuver == null && parsed.maneuverResource != null)) {
-                runCatching {
-                    Log.d("NaviNotifParser", NaviNotificationParser.dump(sbn.notification, resolver))
-                }
+            val parsed = runCatching { NaviNotificationParser.parse(sbn.notification) }.getOrNull()
+            navigationNotificationKeys.add(sbn.key)
+            if (parsed?.hasGuidance != true) {
+                Log.d("WazeNotifParser", NaviNotificationParser.dump(sbn.notification))
             }
             NaviRouteHolder.update(
                 sbn.packageName,
@@ -43,33 +60,23 @@ class MediaSessionListenerService : NotificationListenerService() {
                 parsed,
             )
             // Same parse also feeds the unified guidance hub (numerics for HUD + agent).
-            // No-op on the 2026 Navigator build whose notification is a static stub.
-            parsed?.let {
+            parsed?.guidance?.let {
                 com.bydmate.app.navdata.NavGuidanceHub.updateFromNotification(
-                    it.maneuverResource, it.distance, it.street, System.currentTimeMillis())
+                    it,
+                    System.currentTimeMillis(),
+                )
             }
         }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         runCatching {
+            if (!navigationNotificationKeys.remove(sbn.key)) return
+            if (navigationNotificationKeys.isNotEmpty()) return
             NaviRouteHolder.clear(sbn.packageName)
-            // Route ended on the legacy notification channel: deactivate the hub too,
-            // unless the a11y feed still delivers fresh guidance (Codex audit fix 3).
-            if (sbn.packageName in com.bydmate.app.navdata.NavPackages.YANDEX_NAVI) {
-                com.bydmate.app.navdata.NavGuidanceHub.markNotificationEnded()
-            }
+            // Unless the a11y feed still delivers fresh guidance, the last accepted Waze
+            // navigation notification disappearing means route guidance ended.
+            com.bydmate.app.navdata.NavGuidanceHub.markNotificationEnded()
         }
-    }
-
-    private val naviResources = HashMap<String, android.content.res.Resources>()
-
-    // Resource names (view ids, maneuver drawables) belong to the NAVIGATOR's package,
-    // so resolution needs its Resources; cached per package after the first lookup.
-    private fun naviResourceResolver(pkg: String): (Int) -> String? {
-        val res = naviResources[pkg] ?: runCatching {
-            createPackageContext(pkg, 0).resources
-        }.getOrNull()?.also { naviResources[pkg] = it }
-        return { id -> runCatching { res?.getResourceEntryName(id) }.getOrNull() }
     }
 }

@@ -2,6 +2,7 @@ package com.bydmate.app.ui.widget
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.bydmate.app.navigation.WazeNavigation
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -16,8 +17,6 @@ class WidgetPreferences(private val prefs: SharedPreferences) {
     constructor(context: Context) : this(
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     )
-
-    init { migrateLegacyLeftTapKey() }
 
     fun isEnabled(): Boolean = prefs.getBoolean(KEY_ENABLED, false)
 
@@ -91,7 +90,7 @@ class WidgetPreferences(private val prefs: SharedPreferences) {
 
     /**
      * When true, the LEFT third of the widget launches the configured app
-     * (default Yandex Navigator). The rest opens BYDMate. When false, a tap
+     * (default Waze). The rest opens BYDMate. When false, a tap
      * anywhere opens BYDMate — historical behaviour.
      */
     fun isLeftTapZoningEnabled(): Boolean =
@@ -188,7 +187,35 @@ class WidgetPreferences(private val prefs: SharedPreferences) {
         editor.apply()
     }
 
+    /** Existing installations persisted the old default package, so changing only the default
+     *  argument would leave them opening Yandex forever. Migrate just those known defaults and
+     *  preserve any app the user explicitly selected. */
+    private fun migrateLegacyNavigationApp() {
+        val savedPackage = prefs.getString(KEY_LEFT_TAP_APP_PKG, null) ?: return
+        if (savedPackage !in WazeNavigation.LEGACY_YANDEX_PACKAGES) return
+        prefs.edit()
+            .putString(KEY_LEFT_TAP_APP_PKG, WazeNavigation.PACKAGE_NAME)
+            .putString(KEY_LEFT_TAP_APP_LABEL, WazeNavigation.APP_LABEL)
+            .apply()
+    }
+
     companion object {
+        fun migrateLegacyPreferences(context: Context) {
+            WidgetPreferences(
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE),
+            ).run {
+                migrateLegacyLeftTapKey()
+                migrateLegacyNavigationApp()
+            }
+        }
+
+        internal fun migrateLegacyPreferences(prefs: SharedPreferences) {
+            WidgetPreferences(prefs).run {
+                migrateLegacyLeftTapKey()
+                migrateLegacyNavigationApp()
+            }
+        }
+
         const val PREFS_NAME = "bydmate_widget"
         const val KEY_ENABLED = "floating_widget_enabled"
         const val KEY_X = "widget_x"
@@ -202,8 +229,8 @@ class WidgetPreferences(private val prefs: SharedPreferences) {
         const val KEY_LEFT_TAP_APP_LABEL = "widget_left_tap_app_label"
         const val KEY_BUTTONS_ENABLED = "widget_buttons_enabled"
         const val KEY_HIDE_ON_YOUTUBE = "widget_hide_on_youtube"
-        const val DEFAULT_LEFT_TAP_APP_PKG = "ru.yandex.yandexnavi"
-        const val DEFAULT_LEFT_TAP_APP_LABEL = "Яндекс.Навигатор"
+        const val DEFAULT_LEFT_TAP_APP_PKG = WazeNavigation.PACKAGE_NAME
+        const val DEFAULT_LEFT_TAP_APP_LABEL = WazeNavigation.APP_LABEL
         const val SCALE_MIN = 0.7f
         const val SCALE_MAX = 2.0f
     }

@@ -3,9 +3,12 @@ package com.bydmate.app.data.repository
 import com.bydmate.app.data.local.LocalePreferences
 import com.bydmate.app.data.local.dao.SettingsDao
 import com.bydmate.app.data.local.entity.SettingEntity
+import com.bydmate.app.data.vehicle.VehicleProfile
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -15,11 +18,61 @@ import javax.inject.Singleton
 internal fun String.parseNumericSetting(): Double? =
     replace(',', '.').trim().toDoubleOrNull()
 
+private const val LEGACY_BATTERY_CAPACITY = "72.9"
+private const val LEGACY_CONSUMPTION_GOOD = "20"
+private const val LEGACY_CONSUMPTION_BAD = "30"
+
+internal data class VehicleDefaultsSnapshot(
+    val migrationDone: Boolean,
+    val batteryCapacity: String?,
+    val consumptionGood: String?,
+    val consumptionBad: String?,
+)
+
+/**
+ * Plans the one-shot Leopard-to-Sea-Lion defaults migration without overwriting settings that can
+ * be identified as user customisations. An exact legacy-default value cannot be distinguished from
+ * a user who deliberately typed that same value, so it is migrated along with an absent value.
+ */
+internal fun planVehicleDefaultsMigration(snapshot: VehicleDefaultsSnapshot): Map<String, String> {
+    if (snapshot.migrationDone) return emptyMap()
+
+    val updates = mutableMapOf<String, String>()
+    fun migrateDefault(key: String, stored: String?, legacy: String, replacement: String) {
+        val isLegacy = stored?.parseNumericSetting() == legacy.parseNumericSetting()
+        if (stored == null || isLegacy) updates[key] = replacement
+    }
+
+    migrateDefault(
+        SettingsRepository.KEY_BATTERY_CAPACITY,
+        snapshot.batteryCapacity,
+        LEGACY_BATTERY_CAPACITY,
+        SettingsRepository.DEFAULT_BATTERY_CAPACITY,
+    )
+    migrateDefault(
+        SettingsRepository.KEY_CONSUMPTION_GOOD,
+        snapshot.consumptionGood,
+        LEGACY_CONSUMPTION_GOOD,
+        SettingsRepository.DEFAULT_CONSUMPTION_GOOD,
+    )
+    migrateDefault(
+        SettingsRepository.KEY_CONSUMPTION_BAD,
+        snapshot.consumptionBad,
+        LEGACY_CONSUMPTION_BAD,
+        SettingsRepository.DEFAULT_CONSUMPTION_BAD,
+    )
+    updates[SettingsRepository.KEY_MIGRATION_SEA_LION_PROFILE_V1] = "true"
+    return updates
+}
+
 @Singleton
 open class SettingsRepository @Inject constructor(
     private val settingsDao: SettingsDao,
     private val localePreferences: LocalePreferences,
 ) {
+    /** Serializes profile migration with every settings mutation in this singleton process. */
+    private val mutationMutex = Mutex()
+
     companion object {
         const val KEY_BATTERY_CAPACITY = "battery_capacity_kwh"
         const val KEY_HOME_TARIFF = "home_tariff"
@@ -91,6 +144,7 @@ open class SettingsRepository @Inject constructor(
         // left from pre-native-stack versions. The DataSource.DIPLUS enum was removed
         // in the native-stack migration; getDataSource() now always returns ENERGYDATA.
         const val KEY_MIGRATION_V281_DATA_SOURCE = "migration_v281_data_source_done"
+        const val KEY_MIGRATION_SEA_LION_PROFILE_V1 = "migration_sea_lion_profile_v1_done"
 
         // Voice feature keys (also mirrored into SharedPreferences("voice") for SteeringWheelKeyService)
         const val KEY_VOICE_ENABLED = "voice_enabled"
@@ -107,13 +161,15 @@ open class SettingsRepository @Inject constructor(
         // legacy, unused since field-fix wave (agent uses KEY_OPENROUTER_MODEL)
         const val KEY_AGENT_MODEL = "agent_model"
 
-        const val DEFAULT_BATTERY_CAPACITY = "72.9"
+        val DEFAULT_BATTERY_CAPACITY = VehicleProfile.CURRENT.nominalBatteryKwh.toString()
         const val DEFAULT_HOME_TARIFF = "0.20"
         const val DEFAULT_DC_TARIFF = "0.73"
         const val DEFAULT_UNITS = "km"
         const val DEFAULT_CURRENCY = "BYN"
-        const val DEFAULT_CONSUMPTION_GOOD = "20"
-        const val DEFAULT_CONSUMPTION_BAD = "30"
+        val DEFAULT_CONSUMPTION_GOOD =
+            VehicleProfile.CURRENT.consumptionGoodHeuristicKwhPer100Km.toString()
+        val DEFAULT_CONSUMPTION_BAD =
+            VehicleProfile.CURRENT.consumptionBadHeuristicKwhPer100Km.toString()
         const val DEFAULT_MAP_TILE_SOURCE = "osm" // "osm" or "amap"
 
         val CURRENCIES = listOf(
@@ -137,15 +193,18 @@ open class SettingsRepository @Inject constructor(
 
     fun observeString(key: String): Flow<String?> = settingsDao.observe(key)
 
-    suspend fun setString(key: String, value: String) =
+    suspend fun setString(key: String, value: String) = mutationMutex.withLock {
         settingsDao.set(SettingEntity(key, value))
+    }
 
     /** Writes all key/value pairs in one Room transaction (all or nothing). */
-    suspend fun setStrings(values: Map<String, String>) =
+    suspend fun setStrings(values: Map<String, String>) = mutationMutex.withLock {
         settingsDao.setAll(values.map { (k, v) -> SettingEntity(k, v) })
+    }
 
     suspend fun getBatteryCapacity(): Double =
-        getString(KEY_BATTERY_CAPACITY, DEFAULT_BATTERY_CAPACITY).parseNumericSetting() ?: 72.9
+        getString(KEY_BATTERY_CAPACITY, DEFAULT_BATTERY_CAPACITY).parseNumericSetting()
+            ?: VehicleProfile.CURRENT.nominalBatteryKwh
 
     suspend fun getHomeTariff(): Double =
         getString(KEY_HOME_TARIFF, DEFAULT_HOME_TARIFF).parseNumericSetting() ?: 0.20
@@ -173,10 +232,12 @@ open class SettingsRepository @Inject constructor(
         getString(KEY_TRIP_COST_TARIFF, "home")
 
     suspend fun getConsumptionGoodThreshold(): Double =
-        getString(KEY_CONSUMPTION_GOOD, DEFAULT_CONSUMPTION_GOOD).parseNumericSetting() ?: 20.0
+        getString(KEY_CONSUMPTION_GOOD, DEFAULT_CONSUMPTION_GOOD).parseNumericSetting()
+            ?: VehicleProfile.CURRENT.consumptionGoodHeuristicKwhPer100Km.toDouble()
 
     suspend fun getConsumptionBadThreshold(): Double =
-        getString(KEY_CONSUMPTION_BAD, DEFAULT_CONSUMPTION_BAD).parseNumericSetting() ?: 30.0
+        getString(KEY_CONSUMPTION_BAD, DEFAULT_CONSUMPTION_BAD).parseNumericSetting()
+            ?: VehicleProfile.CURRENT.consumptionBadHeuristicKwhPer100Km.toDouble()
 
     /** Live (good, bad) pair for UI coloring. Emits on every Settings edit. */
     fun observeConsumptionThresholds(): Flow<Pair<Double, Double>> = combine(
@@ -331,5 +392,24 @@ open class SettingsRepository @Inject constructor(
             setString(KEY_DATA_SOURCE, "ENERGYDATA")
         }
         setString(KEY_MIGRATION_V281_DATA_SOURCE, "true")
+    }
+
+    /**
+     * Applies Sea Lion defaults once. The batch write also persists the flag, so a completed
+     * migration cannot later rewrite a value the user changes in Settings.
+     */
+    suspend fun migrateVehicleProfileDefaultsIfNeeded() = mutationMutex.withLock {
+        val updates = planVehicleDefaultsMigration(
+            VehicleDefaultsSnapshot(
+                migrationDone = settingsDao.get(KEY_MIGRATION_SEA_LION_PROFILE_V1) == "true",
+                batteryCapacity = settingsDao.get(KEY_BATTERY_CAPACITY),
+                consumptionGood = settingsDao.get(KEY_CONSUMPTION_GOOD),
+                consumptionBad = settingsDao.get(KEY_CONSUMPTION_BAD),
+            ),
+        )
+        if (updates.isNotEmpty()) {
+            // Direct DAO call: setStrings() acquires the same non-reentrant mutex.
+            settingsDao.setAll(updates.map { (key, value) -> SettingEntity(key, value) })
+        }
     }
 }

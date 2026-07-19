@@ -330,6 +330,12 @@ class NativeParsReaderTest {
     }
 
     @Test
+    fun `chargingStatus remains off while V2L exports energy`() = runTest {
+        val data = sensorReader("chargeGunState" to 5, "bmsState" to 1).fetch()
+        assertEquals(0, data!!.chargingStatus)
+    }
+
+    @Test
     fun `chargingStatus null when gun state unavailable`() = runTest {
         val data = sensorReader("bmsState" to 1).fetch()
         assertNull(data!!.chargingStatus)

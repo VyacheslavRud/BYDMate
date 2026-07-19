@@ -123,12 +123,12 @@ class WidgetPreferencesTest {
         assertFalse(prefs.isButtonsEnabled())
     }
 
-    @Test fun `leftTapAppPackage defaults to Yandex Navigator`() {
-        assertEquals("ru.yandex.yandexnavi", prefs.getLeftTapAppPackage())
+    @Test fun `leftTapAppPackage defaults to Waze`() {
+        assertEquals("com.waze", prefs.getLeftTapAppPackage())
     }
 
-    @Test fun `leftTapAppLabel defaults to Russian name`() {
-        assertEquals("Яндекс.Навигатор", prefs.getLeftTapAppLabel())
+    @Test fun `leftTapAppLabel defaults to Waze`() {
+        assertEquals("Waze", prefs.getLeftTapAppLabel())
     }
 
     @Test fun `setLeftTapApp stores both package and label`() {
@@ -139,6 +139,7 @@ class WidgetPreferencesTest {
 
     @Test fun `migration copies legacy true to new key and removes legacy`() {
         store[WidgetPreferences.LEGACY_KEY_LEFT_TAP_NAVIGATOR] = true
+        WidgetPreferences.migrateLegacyPreferences(fakeSharedPrefs(store))
         val migrated = WidgetPreferences(fakeSharedPrefs(store))
         assertTrue(migrated.isLeftTapZoningEnabled())
         assertFalse(store.containsKey(WidgetPreferences.LEGACY_KEY_LEFT_TAP_NAVIGATOR))
@@ -146,6 +147,7 @@ class WidgetPreferencesTest {
 
     @Test fun `migration copies legacy false to new key and removes legacy`() {
         store[WidgetPreferences.LEGACY_KEY_LEFT_TAP_NAVIGATOR] = false
+        WidgetPreferences.migrateLegacyPreferences(fakeSharedPrefs(store))
         val migrated = WidgetPreferences(fakeSharedPrefs(store))
         assertFalse(migrated.isLeftTapZoningEnabled())
         assertFalse(store.containsKey(WidgetPreferences.LEGACY_KEY_LEFT_TAP_NAVIGATOR))
@@ -153,6 +155,7 @@ class WidgetPreferencesTest {
 
     @Test fun `migration is no-op when legacy key absent`() {
         assertFalse(store.containsKey(WidgetPreferences.LEGACY_KEY_LEFT_TAP_NAVIGATOR))
+        WidgetPreferences.migrateLegacyPreferences(fakeSharedPrefs(store))
         val fresh = WidgetPreferences(fakeSharedPrefs(store))
         assertFalse(fresh.isLeftTapZoningEnabled())
         assertFalse(store.containsKey(WidgetPreferences.LEGACY_KEY_LEFT_TAP_NAVIGATOR))
@@ -161,9 +164,28 @@ class WidgetPreferencesTest {
     @Test fun `migration does not overwrite new key when both are present`() {
         store[WidgetPreferences.KEY_LEFT_TAP_ZONING] = true
         store[WidgetPreferences.LEGACY_KEY_LEFT_TAP_NAVIGATOR] = false
+        WidgetPreferences.migrateLegacyPreferences(fakeSharedPrefs(store))
         val migrated = WidgetPreferences(fakeSharedPrefs(store))
         assertTrue(migrated.isLeftTapZoningEnabled())
         assertFalse(store.containsKey(WidgetPreferences.LEGACY_KEY_LEFT_TAP_NAVIGATOR))
+    }
+
+    @Test fun `migration replaces persisted legacy navigation default with Waze`() {
+        store[WidgetPreferences.KEY_LEFT_TAP_APP_PKG] = "ru.yandex.yandexnavi"
+        store[WidgetPreferences.KEY_LEFT_TAP_APP_LABEL] = "Яндекс.Навигатор"
+        WidgetPreferences.migrateLegacyPreferences(fakeSharedPrefs(store))
+        val migrated = WidgetPreferences(fakeSharedPrefs(store))
+        assertEquals("com.waze", migrated.getLeftTapAppPackage())
+        assertEquals("Waze", migrated.getLeftTapAppLabel())
+    }
+
+    @Test fun `migration preserves explicitly selected third party app`() {
+        store[WidgetPreferences.KEY_LEFT_TAP_APP_PKG] = "com.example.navigator"
+        store[WidgetPreferences.KEY_LEFT_TAP_APP_LABEL] = "Other Navi"
+        WidgetPreferences.migrateLegacyPreferences(fakeSharedPrefs(store))
+        val migrated = WidgetPreferences(fakeSharedPrefs(store))
+        assertEquals("com.example.navigator", migrated.getLeftTapAppPackage())
+        assertEquals("Other Navi", migrated.getLeftTapAppLabel())
     }
 
     // --- Minimal fake of SharedPreferences used by WidgetPreferences ---

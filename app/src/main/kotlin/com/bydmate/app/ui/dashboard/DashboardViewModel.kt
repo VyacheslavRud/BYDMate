@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.bydmate.app.data.local.entity.TripEntity
 import com.bydmate.app.data.local.dao.ChargeDao
 import com.bydmate.app.data.local.dao.IdleDrainDao
+import com.bydmate.app.data.charging.ChargeGunState
 import com.bydmate.app.data.remote.DynamicMetric
 import com.bydmate.app.data.remote.InsightsManager
 import com.bydmate.app.demo.DemoMode
@@ -250,7 +251,8 @@ class DashboardViewModel @Inject constructor(
                         // across firmwares; the only universally truthful signal is
                         // gun-connected AND negative motor power. Regen has gun=0, so
                         // it's filtered. Gun pull → gunState=0 within ≤3s → bolt off.
-                        isCharging = data?.chargeGunState == 2 && (data.power ?: 0.0) < -0.3,
+                        isCharging = ChargeGunState.isCharging(data?.chargeGunState) &&
+                            (data?.power ?: 0.0) < -0.3,
                     )
                 }
             }

@@ -45,11 +45,8 @@
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
         </intent>
-        <!-- ACTION_VIEW for navigate action (Yandex Navigator deep-link) -->
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="yandexnavi" />
-        </intent>
+        <!-- Exact Waze package visibility for install checks and forced deep-link delivery. -->
+        <package android:name="com.waze" />
         <!-- Launcher apps picker (app_launch action) -->
         <intent>
             <action android:name="android.intent.action.MAIN" />

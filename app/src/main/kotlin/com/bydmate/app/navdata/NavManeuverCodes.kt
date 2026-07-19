@@ -1,9 +1,8 @@
 package com.bydmate.app.navdata
 
-/** Yandex Navigator maneuver -> GAODE code, three input forms: a11y balloon description,
- *  notification icon resource name, and back to a short Russian phrase for the voice agent.
- *  Ported from @rbgboost's YandexHUD (field-tested on DiLink 5); the RU phrase tables are
- *  kept verbatim, only camera/traffic-light paths were dropped. */
+/** Waze instruction text -> GAODE code used by the factory HUD, plus Russian voice phrases.
+ *  The numeric output contract comes from @rbgboost's YandexHUD work; only the navigation-data
+ *  source and text recognizer are Waze-specific. */
 object NavManeuverCodes {
     const val GAODE_LEFT = 1
     const val GAODE_RIGHT = 2
@@ -21,63 +20,53 @@ object NavManeuverCodes {
     const val GAODE_ARRIVE = 48
     const val GAODE_TUNNEL = 49
 
-    private val ROUNDABOUT_EXIT_RE = Regex("""(\d+)[-‑]й\s+съезд""")
+    private val ROUNDABOUT_EXIT_RE = Regex(
+        """(?:(\d+)[-‑]й\s+съезд|(\d+)(?:st|nd|rd|th)?\s+exit)""",
+        RegexOption.IGNORE_CASE,
+    )
 
-    fun fromA11yDescription(text: String?): Int {
+    fun fromInstructionText(text: String?): Int {
         if (text == null || text.isBlank()) return 0
         if (text == ">>>") return GAODE_STRAIGHT
         // NBSP via explicit escape: a literal NBSP is invisible and gets lost in copy/transcription
         val lower = text.lowercase().trim().replace('\u00A0', ' ')
 
-        val exitNum = ROUNDABOUT_EXIT_RE.find(lower)?.groupValues?.get(1)?.toIntOrNull()
+        val match = ROUNDABOUT_EXIT_RE.find(lower)
+        val exitNum = match?.groupValues?.drop(1)?.firstOrNull { it.isNotEmpty() }?.toIntOrNull()
         if (exitNum != null && exitNum in 1..10) return GAODE_ROUNDABOUT_EXIT
 
+        // Waze 5.x sometimes exposes only a short accessibility description for the arrow.
+        // Keep these exact so a road/street containing the word cannot become a false maneuver.
+        if (lower == "left") return GAODE_LEFT
+        if (lower == "right") return GAODE_RIGHT
+
         return when {
-            "въезд на паром" in lower -> GAODE_FERRY
-            "кольцевое" in lower || "круговое" in lower -> GAODE_ROUNDABOUT_ENTER
-            "выезд с кольца" in lower || "съезд с кольца" in lower -> GAODE_ROUNDABOUT_EXIT
+            "въезд на паром" in lower || "board the ferry" in lower -> GAODE_FERRY
+            "выезд с кольца" in lower || "съезд с кольца" in lower ||
+                "exit the roundabout" in lower || "leave the roundabout" in lower -> GAODE_ROUNDABOUT_EXIT
+            "кольцевое" in lower || "круговое" in lower || "roundabout" in lower -> GAODE_ROUNDABOUT_ENTER
             "промежуточная точка" in lower -> GAODE_WAYPOINT
-            "съезд с парома" in lower || "выезд с парома" in lower -> GAODE_STRAIGHT
-            "прибытие" in lower || "маршрут окончен" in lower || "конечная" in lower || "достигнут" in lower -> GAODE_ARRIVE
-            "тоннель" in lower || "туннель" in lower -> GAODE_TUNNEL
-            "плавный поворот налево" in lower || "плавно налево" in lower || "держитесь левее" in lower -> GAODE_SLIGHT_LEFT
-            "плавный поворот направо" in lower || "плавно направо" in lower || "держитесь правее" in lower -> GAODE_SLIGHT_RIGHT
-            "резкий поворот налево" in lower || "резко налево" in lower -> GAODE_HARD_LEFT
-            "резкий поворот направо" in lower || "резко направо" in lower -> GAODE_HARD_RIGHT
-            "разворот" in lower || "развернитесь" in lower ->
-                if ("направо" in lower) GAODE_UTURN_RIGHT else GAODE_UTURN
-            "поверните налево" in lower || "поворот налево" in lower || "налево" in lower -> GAODE_LEFT
-            "поверните направо" in lower || "поворот направо" in lower || "направо" in lower -> GAODE_RIGHT
-            "прямо" in lower || "продолжайте" in lower || "двигайтесь" in lower -> GAODE_STRAIGHT
-            else -> fromRussianTextFallback(lower)
+            "съезд с парома" in lower || "выезд с парома" in lower || "leave the ferry" in lower -> GAODE_STRAIGHT
+            "прибытие" in lower || "маршрут окончен" in lower || "конечная" in lower ||
+                "достигнут" in lower || "destination" in lower || "you have arrived" in lower -> GAODE_ARRIVE
+            "тоннель" in lower || "туннель" in lower || "tunnel" in lower -> GAODE_TUNNEL
+            "плавный поворот налево" in lower || "плавно налево" in lower || "держитесь левее" in lower ||
+                "slight left" in lower || "keep left" in lower -> GAODE_SLIGHT_LEFT
+            "плавный поворот направо" in lower || "плавно направо" in lower || "держитесь правее" in lower ||
+                "slight right" in lower || "keep right" in lower -> GAODE_SLIGHT_RIGHT
+            "резкий поворот налево" in lower || "резко налево" in lower || "sharp left" in lower -> GAODE_HARD_LEFT
+            "резкий поворот направо" in lower || "резко направо" in lower || "sharp right" in lower -> GAODE_HARD_RIGHT
+            "разворот" in lower || "развернитесь" in lower || "u-turn" in lower || "u turn" in lower ->
+                if ("направо" in lower || "right" in lower) GAODE_UTURN_RIGHT else GAODE_UTURN
+            "поверните налево" in lower || "поворот налево" in lower || "налево" in lower ||
+                "turn left" in lower || "exit left" in lower -> GAODE_LEFT
+            "поверните направо" in lower || "поворот направо" in lower || "направо" in lower ||
+                "turn right" in lower || "exit right" in lower -> GAODE_RIGHT
+            "прямо" in lower || "продолжайте" in lower || "двигайтесь" in lower ||
+                "straight" in lower || "continue" in lower -> GAODE_STRAIGHT
+            else -> fromTextFallback(lower)
         }
     }
-
-    /** Notification maneuver icon resource name -> GAODE (donor YANDEX_MANEUVER_RES
-     *  collapsed through toGaode; board_ferry variant seen on the 2025 Navigator). */
-    private val NOTIFICATION_RES = mapOf(
-        "notification_straight_sdl" to GAODE_STRAIGHT,
-        "notification_left_sdl" to GAODE_LEFT,
-        "notification_right_sdl" to GAODE_RIGHT,
-        "notification_slight_left_sdl" to GAODE_SLIGHT_LEFT,
-        "notification_slight_right_sdl" to GAODE_SLIGHT_RIGHT,
-        "notification_hard_left_sdl" to GAODE_HARD_LEFT,
-        "notification_hard_right_sdl" to GAODE_HARD_RIGHT,
-        "notification_fork_left_sdl" to GAODE_SLIGHT_LEFT,
-        "notification_fork_right_sdl" to GAODE_SLIGHT_RIGHT,
-        "notification_uturn_left_sdl" to GAODE_UTURN,
-        "notification_uturn_right_sdl" to GAODE_UTURN_RIGHT,
-        "notification_exit_left_sdl" to GAODE_HARD_LEFT,
-        "notification_exit_right_sdl" to GAODE_HARD_RIGHT,
-        "notification_enter_roundabout_sdl" to GAODE_ROUNDABOUT_ENTER,
-        "notification_leave_roundabout_sdl" to GAODE_ROUNDABOUT_EXIT,
-        "notification_finish_sdl" to GAODE_ARRIVE,
-        "notification_ferry_sdl" to GAODE_FERRY,
-        "notification_board_ferry_sdl" to GAODE_FERRY,
-    )
-
-    fun fromNotificationRes(resName: String?): Int =
-        resName?.let { NOTIFICATION_RES[it] } ?: 0
 
     /** GAODE -> short Russian phrase; used by get_route_info when only hub numerics exist. */
     private val PHRASES = mapOf(
@@ -157,10 +146,25 @@ object NavManeuverCodes {
         "тоннель" to GAODE_TUNNEL,
     )
 
-    private fun fromRussianTextFallback(lower: String): Int {
-        // lower is already NBSP-normalized by fromA11yDescription
+    private val EN_PHRASES = linkedMapOf(
+        "make a u-turn" to GAODE_UTURN,
+        "make a u turn" to GAODE_UTURN,
+        "bear left" to GAODE_SLIGHT_LEFT,
+        "bear right" to GAODE_SLIGHT_RIGHT,
+        "take the left" to GAODE_LEFT,
+        "take the right" to GAODE_RIGHT,
+        "turn left" to GAODE_LEFT,
+        "turn right" to GAODE_RIGHT,
+        "keep straight" to GAODE_STRAIGHT,
+        "continue straight" to GAODE_STRAIGHT,
+        "you have arrived" to GAODE_ARRIVE,
+    )
+
+    private fun fromTextFallback(lower: String): Int {
+        // lower is already NBSP-normalized by fromInstructionText
         val norm = lower.replace(Regex("\\s+"), " ")
         for ((phrase, code) in RU_PHRASES) if (phrase in norm) return code
+        for ((phrase, code) in EN_PHRASES) if (phrase in norm) return code
         for ((phrase, code) in WORD_BOUNDARY_PHRASES) {
             if (Regex("""(?:^|\s|[\p{Punct}])${Regex.escape(phrase)}(?:$|\s|[\p{Punct}])""").containsMatchIn(norm)) return code
         }

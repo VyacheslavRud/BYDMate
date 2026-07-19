@@ -15,6 +15,7 @@ import com.bydmate.app.data.automation.TriggerValidationError
 import com.bydmate.app.data.automation.ScheduleSpec
 import com.bydmate.app.data.automation.VoiceFireResult
 import com.bydmate.app.data.automation.hhmmToMinute
+import com.bydmate.app.data.charging.ChargeGunState
 import com.bydmate.app.data.local.dao.ChargeDao
 import com.bydmate.app.data.local.dao.RuleDao
 import com.bydmate.app.data.local.dao.TripDao
@@ -29,12 +30,14 @@ import com.bydmate.app.data.remote.OpenRouterClient
 import com.bydmate.app.data.repository.PlaceRepository
 import com.bydmate.app.data.repository.SettingsRepository
 import com.bydmate.app.data.vehicle.CommandTranslator
+import com.bydmate.app.data.vehicle.VehicleProfile
 import com.bydmate.app.domain.battery.BatteryStateRepository
 import com.bydmate.app.domain.calculator.RangeCalculator
 import com.bydmate.app.cluster.SteeringWheelKeyService
 import com.bydmate.app.data.camera.CameraStateMonitor
 import com.bydmate.app.media.NaviRouteHolder
 import com.bydmate.app.media.NaviScreenReader
+import com.bydmate.app.navigation.WazeNavigation
 import com.bydmate.app.service.TrackingService
 import com.bydmate.app.ui.automation.OPERATORS
 import com.bydmate.app.ui.automation.TRIGGER_PARAMS
@@ -123,18 +126,16 @@ class AgentTools @Inject constructor(
         }
     }
 
-    /** Test seam - did the Navigator reach the foreground since [sinceMs]? Combines UsageStats
-     *  ACTIVITY_RESUMED with the live a11y window package: Android 12 blocks background activity
-     *  starts SILENTLY, so a non-throwing startActivity alone is not proof. */
+    /** Test seam for the unprivileged fallback: did Waze emit ACTIVITY_RESUMED since [sinceMs]?
+     *  An already-existing a11y window is deliberately not accepted as proof. Normal DiLink
+     *  delivery uses the shell helper and returns launchDelivered without this inference. */
     internal var naviForegroundCheck: (Long) -> Boolean = { sinceMs ->
         val viaEvents = runCatching {
             val usm = context.getSystemService(Context.USAGE_STATS_SERVICE)
                 as android.app.usage.UsageStatsManager
             CameraStateMonitor.latestResumed(usm, sinceMs, System.currentTimeMillis() + 1)?.first
         }.getOrNull() == NaviRouteHolder.NAVI_PACKAGE
-        viaEvents || runCatching {
-            SteeringWheelKeyService.instance?.rootInActiveWindow?.packageName?.toString()
-        }.getOrNull() == NaviRouteHolder.NAVI_PACKAGE
+        viaEvents
     }
 
     /** Test seam - poll interval for the navigate foreground verification. */
@@ -147,18 +148,19 @@ class AgentTools @Inject constructor(
     // thrown", Android 12 background-start blocks are silent. Verify the Navigator actually
     // surfaced before letting the LLM claim the route was built.
     private suspend fun dispatchNavigate(displayName: String, payload: JSONObject): DispatchResult {
-        val since = System.currentTimeMillis() - 1_000L
+        val since = System.currentTimeMillis()
         val result = actionDispatcher.dispatch(
             ActionDef(command = "", displayName = displayName, kind = "navigate",
                 payload = payload.toString()), data = null)
         if (!result.success) return result
+        if (result.launchDelivered) return result
         repeat(naviVerifyAttempts) {
             if (runCatching { naviForegroundCheck(since) }.getOrDefault(false)) return result
             delay(naviVerifyIntervalMs)
         }
         return DispatchResult(false,
-            "интент отправлен, но Навигатор не вышел на передний план: маршрут скорее всего " +
-                "не построен, предложи пользователю открыть Навигатор вручную")
+            "интент отправлен, но не удалось подтвердить, что Waze обработал маршрут; " +
+                "предложи пользователю открыть Waze вручную")
     }
 
     private fun queryLauncherApps(): List<Pair<String, String>> {
@@ -324,11 +326,11 @@ class AgentTools @Inject constructor(
         ))
         put(tool(
             "navigate_to",
-            "Построить маршрут в Навигаторе от текущей позиции. Команды поехали домой, до дома, " +
+            "Построить маршрут в Waze от текущей позиции. Команды поехали домой, до дома, " +
                 "на работу - ЭТОТ инструмент: передай destination \"Дом\" или \"Работа\", маршрут " +
-                "построится по Месту BYDMate или по адресу, сохранённому в самом Навигаторе. " +
+                "построится по Месту BYDMate или избранному адресу в Waze. " +
                 "destination: имя сохранённого Места, город или населённый пункт (маршрут строится " +
-                "сразу) либо точный адрес (откроется поиск на карте, пользователь выберет точку). " +
+                "сразу) либо точный адрес (Waze получит его как поисковый маршрут). " +
                 "Ответ может содержать проверку запаса хода: если enough=false или есть charge_note, " +
                 "предупреди пользователя и предложи find_chargers. Для поиска места без маршрута " +
                 "(поищи, найди) используй search_on_map.",
@@ -342,7 +344,7 @@ class AgentTools @Inject constructor(
         ))
         put(tool(
             "search_on_map",
-            "Открыть поиск места в Яндекс Навигаторе: на карте появится выдача, пользователь сам " +
+            "Открыть поиск места в Waze: на карте появится выдача, пользователь сам " +
                 "выберет точку. Использовать для команд вроде: поищи кафе, найди заправку, " +
                 "где ближайшая аптека. Если пользователь просит ПОЕХАТЬ куда-то, в том числе " +
                 "домой или на работу, используй navigate_to.",
@@ -352,7 +354,7 @@ class AgentTools @Inject constructor(
         ))
         put(tool(
             "show_point_on_map",
-            "Показать точку на карте Навигатора БЕЗ построения маршрута: команды вроде " +
+            "Показать точку на карте Waze БЕЗ построения маршрута: команды вроде " +
                 "покажи на карте, где находится. destination: имя Места, город или адрес; " +
                 "либо lat/lon, если координаты известны (например из find_chargers). " +
                 "Для маршрута используй navigate_to, для поиска по категории search_on_map.",
@@ -385,9 +387,9 @@ class AgentTools @Inject constructor(
         ))
         put(tool(
             "get_route_info",
-            "Состояние ведения Яндекс Навигатора: следующий манёвр (maneuver, maneuver_distance, " +
+            "Состояние ведения Waze: следующий манёвр (maneuver, maneuver_distance, " +
                 "street), строки уведомления route_lines (обычно остаток пути и время прибытия), " +
-                "лимит скорости speed_limit и номер съезда exit_number (только когда Навигатор " +
+                "лимит скорости speed_limit и номер съезда exit_number (когда Waze " +
                 "на экране), заряд soc и запас хода range_km. Отвечай по этим полям на вопросы " +
                 "сколько ехать, какой поворот, когда приедем, хватит ли заряда. Если поля нет " +
                 "в ответе, этих данных сейчас нет - скажи честно.",
@@ -635,6 +637,9 @@ class AgentTools @Inject constructor(
         val d = gate.vehicleSnapshot()
             ?: return """{"error":"нет данных с машины (нет связи или машина спит)"}"""
         val o = JSONObject()
+        // Static, explicitly configured metadata is namespaced so the model never confuses it
+        // with live telemetry. Unknown usable capacity and pack voltage are intentionally omitted.
+        o.put("configured_vehicle_profile", configuredVehicleProfileJson())
         fun putIf(key: String, v: Any?) { if (v != null) o.put(key, v) }
         putIf("soc_percent", d.soc)
         putIf("speed_kmh", d.speed)
@@ -670,7 +675,7 @@ class AgentTools @Inject constructor(
         putIf("tire_press_rl_kpa", d.tirePressRL)
         putIf("tire_press_rr_kpa", d.tirePressRR)
         // Deterministic low-pressure flag so the model reliably warns by voice.
-        // 210 kPa is ~16% below the Leopard 3 cold placard (~250 kPa).
+        // 210 kPa is ~16% below the configured 250 kPa comfort pressure.
         val tirePressures = listOfNotNull(d.tirePressFL, d.tirePressFR, d.tirePressRL, d.tirePressRR)
         if (tirePressures.isNotEmpty() && tirePressures.any { it < TIRE_WARN_MIN_KPA }) {
             o.put("tire_pressure_warning",
@@ -686,8 +691,9 @@ class AgentTools @Inject constructor(
         if (d.minCellVoltage != null && d.maxCellVoltage != null) {
             o.put("cell_voltage_delta_mv", ((d.maxCellVoltage - d.minCellVoltage) * 1000).roundToInt())
         }
-        // Gun fid: 1=NONE, 2=AC, 3=DC, 4=AC_DC, 5=VTOL -- NONE is 1, not 0.
-        putIf("charging_gun_connected", d.chargeGunState?.let { it >= 2 })
+        // V2L is a connected external plug but energy flows out of the traction battery.
+        putIf("charging_gun_connected", d.chargeGunState?.let(ChargeGunState::isCharging))
+        putIf("v2l_connected", d.chargeGunState?.let(ChargeGunState::isV2l))
         putIf("drive_mode", when (d.driveMode) { 1 -> "ECO"; 2 -> "SPORT"; else -> null })
         putIf("power_state", when (d.powerState) { 0 -> "OFF"; 1 -> "ON"; 2 -> "DRIVE"; else -> null })
         putIf("work_mode", when (d.workMode) { 0 -> "STOP"; 1 -> "EV"; 2 -> "FORCED_EV"; 3 -> "HEV"; else -> null })
@@ -734,6 +740,53 @@ class AgentTools @Inject constructor(
             o.put("range_km", it.roundToInt())
         }
         return o.toString()
+    }
+
+    private fun configuredVehicleProfileJson(): JSONObject {
+        val profile = VehicleProfile.CURRENT
+        return JSONObject().apply {
+            put("id", profile.id)
+            put("manufacturer", profile.manufacturer)
+            put("model", profile.model)
+            put("native_model", profile.nativeModelName)
+            put("model_code", profile.modelCode)
+            put("model_year", profile.modelYear)
+            put("market", profile.market)
+            put("trim", profile.trim)
+            put("drivetrain", profile.drivetrain.name)
+            put("powertrain", profile.powertrain.name)
+            put("motor_count", profile.motorCount)
+            put("motor_position", profile.motorPosition.name)
+            put("motor_code", profile.motorCode)
+            put("motor_layout", profile.motorLayout)
+            put("nominal_battery_kwh", profile.nominalBatteryKwh)
+            put("usable_battery_kwh", profile.usableBatteryKwh ?: JSONObject.NULL)
+            put("battery_chemistry", profile.batteryChemistry)
+            put("battery_rated_ah", profile.batteryRatedAh)
+            put("nominal_pack_voltage_v", profile.nominalPackVoltageV ?: JSONObject.NULL)
+            put("electrical_architecture_v", profile.electricalArchitectureV)
+            put("motor_power_kw", profile.motorPowerKw)
+            put("motor_rated_power_kw", profile.motorRatedPowerKw)
+            put("torque_nm", profile.torqueNm)
+            put("cltc_range_km", profile.cltcRangeKm)
+            put("rated_consumption_kwh_per_100km", profile.ratedConsumptionKwhPer100Km)
+            put("curb_weight_kg", profile.curbWeightKg)
+            put("gross_weight_kg", profile.grossWeightKg)
+            put("length_mm", profile.lengthMm)
+            put("width_mm", profile.widthMm)
+            put("height_mm", profile.heightMm)
+            put("wheelbase_mm", profile.wheelbaseMm)
+            put("seats", profile.seats)
+            put("max_speed_kph", profile.maxSpeedKph)
+            put("front_tire", profile.frontTire)
+            put("rear_tire", profile.rearTire)
+            put("comfort_tire_pressure_kpa", profile.comfortTirePressureKpa)
+            put("economy_tire_pressure_kpa", profile.economyTirePressureKpa)
+            put("bydmate_low_tire_warning_kpa", profile.lowTireWarningKpa)
+            put("charging_standard", profile.chargingStandard)
+            put("driver_assistance_system", profile.driverAssistanceSystem)
+            put("lidar_count", profile.lidarCount)
+        }
     }
 
     // --- get_weather ---
@@ -926,7 +979,7 @@ class AgentTools @Inject constructor(
 
         val kwhFromSoc = if (socStart != null && socEnd != null) {
             val capacity = runCatchingCancellable { settingsRepository.getBatteryCapacity() }
-                .getOrDefault(72.9)
+                .getOrDefault(VehicleProfile.CURRENT.nominalBatteryKwh)
             (socEnd - socStart) / 100.0 * capacity
         } else null
         val kwhManual = if (args.has("kwh")) args.optDouble("kwh").takeIf { it > 0.0 } else null
@@ -1167,7 +1220,7 @@ class AgentTools @Inject constructor(
         val placesResult = runCatchingCancellable { placeRepository.getAllSnapshot() }
         val place = placesResult.getOrNull()?.firstOrNull { it.name.equals(destination, ignoreCase = true) }
         if (place != null) return dispatchRoute(place.lat, place.lon, "place", place.name)
-        // Free text: geocode (Open-Meteo, city-level) so the Navigator builds a real route from
+        // Free text: geocode (Open-Meteo, city-level) so Waze builds a coordinate route from
         // the current position instead of just opening map search (field defect APK 336: «маршрут
         // до Орши» opened a search window). Street-level addresses do not geocode and fall back.
         val geo = runCatchingCancellable { weatherClient.geocode(destination) }
@@ -1175,19 +1228,22 @@ class AgentTools @Inject constructor(
         if (geo != null) return dispatchRoute(geo.lat, geo.lon, "destination", geo.name)
         val result = dispatchNavigate("Навигация", JSONObject().put("query", destination))
         if (!result.success) return JSONObject()
-            .put("error", result.reason ?: "не получилось открыть Навигатор").toString()
-        return JSONObject().put("ok", true).put("mode", "search")
-            .put("note", "точку не удалось найти автоматически, открыт поиск на карте").toString()
+            .put("error", result.reason ?: "не получилось открыть Waze").toString()
+        return JSONObject().put("ok", true).put("mode", "route_requested")
+            .put("note", "координаты не найдены локально; адрес передан Waze с запросом начать маршрут").toString()
     }
 
     private suspend fun searchOnMap(args: JSONObject): String {
         val query = args.optString("query").trim()
         if (query.isEmpty()) return """{"error":"не указано, что искать"}"""
-        val result = dispatchNavigate("Поиск на карте", JSONObject().put("query", query))
+        val result = dispatchNavigate(
+            "Поиск на карте",
+            JSONObject().put("query", query).put("searchOnly", true),
+        )
         if (!result.success) return JSONObject()
-            .put("error", result.reason ?: "не получилось открыть Навигатор").toString()
+            .put("error", result.reason ?: "не получилось открыть Waze").toString()
         return JSONObject().put("ok", true).put("mode", "search")
-            .put("note", "открыта выдача в Навигаторе, пользователь выберет точку сам").toString()
+            .put("note", "открыта выдача в Waze, пользователь выберет точку сам").toString()
     }
 
     private suspend fun showPointOnMap(args: JSONObject): String {
@@ -1210,7 +1266,7 @@ class AgentTools @Inject constructor(
             JSONObject().put("show", true).put("lat", coords.first)
                 .put("lon", coords.second).put("label", coords.third))
         if (!result.success) return JSONObject()
-            .put("error", result.reason ?: "не получилось открыть Навигатор").toString()
+            .put("error", result.reason ?: "не получилось открыть Waze").toString()
         return JSONObject().put("ok", true).put("mode", "show").put("point", coords.third).toString()
     }
 
@@ -1224,7 +1280,7 @@ class AgentTools @Inject constructor(
         }
 
     // "домой"/"на работу": the BYDMate Place wins (exact coordinates, range assessment works),
-    // then the Navigator's own saved Home/Work via its exported shortcut actions.
+    // then Waze's official saved Home/Work favorite deep link.
     private suspend fun navigateHomeWork(target: HomeWork): String {
         val place = runCatchingCancellable { placeRepository.getAllSnapshot() }
             .getOrNull()?.firstOrNull { it.name.equals(target.placeName, ignoreCase = true) }
@@ -1232,16 +1288,16 @@ class AgentTools @Inject constructor(
         val result = dispatchNavigate("Навигация", JSONObject().put("shortcut", target.shortcut))
         if (!result.success) return JSONObject().put("error",
             result.reason ?: ("адрес не найден: добавь Место \"${target.placeName}\" в BYDMate " +
-                "или сохрани точку \"${target.placeName}\" в Навигаторе")).toString()
+                "или сохрани точку \"${target.placeName}\" в Waze")).toString()
         return JSONObject().put("ok", true).put("mode", "route").put("target", target.placeName)
-            .put("note", "если адрес \"${target.placeName}\" сохранён в Навигаторе, " +
+            .put("note", "если адрес \"${target.placeName}\" сохранён в Waze, " +
                 "маршрут построится по нему; запас хода не оценивался, координаты неизвестны").toString()
     }
 
     private suspend fun dispatchRoute(lat: Double, lon: Double, labelKey: String, label: String): String {
         val result = dispatchNavigate("Навигация", JSONObject().put("lat", lat).put("lon", lon))
         if (!result.success) return JSONObject()
-            .put("error", result.reason ?: "не получилось открыть Навигатор").toString()
+            .put("error", result.reason ?: "не получилось открыть Waze").toString()
         val json = JSONObject().put("ok", true).put("mode", "route").put(labelKey, label)
         rangeAssessment(lat, lon)?.let { ra ->
             ra.keys().forEach { k -> json.put(k, ra.get(k)) }
@@ -1337,25 +1393,29 @@ class AgentTools @Inject constructor(
     }
 
     private suspend fun routeInfo(): String {
-        val snap = NaviRouteHolder.latest
+        val now = nowMs()
+        val snap = NaviRouteHolder.snapshot(now)
         // Screen is windows-aware: findNavigatorRoot() sees the Navigator minimized or
         // projected to the cluster. The hub keeps the last 90 s of guidance from the
         // a11y feed / notification channel for moments when no window read succeeds.
         val screen = runCatching { naviScreenProvider() }.getOrNull()
-        val hub = com.bydmate.app.navdata.NavGuidanceHub.snapshot(nowMs())
+        val hub = com.bydmate.app.navdata.NavGuidanceHub.snapshot(now)
         if (snap == null && screen == null && !hub.active)
-            return """{"error":"Навигатор не ведёт маршрут, или данных нет: нет уведомления, окно Навигатора не найдено и свежих данных ведения нет"}"""
+            return """{"error":"Waze не ведёт маршрут, или данных нет: нет навигационного уведомления, окно Waze не найдено и свежих данных ведения нет"}"""
         return JSONObject().apply {
-            snap?.maneuver?.let { put("maneuver", it) }
-            if (snap?.maneuver == null) snap?.maneuverIcon?.let { put("maneuver_icon", it) }
-            (snap?.maneuverDistance ?: screen?.maneuverDistance)?.let { put("maneuver_distance", it) }
-            (snap?.street ?: screen?.street)?.let { put("street", it) }
+            // The current accessibility window is authoritative. A fresh notification fills
+            // only fields Waze does not expose in that window; the source-aware hub is last.
+            (screen?.maneuver ?: snap?.maneuver)?.let { put("maneuver", it) }
+            (screen?.maneuverDistance ?: snap?.maneuverDistance)
+                ?.let { put("maneuver_distance", it) }
+            (screen?.street ?: snap?.street)?.let { put("street", it) }
             if (snap != null && snap.bigTexts.isNotEmpty()) put("route_lines", JSONArray(snap.bigTexts))
             snap?.title?.let { put("raw_title", it) }
             snap?.text?.let { put("raw_text", it) }
             snap?.subText?.let { put("raw_sub_text", it) }
-            screen?.remainingDistance?.let { put("remaining_distance", it) }
-            screen?.remainingTime?.let { put("remaining_time", it) }
+            (screen?.remainingDistance ?: snap?.remainingDistance)
+                ?.let { put("remaining_distance", it) }
+            (screen?.remainingTime ?: snap?.remainingTime)?.let { put("remaining_time", it) }
             screen?.arrivalTime?.let { put("arrival_time", it) }
             screen?.speedLimit?.let { put("speed_limit", it) }
             screen?.exitNumber?.let { put("exit_number", it) }
@@ -1371,7 +1431,8 @@ class AgentTools @Inject constructor(
                 if (!has("street") && hub.road.isNotEmpty()) put("street", hub.road)
                 if (!has("speed_limit") && hub.speedLimit > 0)
                     put("speed_limit", hub.speedLimit.toString())
-                put("hub_age_sec", (nowMs() - hub.lastUpdateMs) / 1000L)
+                put("hub_age_sec", (now - hub.lastUpdateMs) / 1000L)
+                hub.source?.let { put("hub_source", it.name.lowercase()) }
             }
             gate.vehicleSnapshot()?.let { d ->
                 put("soc", d.soc)
@@ -1379,9 +1440,9 @@ class AgentTools @Inject constructor(
                     .getOrNull()?.let { put("range_km", it.roundToInt()) }
             }
             // Screen values are live; notification age matters only when it is the source.
-            put("age_min", if (snap != null) ((nowMs() - snap.postedAtMs) / 60_000L) else 0L)
-            put("note", "данные из уведомления Навигатора, его окна (включая приборку и " +
-                "свёрнутый режим) и накопленных данных ведения (hub_age_sec = их возраст)")
+            put("notification_age_min", snap?.let { (now - it.postedAtMs) / 60_000L })
+            put("note", "данные из навигационного уведомления Waze, его окна (включая приборку и " +
+                "свёрнутый режим) и свежего source-aware snapshot (hub_age_sec = его возраст)")
         }.toString()
     }
 
@@ -1958,16 +2019,18 @@ class AgentTools @Inject constructor(
         // brings the estimate closer to typical highway/road routing.
         private const val ROAD_FACTOR = 1.25
 
-        // Any wheel below this is clearly deflated (Leopard 3 cold placard ~250 kPa).
-        private const val TIRE_WARN_MIN_KPA = 210
+        // App-side heuristic for the configured profile; the vehicle TPMS remains authoritative.
+        private val TIRE_WARN_MIN_KPA = VehicleProfile.CURRENT.lowTireWarningKpa
 
         // RU aliases for stock DiLink apps whose launcher labels are Chinese/English and thus
         // unreachable by label match. Values are candidate packages in priority order; an alias
         // fires only when one of them is actually installed on this car (fleet cars differ).
         // App store and fridge app are excluded deliberately (user decision, 2026-07-05).
         internal val APP_ALIASES: Map<String, List<String>> = mapOf(
-            "навигатор" to listOf("ru.yandex.yandexnavi"),
-            "яндекс навигатор" to listOf("ru.yandex.yandexnavi"),
+            "навигатор" to listOf(WazeNavigation.PACKAGE_NAME),
+            "waze" to listOf(WazeNavigation.PACKAGE_NAME),
+            "вейз" to listOf(WazeNavigation.PACKAGE_NAME),
+            "вазе" to listOf(WazeNavigation.PACKAGE_NAME),
             "музыка" to listOf("ru.yandex.music"),
             "яндекс музыка" to listOf("ru.yandex.music"),
             "камера" to listOf("com.byd.avc"),

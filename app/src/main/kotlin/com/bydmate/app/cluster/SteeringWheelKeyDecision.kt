@@ -3,12 +3,12 @@ package com.bydmate.app.cluster
 /**
  * Right steering-wheel star, SHORT press (KEYCODE_AUTO_R_CUSTOM_KEY). Validated on Leopard 3:
  * short=351, long=352 are DIFFERENT keycodes the MCU emits, so a long-press never matches the
- * trigger and reaches the native hold-menu. This is the DEFAULT trigger; the user may reassign it.
+ * trigger and reaches the native hold-menu. This is a known legacy code, not a Sea Lion default.
  */
 const val RIGHT_STAR_KEYCODE = 351
 
-/** Default trigger keycode for a fresh install / Leopard 3 (the right star). */
-const val DEFAULT_TRIGGER_KEYCODE = RIGHT_STAR_KEYCODE
+/** Sea Lion keycodes are learned on-car; no unverified button is intercepted by default. */
+const val DEFAULT_TRIGGER_KEYCODE = 0
 
 /**
  * Keycodes that must NOT be assignable as the trigger — assigning one would steal an important or
@@ -16,6 +16,7 @@ const val DEFAULT_TRIGGER_KEYCODE = RIGHT_STAR_KEYCODE
  * so this module stays unit-testable without Robolectric. Numbers are the standard Android keycodes.
  */
 val NON_ASSIGNABLE_KEYCODES: Set<Int> = setOf(
+    0,  // unassigned / KEYCODE_UNKNOWN
     24, // KEYCODE_VOLUME_UP
     25, // KEYCODE_VOLUME_DOWN
     26, // KEYCODE_POWER
@@ -42,7 +43,7 @@ enum class StarDecision { CONSUME_AND_TOGGLE, CONSUME, PASS_THROUGH }
  *   CONSUME on the UP edge (swallow it so the native short action never fires).
  */
 fun starDecision(keyCode: Int, isDown: Boolean, enabled: Boolean, triggerKeyCode: Int): StarDecision {
-    if (!enabled || keyCode != triggerKeyCode) return StarDecision.PASS_THROUGH
+    if (!enabled || triggerKeyCode <= 0 || keyCode != triggerKeyCode) return StarDecision.PASS_THROUGH
     return if (isDown) StarDecision.CONSUME_AND_TOGGLE else StarDecision.CONSUME
 }
 
@@ -66,7 +67,8 @@ fun learnDecision(keyCode: Int, isDown: Boolean): LearnAction {
     return if (isAssignable(keyCode)) LearnAction.CAPTURE else LearnAction.REJECT
 }
 
-const val DEFAULT_VOICE_KEYCODE = 320  // steering "voice" button on Leopard 3 (learnable)
+/** Learned in the target car; 320 remains a known label, not an assumed Sea Lion default. */
+const val DEFAULT_VOICE_KEYCODE = 0
 
 enum class VoiceKeyDecision { TRIGGER, CONSUME, IGNORE }
 
@@ -76,6 +78,6 @@ enum class VoiceKeyDecision { TRIGGER, CONSUME, IGNORE }
  *  BYD assistant, which owns the same hardware keycode. Any other key, or voice disabled,
  *  is IGNORE (pass through untouched). */
 fun voiceDecision(keyCode: Int, isDown: Boolean, voiceEnabled: Boolean, voiceKeyCode: Int): VoiceKeyDecision {
-    if (!voiceEnabled || keyCode != voiceKeyCode) return VoiceKeyDecision.IGNORE
+    if (!voiceEnabled || voiceKeyCode <= 0 || keyCode != voiceKeyCode) return VoiceKeyDecision.IGNORE
     return if (isDown) VoiceKeyDecision.TRIGGER else VoiceKeyDecision.CONSUME
 }

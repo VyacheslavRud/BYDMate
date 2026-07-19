@@ -222,6 +222,12 @@ fun main(args: Array<String>) {
                     true
                 }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
 
+                HelperBinderProtocol.TX_LAUNCH_WAZE_DEEP_LINK -> runCatching {
+                    val ok = launchWazeDeepLink(data.readString() ?: "")
+                    reply?.writeInt(if (ok) 0 else -1); reply?.writeInt(0)
+                    true
+                }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
+
                 HelperBinderProtocol.TX_GRANT_OVERLAY_PERMISSION -> runCatching {
                     // Narrow, hardcoded — NOT a generic shell passthrough. Two appops:
                     // SYSTEM_ALERT_WINDOW lets us draw the cluster overlay; PROJECT_MEDIA gates
@@ -782,6 +788,30 @@ private fun launchApp(packageName: String): Boolean {
     if (!r2.contains("Error")) return true
     val r3 = execShell("monkey -p $packageName -c android.intent.category.LAUNCHER 1")
     return !r3.contains("Error") && !r3.contains("error")
+}
+
+/** Strict privilege boundary for the navigation launcher transaction. */
+internal fun isAllowedWazeDeepLink(raw: String): Boolean {
+    return com.bydmate.app.navigation.WazeDeepLinkContract.isAllowed(raw)
+}
+
+/**
+ * Delivers a validated official Waze deep link through shell uid. Unlike app-context
+ * startActivity(), `am start -W` reports launch errors and is not silently dropped by Android's
+ * background activity-start restriction. URI and resolved component are passed as argv.
+ */
+private fun launchWazeDeepLink(raw: String): Boolean {
+    if (!isAllowedWazeDeepLink(raw)) return false
+    val component = resolveLaunchComponent(com.bydmate.app.navigation.WazeDeepLinkContract.PACKAGE_NAME)
+        ?: return false
+    val result = shExec(
+        "am start -W -a android.intent.action.VIEW -d \"\$1\" -n \"\$2\"",
+        raw,
+        component,
+    )
+    return result.code == 0 &&
+        !result.stdout.contains("Error", ignoreCase = true) &&
+        !result.stdout.contains("Exception", ignoreCase = true)
 }
 
 /**

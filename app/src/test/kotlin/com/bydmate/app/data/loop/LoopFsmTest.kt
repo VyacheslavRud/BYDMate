@@ -7,7 +7,7 @@ import org.junit.Test
 // Per DiParsData.kt:21 — powerState: 0=OFF, 1=ON (ignition active, parked), 2=DRIVE.
 // Per DiParsData.kt:20 — gear: 1=P, 2=R, 3=N, 4=D.
 // Per DiParsData.kt:5  — speed: Int? in km/h.
-// chargeGunState (fid 876609586): 1=NONE, 2..5=gun connected (AC/DC/AC_DC/VTOL).
+// chargeGunState (fid 876609586): 1=NONE, 2..4=charging input, 5=V2L energy export.
 
 class LoopFsmTest {
 
@@ -21,6 +21,14 @@ class LoopFsmTest {
         // so DRIVE never got its 1s cadence and OFF never dropped to IDLE 30s.
         assertEquals(LoopState.DRIVE, LoopFsm.classify(diParsData(chargeGunState = 1, powerState = 2, speed = 25)))
         assertEquals(LoopState.IDLE, LoopFsm.classify(diParsData(chargeGunState = 1, powerState = 0)))
+    }
+
+    @Test fun `V2L does not enter charge cadence`() {
+        assertEquals(LoopState.IDLE, LoopFsm.classify(diParsData(chargeGunState = 5, powerState = 0)))
+        assertEquals(
+            LoopState.PARKED,
+            LoopFsm.classify(diParsData(chargeGunState = 5, powerState = 1, speed = 0)),
+        )
     }
 
     @Test fun `powerState DRIVE with speed = drive cadence`() {

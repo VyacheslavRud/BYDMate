@@ -19,7 +19,7 @@
     <string name="settings_display_mirror_title">方向盘按键投射到仪表盘</string>
     <string name="settings_display_mirror_desc">短按所选方向盘按键，将所选应用投射到仪表盘或返回屏幕。</string>
     <string name="settings_cluster_auto_container_title">立即显示到仪表盘</string>
-    <string name="settings_cluster_auto_container_desc">自动将仪表盘切换到投屏模式</string>
+    <string name="settings_cluster_auto_container_desc">默认关闭：请先在您的仪表盘上验证手动投屏</string>
     <string name="settings_cluster_direct_reboot_hint">要让语音助手看到仪表盘上的导航，请将DiLink车机重启一次：长按音量旋钮即可重启。仅熄火并不能重启车机。重启之前投屏仍然可用，但语音助手看不到路线。</string>
     <string name="settings_display_app_title">投射到仪表盘的应用</string>
     <string name="settings_display_size_header">仪表盘窗口大小</string>
@@ -60,7 +60,7 @@
 
     <!-- Settings: Trips section -->
     <string name="settings_trips_datasource_header">行程数据来源</string>
-    <string name="settings_trips_datasource_note">钛3 - BYD energydata。\n宋及其他无内置数据库的车型 - DiPlus TripInfo。</string>
+    <string name="settings_trips_datasource_note">目标车型：2025 款海狮 07 EV。BYDMate 优先使用 energydata，不可用时改用实时遥测记录行程。</string>
     <string name="settings_trips_datasource_hint">如果行驶 2-3 次后列表为空，请切换模式。</string>
     <string name="settings_trips_system_header">系统数据（实验性）</string>
     <string name="settings_trips_system_note">车辆扩展数据：电池 SoH、BMS 真实里程、充电统计。仅读取。</string>
@@ -107,7 +107,7 @@
     <string name="settings_widget_left_tap_zoning_label">点击区域</string>
     <string name="settings_widget_left_tap_zoning_description">左侧 1/3 - 打开选定应用；其余部分 - 打开 BYDMate。</string>
     <string name="settings_widget_left_tap_label">左侧点击的应用</string>
-    <string name="settings_widget_left_tap_description">默认为 Yandex 导航。如果应用已卸载，点击将无效。</string>
+    <string name="settings_widget_left_tap_description">默认为 Waze。如果应用已卸载，点击将无效。</string>
     <string name="settings_widget_buttons_label">小组件按钮</string>
     <string name="settings_widget_buttons_description">单击滑出 4 个按钮，双击打开 BYDMate。按钮运行带有"按钮按下"触发器的规则。</string>
 
@@ -139,7 +139,7 @@
     <string name="settings_autoservice_disconnected_title">未连接</string>
     <string name="settings_autoservice_disconnected_detail">如果开发者设置中已启用 ADB，请重启应用</string>
     <string name="settings_autoservice_sentinel_title">已连接，但数据不可读</string>
-    <string name="settings_autoservice_sentinel_detail">此功能可能仅适用于 钛3</string>
+    <string name="settings_autoservice_sentinel_detail">兼容性取决于车辆固件</string>
     <string name="settings_autoservice_connected_title">已连接</string>
     <string name="settings_autoservice_connected_detail">SoH %1$s • 生命周期 %2$s / %3$s</string>
 
@@ -350,7 +350,7 @@
     <string name="automation_action_app_launch">启动应用</string>
     <string name="automation_action_yandex_music">Yandex 音乐</string>
     <string name="automation_action_call">拨打电话</string>
-    <string name="automation_action_navigate">Yandex 导航路线</string>
+    <string name="automation_action_navigate">Waze 路线</string>
     <string name="automation_action_url">打开 URL</string>
     <string name="automation_action_delay">延迟</string>
 
@@ -379,7 +379,7 @@
     <string name="automation_call_auto_dial_hint">无需按绿色按钮</string>
 
     <!-- Navigate edit dialog -->
-    <string name="automation_navigate_dialog_title">Yandex 导航路线</string>
+    <string name="automation_navigate_dialog_title">Waze 路线</string>
     <string name="automation_navigate_no_places_hint">请先在 设置 → 地点 中添加地点</string>
     <string name="automation_navigate_pick_place_placeholder">选择地点...</string>
 
@@ -423,13 +423,13 @@
 
     <!-- Welcome Wizard -->
     <string name="welcome_step_indicator">第 %1$d 步，共 2 步</string>
-    <string name="welcome_model_step_title">您的 BYD 是哪款车型？</string>
-    <string name="welcome_model_step_description">这将决定行程数据来源。\n钛3 将数据存储在 BYD 内置数据库（energydata）中。\n宋及其他车型 - 仅存储在 DiPlus 中。</string>
+    <string name="welcome_model_step_title">车辆配置</string>
+    <string name="welcome_model_step_description">此 dev 版本面向 2025 款 BYD 海狮 07 EV 610 智驾版后驱（中国版）。</string>
     <string name="welcome_model_song_label">宋 / 其他</string>
     <string name="welcome_model_change_later">稍后可在设置中更改。</string>
     <string name="welcome_next_button">下一步</string>
     <string name="welcome_battery_section_title">电池</string>
-    <string name="welcome_battery_capacity_hint">钛3：72.9 kWh（纯电）或 31.8 kWh（插混）</string>
+    <string name="welcome_battery_capacity_hint">海狮 07 EV 2025（610 智驾版后驱）：80.64 kWh</string>
     <string name="welcome_tariff_section_title">电价</string>
     <string name="welcome_tariff_home_label">家充电价（%1$s/kWh）</string>
     <string name="welcome_tariff_dc_label">快充电价（%1$s/kWh）</string>
@@ -448,7 +448,7 @@
     <string name="welcome_autostart_dilink_hint">如果自启动未生效，请在 Di+ 中添加：</string>
     <string name="welcome_autostart_dilink_instruction">Di+ → Predefined → Startup tasks</string>
     <string name="welcome_autostart_command_copied_toast">已复制！</string>
-    <string name="welcome_autostart_command_explanation">打开应用 = "open app" + 包名。\n两个应用用分号分隔：\n打开应用ru.yandex.yandexnavi;打开应用%1$s</string>
+    <string name="welcome_autostart_command_explanation">打开应用 = "open app" + 包名。\n两个应用用分号分隔：\n打开应用com.waze;打开应用%1$s</string>
     <string name="welcome_system_settings_section_title">系统设置</string>
     <string name="welcome_autostart_open_settings_button">打开自启动设置</string>
     <string name="welcome_autostart_open_settings_error">无法打开 DiLink 自启动设置。已打开应用设置。</string>
@@ -745,6 +745,7 @@
     <string name="steering_button_right_star">右星键</string>
     <string name="steering_button_surround_view">360°全景</string>
     <string name="steering_button_unknown">按键（代码 %1$d）</string>
+    <string name="steering_button_unassigned">未分配</string>
     <string name="steering_button_voice">语音助手</string>
     <!-- ==== Automation i18n (systematized) ==== -->
     <!-- categories -->
@@ -955,7 +956,7 @@
     <string name="automation_setting_play_sound">执行时播放提示音</string>
     <string name="auto_act_launch_app">启动应用</string>
     <string name="auto_act_call">拨打电话</string>
-    <string name="auto_act_navigate">Yandex 导航路线</string>
+    <string name="auto_act_navigate">Waze 路线</string>
     <string name="auto_act_open_url">打开 URL</string>
     <string name="auto_act_yandex_music">Yandex 音乐</string>
     <!-- sentry (zh was missing) -->
@@ -1129,8 +1130,8 @@
     <string name="settings_tariff_home_desc">家用充电 (AC) 每 1 kWh 的费用</string>
     <string name="settings_tariff_dc_desc">快充 (DC) 每 1 kWh 的费用</string>
     <string name="settings_tariff_trip_desc">行程费用使用哪种电价计算</string>
-    <string name="settings_consumption_good_desc">低于此能耗的行程显示为绿色</string>
-    <string name="settings_consumption_bad_desc">高于此能耗的行程显示为红色</string>
+    <string name="settings_consumption_good_desc">界面启发式阈值（默认 18），非官方标定能耗</string>
+    <string name="settings_consumption_bad_desc">界面启发式阈值（默认 24），非官方标定能耗</string>
     <string name="settings_widget_show_desc">在任意应用上方显示电量</string>
     <string name="settings_widget_reset_position_desc">将小部件恢复到默认位置</string>
     <string name="settings_export_csv_desc">全部行程历史导出为一个文件，保存到 Download 文件夹</string>
@@ -1164,14 +1165,15 @@
     <!-- HUD navigation -->
     <string name="settings_hud_header">HUD 抬头显示</string>
     <string name="settings_hud_title">导航投射到 HUD</string>
-    <string name="settings_hud_desc">将 Yandex 导航提示投射到抬头显示：转向、距离、街道、到达时间</string>
+    <string name="settings_hud_desc">将 Waze 导航提示投射到抬头显示：转向、距离、街道、到达时间</string>
     <string name="settings_hud_speed_sign_title">箭头下方的限速标志</string>
     <string name="settings_hud_speed_sign_desc">在 HUD 下方槽位显示红色限速标志</string>
     <string name="settings_hud_status_unsupported">未找到 SOME/IP 总线：此车辆不支持 HUD 输出</string>
     <string name="settings_hud_status_connecting">正在连接总线…</string>
     <string name="settings_hud_status_on">正在向 HUD 传输</string>
     <string name="settings_hud_status_bind_failed">无法连接 SOME/IP 总线</string>
-    <string name="settings_hud_hint">需要配备抬头显示的车型。数据来自 Yandex 导航窗口</string>
+    <string name="settings_hud_status_send_failed">总线已连接，但 HUD 帧被拒绝</string>
+    <string name="settings_hud_hint">需要配备抬头显示的车型。数据来自 Waze 窗口和导航通知</string>
 
     <!-- Dev demo environment -->
     <string name="settings_section_developer_title">DEV</string>

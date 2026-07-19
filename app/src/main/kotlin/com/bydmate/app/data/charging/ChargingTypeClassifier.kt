@@ -7,9 +7,9 @@ import javax.inject.Singleton
  * Classifies a charging session as AC or DC.
  *
  * Preferred path (live): use the `gun_state` value captured at handshake.
- * Fallback (catch-up): use kwh / hours heuristic — DC chargers deliver
- * far more than 20 kW averaged across a session; home AC chargers cap
- * around 7-11 kW. The 20 kW boundary cleanly separates them.
+ * Fallback (catch-up): use a conservative kWh / hours heuristic. The target Chinese-market
+ * Sea Lion's onboard AC charger stays below the 15 kW boundary; a slow or heavily tapered DC
+ * session can still be misclassified, so the directly observed gun state always wins.
  *
  * The user can always override via the optional finalize prompt (Phase 3).
  */
@@ -17,8 +17,7 @@ import javax.inject.Singleton
 class ChargingTypeClassifier @Inject constructor() {
 
     companion object {
-        /** kWh-per-hour boundary between AC and DC. AC physically caps at ~11 kW
-         *  (3-phase 16A); DC starts at 22 kW (CCS slow). 15 kW splits cleanly. */
+        /** Heuristic only; not a claimed charger limit or a CCS/GB/T protocol boundary. */
         const val DC_AVG_POWER_KW_THRESHOLD = 15.0
     }
 
@@ -31,8 +30,8 @@ class ChargingTypeClassifier @Inject constructor() {
      *   4 = GB_DC (treat as DC for UI/tariff purposes)
      */
     fun fromGunState(gunState: Int?): String? = when (gunState) {
-        2 -> "AC"
-        3, 4 -> "DC"
+        ChargeGunState.AC -> "AC"
+        ChargeGunState.DC, ChargeGunState.AC_DC -> "DC"
         else -> null
     }
 

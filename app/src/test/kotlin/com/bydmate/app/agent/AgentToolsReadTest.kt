@@ -14,6 +14,7 @@ import com.bydmate.app.data.repository.PlaceRepository
 import com.bydmate.app.data.remote.InsightsManager
 import com.bydmate.app.data.remote.OpenRouterClient
 import com.bydmate.app.data.repository.SettingsRepository
+import com.bydmate.app.data.vehicle.VehicleProfile
 import com.bydmate.app.domain.battery.BatteryState
 import com.bydmate.app.domain.battery.BatteryStateRepository
 import com.bydmate.app.domain.calculator.RangeCalculator
@@ -88,6 +89,13 @@ class AgentToolsReadTest {
         assertEquals(2, out.getInt("seat_heat_driver_level"))
         assertEquals(321, out.getInt("range_km"))
         assertEquals(100.0, out.getDouble("soh_percent"), 0.01)
+        val profile = out.getJSONObject("configured_vehicle_profile")
+        assertEquals(VehicleProfile.CURRENT.id, profile.getString("id"))
+        assertEquals("BYD6486SBEV2", profile.getString("model_code"))
+        assertEquals("RWD", profile.getString("drivetrain"))
+        assertEquals(80.64, profile.getDouble("nominal_battery_kwh"), 0.001)
+        assertTrue(profile.isNull("usable_battery_kwh"))
+        assertTrue(profile.isNull("nominal_pack_voltage_v"))
     }
 
     @Test fun vehicle_state_survives_battery_refresh_failure() = runTest {
@@ -233,6 +241,15 @@ class AgentToolsReadTest {
         coEvery { range.estimate(any(), any()) } returns null
         val out = JSONObject(tools().execute(AgentToolCall("1", "get_vehicle_state", "{}")))
         assertTrue(out.getBoolean("charging_gun_connected"))
+    }
+
+    @Test fun vehicle_state_V2L_is_export_not_charging() = runTest {
+        every { gate.vehicleSnapshot() } returns snapshot(soc = 80, chargeGunState = 5)
+        coEvery { battery.refresh() } throws RuntimeException("n/a")
+        coEvery { range.estimate(any(), any()) } returns null
+        val out = JSONObject(tools().execute(AgentToolCall("1", "get_vehicle_state", "{}")))
+        assertFalse(out.getBoolean("charging_gun_connected"))
+        assertTrue(out.getBoolean("v2l_connected"))
     }
 
     // (д) get_weather without GPS and without city -> error-JSON, no HTTP call.

@@ -33,7 +33,7 @@ class HudController @Inject constructor(
     private val helperClient: HelperClient,
     private val helperBootstrap: HelperBootstrap,
 ) {
-    enum class Status { OFF, UNSUPPORTED, CONNECTING, ON, BIND_FAILED }
+    enum class Status { OFF, UNSUPPORTED, CONNECTING, ON, BIND_FAILED, SEND_FAILED }
 
     companion object {
         private const val TAG = "HudController"
@@ -80,7 +80,7 @@ class HudController @Inject constructor(
         if (on) {
             scope.launch { startSequence() }
         } else {
-            NavA11yFeed.enabled = false   // stop tree reads immediately; teardown is async
+            NavA11yFeed.disable()   // stop tree reads immediately; teardown is async
             scope.launch { stopSequence() }
         }
     }
@@ -92,7 +92,7 @@ class HudController @Inject constructor(
 
     /** TrackingService.onDestroy hook. */
     fun stop() {
-        NavA11yFeed.enabled = false
+        NavA11yFeed.disable()
         scope.launch { stopSequence() }
     }
 
@@ -127,10 +127,24 @@ class HudController @Inject constructor(
                 }
                 HudIconLoader.init(context)
                 bridge = b
-                NavA11yFeed.enabled = true
-                loop = HudPushLoop(b, speedSignEnabled = { isSpeedSignEnabled() })
-                    .also { it.start(scope) }
+                NavA11yFeed.enable()
                 _status.value = Status.ON
+                loop = HudPushLoop(
+                    b,
+                    speedSignEnabled = { isSpeedSignEnabled() },
+                    onDeliveryResult = { rc ->
+                        if (rc < 0) {
+                            if (_status.value != Status.SEND_FAILED) {
+                                Log.w(TAG, "HUD frame rejected by SOME/IP gateway rc=$rc")
+                            }
+                            _status.value = Status.SEND_FAILED
+                        } else if (_status.value == Status.SEND_FAILED) {
+                            _status.value = Status.ON
+                            Log.i(TAG, "HUD frame delivery recovered rc=$rc")
+                        }
+                    },
+                )
+                    .also { it.start(scope) }
                 Log.i(TAG, "HUD output active")
             } catch (ce: CancellationException) {
                 b.unbind()
@@ -144,7 +158,7 @@ class HudController @Inject constructor(
      *  of hitting the bridge!=null guard forever, and so the push loop stops firing
      *  into a dead binder (final-review fix 1). */
     private fun onBindingLost() {
-        NavA11yFeed.enabled = false
+        NavA11yFeed.disable()
         scope.launch {
             mutex.withLock {
                 loop?.stop()
@@ -156,13 +170,13 @@ class HudController @Inject constructor(
     }
 
     private suspend fun stopSequence() {
-        NavA11yFeed.enabled = false
+        NavA11yFeed.disable()
         mutex.withLock {
             startJob?.let { it.cancel(); it.join() }
             startJob = null
             // startJob may have flipped the feed back on between our first write and its
             // completion (no suspension points after bind()) - re-clear (final-review fix 3).
-            NavA11yFeed.enabled = false
+            NavA11yFeed.disable()
             loop?.stop()
             loop = null
             bridge?.let {

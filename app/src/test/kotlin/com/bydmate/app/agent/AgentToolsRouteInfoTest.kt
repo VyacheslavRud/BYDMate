@@ -61,6 +61,7 @@ class AgentToolsRouteInfoTest {
     ).also { it.nowMs = { 1_000_000_000_000L } }
 
     private fun fullScreen() = NaviScreenReader.ScreenInfo(
+        maneuver = "налево",
         speedLimit = "60",
         exitNumber = null,
         maneuverDistance = "250 м",
@@ -85,9 +86,9 @@ class AgentToolsRouteInfoTest {
     @Test fun get_route_info_returns_parsed_and_raw_fields() = runTest {
         NaviRouteHolder.update(
             NaviRouteHolder.NAVI_PACKAGE, "5 км", "Через 300 м направо", null,
-            1_000_000_000_000L - 3 * 60_000L,
+            1_000_000_000_000L - 60_000L,
             NaviNotificationParser.Parsed(
-                maneuver = "направо", maneuverResource = "notification_right_sdl",
+                maneuver = "направо",
                 distance = "300 м", street = "улица Ленина", bigTexts = listOf("18:40", "42 км"),
             ),
         )
@@ -97,22 +98,22 @@ class AgentToolsRouteInfoTest {
         assertEquals("улица Ленина", out.getString("street"))
         assertEquals("18:40", out.getJSONArray("route_lines").getString(0))
         assertEquals("5 км", out.getString("raw_title"))
-        assertEquals(3, out.getLong("age_min"))
+        assertEquals(1, out.getLong("notification_age_min"))
         assertTrue(out.has("note"))
         assertFalse(out.has("maneuver_icon"))
     }
 
-    @Test fun `get_route_info exposes maneuver_icon when icon is unknown`() = runTest {
+    @Test fun `get_route_info keeps distance when Waze notification has no maneuver text`() = runTest {
         NaviRouteHolder.update(
             NaviRouteHolder.NAVI_PACKAGE, "5 км", null, null,
             1_000_000_000_000L,
             NaviNotificationParser.Parsed(
-                maneuver = null, maneuverResource = "notification_right_sdl",
+                maneuver = null,
                 distance = "350 м", street = null, bigTexts = emptyList(),
             ),
         )
         val out = JSONObject(tools().execute(AgentToolCall("1", "get_route_info", "{}")))
-        assertEquals("notification_right_sdl", out.getString("maneuver_icon"))
+        assertEquals("350 м", out.getString("maneuver_distance"))
         assertFalse(out.has("maneuver"))
     }
 
@@ -143,7 +144,7 @@ class AgentToolsRouteInfoTest {
         t.naviScreenProvider = { fullScreen() }
         val out = JSONObject(t.execute(AgentToolCall("1", "get_route_info", "{}")))
         assertFalse(out.has("error"))
-        assertFalse(out.has("maneuver"))
+        assertEquals("налево", out.getString("maneuver"))
         assertFalse(out.has("raw_title"))
         assertEquals("250 м", out.getString("maneuver_distance"))
         assertEquals("28 км", out.getString("remaining_distance"))
@@ -151,22 +152,23 @@ class AgentToolsRouteInfoTest {
         assertEquals("10:10", out.getString("arrival_time"))
         assertEquals("ул. Качаны", out.getString("street"))
         assertEquals("60", out.getString("speed_limit"))
-        assertEquals(0L, out.getLong("age_min"))
+        assertFalse(out.has("notification_age_min"))
     }
 
-    @Test fun `notification street wins over screen street`() = runTest {
+    @Test fun `live screen wins over notification fields`() = runTest {
         NaviRouteHolder.update(
             NaviRouteHolder.NAVI_PACKAGE, "5 км", null, null,
             1_000_000_000_000L,
             NaviNotificationParser.Parsed(
-                maneuver = null, maneuverResource = null,
+                maneuver = null,
                 distance = null, street = "улица Ленина", bigTexts = emptyList(),
             ),
         )
         val t = tools()
         t.naviScreenProvider = { fullScreen() }
         val out = JSONObject(t.execute(AgentToolCall("1", "get_route_info", "{}")))
-        assertEquals("улица Ленина", out.getString("street"))
+        assertEquals("ул. Качаны", out.getString("street"))
+        assertEquals("налево", out.getString("maneuver"))
         assertEquals("28 км", out.getString("remaining_distance"))
     }
 
@@ -175,7 +177,7 @@ class AgentToolsRouteInfoTest {
             NaviRouteHolder.NAVI_PACKAGE, "5 км", null, null,
             1_000_000_000_000L,
             NaviNotificationParser.Parsed(
-                maneuver = "прямо", maneuverResource = null,
+                maneuver = "прямо",
                 distance = "500 м", street = "пр. Мира", bigTexts = emptyList(),
             ),
         )
@@ -217,6 +219,21 @@ class AgentToolsRouteInfoTest {
         assertTrue(out.has("error"))
     }
 
+    @Test fun `stale notification does not expose an ended route`() = runTest {
+        NaviRouteHolder.update(
+            NaviRouteHolder.NAVI_PACKAGE,
+            "Старый маршрут",
+            null,
+            null,
+            1_000_000_000_000L - NaviRouteHolder.ROUTE_TIMEOUT_MS - 1,
+        )
+        val t = tools()
+        t.naviScreenProvider = { null }
+
+        val out = JSONObject(t.execute(AgentToolCall("1", "get_route_info", "{}")))
+        assertTrue(out.has("error"))
+    }
+
     @Test fun `notification fields win over hub`() = runTest {
         NavGuidanceHub.update(
             NavGuidance(maneuverGaode = 1, distanceMeters = 999, road = "хаб-улица"),
@@ -227,7 +244,7 @@ class AgentToolsRouteInfoTest {
             NaviRouteHolder.NAVI_PACKAGE, "5 км", null, null,
             1_000_000_000_000L,
             NaviNotificationParser.Parsed(
-                maneuver = "направо", maneuverResource = null,
+                maneuver = "направо",
                 distance = "300 м", street = "улица Ленина", bigTexts = emptyList(),
             ),
         )

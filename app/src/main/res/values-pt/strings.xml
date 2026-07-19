@@ -16,7 +16,7 @@
     <string name="settings_display_mirror_title">Projeção no painel via botão do volante</string>
     <string name="settings_display_mirror_desc">Um toque curto no botão escolhido do volante move o aplicativo selecionado para o painel de instrumentos e vice-versa.</string>
     <string name="settings_cluster_auto_container_title">Mostrar no painel imediatamente</string>
-    <string name="settings_cluster_auto_container_desc">Ativar o modo de projeção do painel automaticamente</string>
+    <string name="settings_cluster_auto_container_desc">Desativado por padrão: primeiro teste a projeção manual no painel</string>
     <string name="settings_cluster_direct_reboot_hint">Para o agente de voz ver o navegador no painel, reinicie o DiLink uma vez: mantenha pressionado o botão de volume. Apenas desligar o carro não é suficiente. Até o reinício a projeção funciona, mas o agente não vê a rota.</string>
     <string name="settings_display_app_title">Aplicativo no painel</string>
     <string name="settings_display_size_header">Tamanho da janela no painel</string>
@@ -39,6 +39,7 @@
     <string name="steering_button_aux_left">Aux. esquerdo</string>
     <string name="steering_button_aux_right">Aux. direito</string>
     <string name="steering_button_unknown">Botão (código %1$d)</string>
+    <string name="steering_button_unassigned">Não atribuído</string>
     <!-- Cluster trigger-button picker + learn dialog -->
     <string name="settings_display_button_title">Botão de acionamento</string>
     <string name="settings_display_button_change">Alterar</string>
@@ -69,7 +70,7 @@
 
     <!-- Settings: Trips section -->
     <string name="settings_trips_datasource_header">Fonte de dados de viagens</string>
-    <string name="settings_trips_datasource_note">Titan 3 — BYD energydata.\nSong e outros modelos sem BD embutido — DiPlus TripInfo.</string>
+    <string name="settings_trips_datasource_note">Perfil alvo: Sea Lion 07 EV 2025. O BYDMate usa energydata quando disponível e, caso contrário, grava viagens pela telemetria ao vivo.</string>
     <string name="settings_trips_datasource_hint">Se a lista continuar vazia após 2–3 viagens — mude o modo.</string>
     <string name="settings_trips_system_header">Dados do sistema (beta)</string>
     <string name="settings_trips_system_note">Dados estendidos do veículo: SoH da bateria, quilometragem do BMS, estatísticas de carregamento. Somente leitura.</string>
@@ -114,7 +115,7 @@
     <string name="settings_widget_left_tap_zoning_label">Zonas de toque</string>
     <string name="settings_widget_left_tap_zoning_description">1/3 esquerdo - abre o app selecionado; o restante - BYDMate.</string>
     <string name="settings_widget_left_tap_label">App para toque à esquerda</string>
-    <string name="settings_widget_left_tap_description">O padrão é o Yandex Navigator. Se o aplicativo for removido, o toque não funcionará.</string>
+    <string name="settings_widget_left_tap_description">O padrão é o Waze. Se o aplicativo for removido, o toque não funcionará.</string>
     <string name="settings_widget_buttons_label">Botões do widget</string>
     <string name="settings_widget_buttons_description">Um toque exibe 4 botões, dois toques abrem o BYDMate. Um botão executa uma regra com o gatilho «Pressionamento de botão».</string>
     <string name="settings_places_section_header">Locais</string>
@@ -139,7 +140,7 @@
     <string name="settings_autoservice_disconnected_title">não conectado</string>
     <string name="settings_autoservice_disconnected_detail">reinicie o aplicativo se o ADB estiver ativado nas Opções do desenvolvedor</string>
     <string name="settings_autoservice_sentinel_title">conectado, mas os dados não são legíveis</string>
-    <string name="settings_autoservice_sentinel_detail">o recurso pode funcionar apenas na Leopard 3</string>
+    <string name="settings_autoservice_sentinel_detail">a compatibilidade depende do firmware do veículo</string>
     <string name="settings_autoservice_connected_title">conectado</string>
     <string name="settings_autoservice_connected_detail">SoH %1$s • tempo de vida %2$s / %3$s</string>
     <string name="settings_update_dialog_title">Atualizações</string>
@@ -309,7 +310,7 @@
     <string name="automation_action_app_launch">Abrir aplicativo</string>
     <string name="automation_action_yandex_music">Yandex Music</string>
     <string name="automation_action_call">Ligar</string>
-    <string name="automation_action_navigate">Rota no Y.Navigator</string>
+    <string name="automation_action_navigate">Rota no Waze</string>
     <string name="automation_action_url">Abrir URL</string>
     <string name="automation_action_delay">Atraso</string>
     <string name="automation_action_media_volume">Volume de mídia</string>
@@ -342,7 +343,7 @@
     <string name="automation_call_phone_label">Número de telefone</string>
     <string name="automation_call_auto_dial_label">Ligar automaticamente</string>
     <string name="automation_call_auto_dial_hint">Sem pressionar o botão verde</string>
-    <string name="automation_navigate_dialog_title">Rota no Y.Navigator</string>
+    <string name="automation_navigate_dialog_title">Rota no Waze</string>
     <string name="automation_navigate_no_places_hint">Adicione um local em Configurações -&gt; Locais primeiro</string>
     <string name="automation_navigate_pick_place_placeholder">Escolha um local...</string>
     <string name="automation_url_dialog_title">Abrir URL</string>
@@ -372,13 +373,13 @@
     <string name="place_edit_radius_label">Raio, m</string>
     <string name="place_edit_error_min_radius">O raio mínimo é 20 m</string>
     <string name="welcome_step_indicator">Passo %1$d de 2</string>
-    <string name="welcome_model_step_title">Qual modelo da BYD você tem\?</string>
-    <string name="welcome_model_step_description">Isto determina a fonte de dados de viagem.\nO Titan 3 armazena os dados no banco de dados embutido da BYD (energydata).\nSong e outros modelos — apenas no DiPlus.</string>
+    <string name="welcome_model_step_title">Perfil do veículo</string>
+    <string name="welcome_model_step_description">Esta versão dev foi configurada para o BYD Sea Lion 07 EV 2025, 610 Zhijia RWD (China).</string>
     <string name="welcome_model_song_label">Song / outro</string>
     <string name="welcome_model_change_later">Você pode alterar isso mais tarde nas configurações.</string>
     <string name="welcome_next_button">Próximo</string>
     <string name="welcome_battery_section_title">Bateria</string>
-    <string name="welcome_battery_capacity_hint">Leopard 3: 72.9 kWh (BEV) ou 31.8 kWh (PHEV)</string>
+    <string name="welcome_battery_capacity_hint">Sea Lion 07 EV 2025 (610 Zhijia RWD): 80,64 kWh</string>
     <string name="welcome_tariff_section_title">Tarifas</string>
     <string name="welcome_tariff_home_label">Carregamento residencial AC (%1$s/kWh)</string>
     <string name="welcome_tariff_dc_label">Carregamento rápido DC (%1$s/kWh)</string>
@@ -397,7 +398,7 @@
     <string name="welcome_autostart_dilink_hint">Se a inicialização automática não funcionar, adicione isto no Di+:</string>
     <string name="welcome_autostart_dilink_instruction">Di+ -&gt; Predefinidos -&gt; Tarefas de inicialização</string>
     <string name="welcome_autostart_command_copied_toast">Copiado!</string>
-    <string name="welcome_autostart_command_explanation">打开应用 = \"abrir aplicativo\" + nome do pacote.\nPara dois aplicativos separados por ponto e vírgula:\n打开应用ru.yandex.yandexnavi;打开应用%1$s</string>
+    <string name="welcome_autostart_command_explanation">打开应用 = \"abrir aplicativo\" + nome do pacote.\nPara dois aplicativos separados por ponto e vírgula:\n打开应用com.waze;打开应用%1$s</string>
     <string name="welcome_system_settings_section_title">Configurações do sistema</string>
     <string name="welcome_autostart_open_settings_button">Abrir configurações de inicialização automática</string>
     <string name="welcome_autostart_open_settings_error">Não foi possível abrir as configurações de inicialização automática do DiLink. As configurações do aplicativo foram abertas.</string>
@@ -842,7 +843,7 @@
     <string name="automation_setting_play_sound">Executar com som</string>
     <string name="auto_act_launch_app">Abrir aplicativo</string>
     <string name="auto_act_call">Ligação</string>
-    <string name="auto_act_navigate">Rota no Y.Navigator</string>
+    <string name="auto_act_navigate">Rota no Waze</string>
     <string name="auto_act_open_url">Abrir URL</string>
     <string name="auto_act_yandex_music">Yandex Music</string>
     <string name="auto_msg_media_volume_missing">Ação nº %1$d: nível de volume não definido</string>
@@ -955,8 +956,8 @@
     <string name="settings_tariff_home_desc">Custo de 1 kWh ao carregar em casa (AC)</string>
     <string name="settings_tariff_dc_desc">Custo de 1 kWh em carregadores rápidos</string>
     <string name="settings_tariff_trip_desc">Qual tarifa usar para o custo das viagens</string>
-    <string name="settings_consumption_good_desc">Viagens com consumo menor ficam destacadas em verde</string>
-    <string name="settings_consumption_bad_desc">Viagens com consumo maior ficam destacadas em vermelho</string>
+    <string name="settings_consumption_good_desc">Heurística da interface (padrão 18), não o consumo oficial</string>
+    <string name="settings_consumption_bad_desc">Heurística da interface (padrão 24), não o consumo oficial</string>
     <string name="settings_widget_show_desc">Carga da bateria sobre qualquer aplicativo</string>
     <string name="settings_widget_reset_position_desc">Retornar o widget à posição padrão</string>
     <string name="settings_export_csv_desc">Todo o histórico de viagens em um arquivo na pasta Download</string>
@@ -1043,14 +1044,15 @@
     <!-- HUD navigation -->
     <string name="settings_hud_header">HUD (head-up display)</string>
     <string name="settings_hud_title">Navegação no HUD</string>
-    <string name="settings_hud_desc">Dicas do Yandex Navigator no head-up display: manobra, distância, rua, chegada</string>
+    <string name="settings_hud_desc">Dicas do Waze no head-up display: manobra, distância, rua, chegada</string>
     <string name="settings_hud_speed_sign_title">Placa de velocidade sob a seta</string>
     <string name="settings_hud_speed_sign_desc">Placa vermelha de limite de velocidade no slot inferior do HUD</string>
     <string name="settings_hud_status_unsupported">Barramento SOME/IP não encontrado: saída HUD indisponível neste carro</string>
     <string name="settings_hud_status_connecting">Conectando ao barramento…</string>
     <string name="settings_hud_status_on">Transmissão para o HUD ativa</string>
     <string name="settings_hud_status_bind_failed">Falha ao conectar ao barramento SOME/IP</string>
-    <string name="settings_hud_hint">Requer versão com head-up display. Os dados vêm da janela do Yandex Navigator</string>
+    <string name="settings_hud_status_send_failed">Barramento conectado, mas o quadro do HUD foi rejeitado</string>
+    <string name="settings_hud_hint">Requer versão com head-up display. Os dados vêm da janela e da notificação de navegação do Waze</string>
 
     <!-- Dev demo environment -->
     <string name="settings_section_developer_title">DEV</string>

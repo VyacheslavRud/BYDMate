@@ -1,5 +1,7 @@
 package com.bydmate.app.data.remote
 
+import com.bydmate.app.data.charging.ChargeGunState
+
 /**
  * Pure adaptive cadence policy for Iternio Telemetry sends.
  *
@@ -35,9 +37,8 @@ object IternioIntervalPolicy {
      * Classify from DiPars-only signals — cheap per-tick check that avoids
      * an autoservice ADB read just to pick a cadence.
      *
-     * Charging: gun whitelist {2=AC, 3=DC, 4=AC_DC, 5=VTOL} mirrors
-     * `DCFC_GUN_STATES` in IternioTelemetryClient. On Leopard 3 DiPars only
-     * emits 0/1/2; the wider set covers other firmwares.
+     * Charging: input states {2=AC, 3=DC, 4=AC_DC}. State 5 is V2L/VTOL energy export,
+     * so it follows the normal parked/driving cadence instead of pretending to charge.
      *
      * Parked: `gear == 1` is the existing is_parked semantic. Null gear is
      * the DiPars reduced-payload case — collapse to PARKED unless we have
@@ -47,7 +48,7 @@ object IternioIntervalPolicy {
      * present.
      */
     fun classifyFromDiPars(data: com.bydmate.app.data.remote.DiParsData): TelemetryState {
-        val charging = data.chargeGunState in CHARGING_GUN_STATES
+        val charging = ChargeGunState.isCharging(data.chargeGunState)
         val gear = data.gear
         val parked = when {
             gear == 1 -> true
@@ -56,6 +57,4 @@ object IternioIntervalPolicy {
         }
         return classify(charging = charging, parked = parked)
     }
-
-    private val CHARGING_GUN_STATES = setOf(2, 3, 4, 5)
 }

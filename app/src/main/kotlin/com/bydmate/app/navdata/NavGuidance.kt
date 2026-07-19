@@ -1,6 +1,6 @@
 package com.bydmate.app.navdata
 
-/** Snapshot of Navigator guidance in numeric form. 0 / "" = unknown. */
+/** Snapshot of Waze guidance in numeric form. 0 / "" = unknown. */
 data class NavGuidance(
     val maneuverGaode: Int = 0,
     val distanceMeters: Int = 0,
@@ -10,25 +10,37 @@ data class NavGuidance(
     val speedLimit: Int = 0,
 )
 
-/** Pure parsers: raw Navigator widget strings -> NavGuidance. Shared by the a11y
+/** Pure parsers: raw Waze widget strings -> NavGuidance. Shared by the a11y
  *  extractor and the notification channel; every field is optional and soft-fails. */
 object NavGuidanceParser {
 
-    private val DIST_KM = Regex("""(\d+(?:[.,]\d+)?)\s*(км|km)(?!\S)""", RegexOption.IGNORE_CASE)
-    private val DIST_M = Regex("""(\d+)\s*(м|m)(?!\S)""", RegexOption.IGNORE_CASE)
-    private val ETA_HR_MIN = Regex("""(\d+)\s*ч\s*(\d+)\s*мин""", RegexOption.IGNORE_CASE)
-    private val ETA_MIN = Regex("""(\d+)\s*мин""", RegexOption.IGNORE_CASE)
+    // A unit may be followed by punctuation in a complete Waze instruction ("500 m, turn").
+    // Reject only another letter so `m` cannot steal the prefix of `mi`/`mile`.
+    private val DIST_KM = Regex("""(\d+(?:[.,]\d+)?)\s*(км|km)(?!\p{L})""", RegexOption.IGNORE_CASE)
+    private val DIST_M = Regex("""(\d+)\s*(м|m)(?!\p{L})""", RegexOption.IGNORE_CASE)
+    private val DIST_MI = Regex("""(\d+(?:[.,]\d+)?)\s*(mi|mile|miles)(?!\p{L})""", RegexOption.IGNORE_CASE)
+    private val DIST_FT = Regex("""(\d+(?:[.,]\d+)?)\s*(ft|foot|feet)(?!\p{L})""", RegexOption.IGNORE_CASE)
+    private val ETA_HR_MIN = Regex(
+        """(\d+)\s*(?:ч|h|hr|hrs|hour|hours)\s*(\d+)\s*(?:мин|min|mins|minute|minutes)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val ETA_HR = Regex(
+        """(\d+)\s*(?:ч|h|hr|hrs|hour|hours)(?!\p{L})""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val ETA_MIN = Regex(
+        """(\d+)\s*(?:мин|min|mins|minute|minutes)(?!\p{L})""",
+        RegexOption.IGNORE_CASE,
+    )
 
     data class RawFields(
-        val maneuverDesc: String?,   // image_maneuverballoon_maneuver contentDescription
-        val exitNumber: String?,     // exit_number_text
-        val distance: String?,       // text_maneuverballoon_distance
-        val distanceUnit: String?,   // text_maneuverballoon_metrics
-        val nextStreet: String?,     // text_nextstreet
-        val statusPanel: String?,    // status_panel_text
-        val etaTime: String?,        // textview_eta_time (desc preferred over text)
-        val etaDistance: String?,    // textview_eta_distance
-        val speedLimit: String?,     // text_speedlimit
+        val maneuverDesc: String?,
+        val exitNumber: String?,
+        val distance: String?,
+        val nextStreet: String?,
+        val etaTime: String?,
+        val etaDistance: String?,
+        val speedLimit: String?,
     )
 
     /** Null when no guidance widget is visible (donor's hasManeuverBalloon gate). */
@@ -37,38 +49,44 @@ object NavGuidanceParser {
         if (!guidanceVisible) return null
         return NavGuidance(
             maneuverGaode = resolveManeuver(raw),
-            distanceMeters = resolveDistance(raw.distance, raw.distanceUnit),
-            road = raw.nextStreet ?: raw.statusPanel ?: "",
+            distanceMeters = resolveDistance(raw.distance),
+            road = raw.nextStreet.orEmpty(),
             etaSeconds = resolveEta(raw.etaTime),
             totalDistMeters = parseDistanceText(raw.etaDistance),
             speedLimit = raw.speedLimit?.trim()?.toIntOrNull() ?: 0,
         )
     }
 
-    /** Combined "300 м" / "1,2 км" string -> meters (notification distance, eta distance). */
+    /** Combined metric or imperial Waze distance -> meters (notification and ETA distance). */
     fun parseDistanceText(text: String?): Int {
         val s = text?.trim() ?: return 0
         DIST_KM.find(s)?.let {
             return ((it.groupValues[1].replace(',', '.').toDoubleOrNull() ?: 0.0) * 1000).toInt()
+        }
+        DIST_MI.find(s)?.let {
+            return ((it.groupValues[1].replace(',', '.').toDoubleOrNull() ?: 0.0) * 1609.344).toInt()
+        }
+        DIST_FT.find(s)?.let {
+            return ((it.groupValues[1].replace(',', '.').toDoubleOrNull() ?: 0.0) * 0.3048).toInt()
         }
         DIST_M.find(s)?.let { return it.groupValues[1].toIntOrNull() ?: 0 }
         return 0
     }
 
     private fun resolveManeuver(raw: RawFields): Int {
-        // A numbered exit (1..10) is a sufficient roundabout signal even when the balloon
-        // desc says "Поверните направо" (Yandex does that on small roundabouts).
+        // A numbered exit (1..10) is a sufficient roundabout signal even if Waze exposes only
+        // a generic turn phrase in the maneuver view.
         val exitNum = raw.exitNumber?.let { Regex("""\d+""").find(it)?.value }?.toIntOrNull()
         if (exitNum != null && exitNum in 1..10) return NavManeuverCodes.GAODE_ROUNDABOUT_EXIT
-        return NavManeuverCodes.fromA11yDescription(raw.maneuverDesc)
+        return NavManeuverCodes.fromInstructionText(raw.maneuverDesc)
     }
 
-    private fun resolveDistance(distance: String?, unit: String?): Int {
+    private fun resolveDistance(distance: String?): Int {
         val rawText = distance?.trim() ?: return 0
-        val u = unit?.trim()?.lowercase() ?: "м"
-        val isKm = u.startsWith("км") || u.startsWith("km")
-        rawText.toIntOrNull()?.let { return if (isKm) it * 1000 else it }
-        rawText.replace(',', '.').toDoubleOrNull()?.let { return if (isKm) (it * 1000).toInt() else it.toInt() }
+        parseDistanceText(rawText).takeIf { it > 0 }
+            ?.let { return it }
+        // A unit-less Waze accessibility value is treated as metres, matching its UI contract.
+        rawText.replace(',', '.').toDoubleOrNull()?.let { return it.toInt() }
         return 0
     }
 
@@ -77,6 +95,7 @@ object NavGuidanceParser {
         ETA_HR_MIN.find(s)?.let {
             return (it.groupValues[1].toIntOrNull() ?: 0) * 3600 + (it.groupValues[2].toIntOrNull() ?: 0) * 60
         }
+        ETA_HR.find(s)?.let { return (it.groupValues[1].toIntOrNull() ?: 0) * 3600 }
         ETA_MIN.find(s)?.let { return (it.groupValues[1].toIntOrNull() ?: 0) * 60 }
         return 0
     }

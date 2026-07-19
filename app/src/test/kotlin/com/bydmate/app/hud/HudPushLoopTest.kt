@@ -11,11 +11,11 @@ import org.junit.Test
 
 class HudPushLoopTest {
 
-    private class FakeSink : HudEventSink {
+    private class FakeSink(private val result: Int = 0) : HudEventSink {
         val events = mutableListOf<Pair<Long, ByteArray>>()
         override fun fireEvent(topic: Long, payload: ByteArray): Int {
             events.add(topic to payload)
-            return 0
+            return result
         }
     }
 
@@ -81,5 +81,17 @@ class HudPushLoopTest {
         val loop = HudPushLoop(FakeSink(), nowMsProvider = { 1_000_000_000_000L })
         assertEquals(null, loop.etaString(0))
         assertTrue(loop.etaString(1620)!!.matches(Regex("""\d{2}:\d{2}""")))
+    }
+
+    @Test fun `delivery result reports gateway rejection`() {
+        activeHub(nowMs = 1000L)
+        val results = mutableListOf<Int>()
+        val loop = HudPushLoop(
+            FakeSink(result = -7),
+            nowMsProvider = { 1000L },
+            onDeliveryResult = results::add,
+        )
+        assertTrue(loop.tick(wasActive = false))
+        assertEquals(listOf(-7), results)
     }
 }

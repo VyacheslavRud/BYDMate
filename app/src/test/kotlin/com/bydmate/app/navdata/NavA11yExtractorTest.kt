@@ -19,9 +19,9 @@ class NavA11yExtractorTest {
         assertEquals(NavA11yExtractor.ReadResult.NotNavigator, NavA11yExtractor.read(node))
     }
 
-    @Test fun `navigator package without guidance widgets is no-guidance`() {
+    @Test fun `Waze package without guidance widgets is no-guidance`() {
         val node = AccessibilityNodeInfo.obtain()
-        node.packageName = "ru.yandex.yandexnavi"
+        node.packageName = "com.waze"
         assertEquals(NavA11yExtractor.ReadResult.NoGuidance, NavA11yExtractor.read(node))
     }
 }

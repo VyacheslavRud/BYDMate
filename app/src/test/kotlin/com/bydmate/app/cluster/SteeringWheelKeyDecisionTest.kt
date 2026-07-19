@@ -43,8 +43,15 @@ class SteeringWheelKeyDecisionTest {
         )
     }
 
-    @Test fun `default trigger constant is the right star`() {
-        assertEquals(351, DEFAULT_TRIGGER_KEYCODE)
+    @Test fun `fresh profile does not assume a steering trigger`() {
+        assertEquals(0, DEFAULT_TRIGGER_KEYCODE)
+    }
+
+    @Test fun `unassigned trigger never consumes unknown key events`() {
+        assertEquals(
+            StarDecision.PASS_THROUGH,
+            starDecision(0, isDown = true, enabled = true, triggerKeyCode = 0),
+        )
     }
 
     @Test fun `system keys, 360-view and carousel are not assignable`() {
@@ -66,6 +73,7 @@ class SteeringWheelKeyDecisionTest {
         assertTrue(isAssignable(351)) // right star
         assertTrue(isAssignable(305)) // left star
         assertTrue(isAssignable(320)) // voice assistant
+        assertFalse(isAssignable(0)) // unassigned sentinel
         assertTrue(isAssignable(321)) // aux left
         assertTrue(isAssignable(383)) // aux right
     }

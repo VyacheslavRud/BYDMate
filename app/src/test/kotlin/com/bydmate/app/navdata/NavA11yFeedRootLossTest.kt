@@ -15,7 +15,7 @@ import org.robolectric.RobolectricTestRunner
 class NavA11yFeedRootLossTest {
 
     @After fun tearDown() {
-        NavA11yFeed.enabled = false
+        NavA11yFeed.disable()
         NavGuidanceHub.reset()
     }
 
@@ -24,14 +24,14 @@ class NavA11yFeedRootLossTest {
         val t0 = System.currentTimeMillis()
         NavGuidanceHub.update(NavGuidance(maneuverGaode = 2, distanceMeters = 500),
             NavGuidanceHub.Source.A11Y, nowMs = t0)
-        NavA11yFeed.enabled = true
+        NavA11yFeed.enable()
         NavA11yFeed.lastProcessMs = 0L
         val service = mockk<SteeringWheelKeyService> {
             every { findNavigatorRoot() } returns null
         }
         val event = AccessibilityEvent.obtain().apply {
             eventType = AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED
-            packageName = "ru.yandex.yandexnavi"
+            packageName = "com.waze"
         }
         NavA11yFeed.onEvent(service, event)   // window gone -> streak must start
         // Still active right away; deactivated once the 10 s deadline passes with

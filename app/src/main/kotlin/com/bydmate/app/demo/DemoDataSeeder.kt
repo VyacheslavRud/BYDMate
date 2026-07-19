@@ -8,11 +8,13 @@ import com.bydmate.app.data.local.dao.TripPointDao
 import com.bydmate.app.data.local.database.AppDatabase
 import com.bydmate.app.data.local.entity.ChargeEntity
 import com.bydmate.app.data.local.entity.TripEntity
+import com.bydmate.app.data.vehicle.VehicleProfile
 import com.bydmate.app.data.local.entity.TripPointEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.round
 
 data class DemoSeedResult(val trips: Int, val charges: Int)
 
@@ -184,11 +186,15 @@ class DemoDataSeeder @Inject constructor(
             TripSpec(840, 67, 48.9, 8.76, 92, 79, 12),
         )
 
+        private fun energyForSocDelta(socStart: Int, socEnd: Int): Double =
+            round(VehicleProfile.CURRENT.nominalBatteryKwh * (socEnd - socStart) / 10.0) / 10.0
+
+        // Chinese-market GB/T demo sessions must not inherit the 11 kW European AC fixture.
         private val CHARGE_SPECS = listOf(
-            ChargeSpec(20, 210, 31.4, 38, 76, "AC", 11.0),
-            ChargeSpec(120, 245, 38.1, 29, 75, "AC", 11.0),
-            ChargeSpec(360, 32, 29.7, 34, 70, "DC", 93.0),
-            ChargeSpec(960, 190, 27.8, 45, 79, "AC", 11.0),
+            ChargeSpec(20, 280, energyForSocDelta(38, 76), 38, 76, "AC", 7.0),
+            ChargeSpec(120, 340, energyForSocDelta(29, 75), 29, 75, "AC", 7.0),
+            ChargeSpec(360, 32, energyForSocDelta(34, 70), 34, 70, "DC", 93.0),
+            ChargeSpec(960, 250, energyForSocDelta(45, 79), 45, 79, "AC", 7.0),
         )
     }
 }

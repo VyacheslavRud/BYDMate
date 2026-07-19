@@ -3,6 +3,7 @@ package com.bydmate.app.data.remote
 import android.util.Log
 import com.bydmate.app.data.autoservice.BatteryReading
 import com.bydmate.app.data.autoservice.ChargingReading
+import com.bydmate.app.data.charging.ChargeGunState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
@@ -37,9 +38,6 @@ class IternioTelemetryClient @Inject constructor(
     companion object {
         private const val TAG = "IternioTelemetry"
         private const val SEND_URL = "https://api.iternio.com/1/tlm/send"
-        // Gun-state values that mean the car is on a DC fast charger.
-        // 3=DC, 4=AC_DC (combo CCS), 5=VTOL — all bypass the onboard AC charger.
-        private val DCFC_GUN_STATES = setOf(3, 4, 5)
         // Iternio rejects /1/tlm/send with HTTP 401 "Unauthorized Key" when no
         // api_key query param is provided. This is the long-standing community
         // key used by OVMS and teslamate-abrp — both major open-source ABRP
@@ -47,9 +45,9 @@ class IternioTelemetryClient @Inject constructor(
         // their own developer key. Custom key from Settings still takes
         // precedence when set.
         const val DEFAULT_API_KEY = "32b2162f-9599-4647-8139-66e9f9528370"
-        // Sanity envelope for ENG_POW. Leopard 3 worst case: ~250 kW discharge
-        // on launch, ~150 kW DC charge. [-300, +500] covers it with margin;
-        // anything beyond is a sentinel or Parcel parse glitch.
+        // Cross-model corruption envelope, not the vehicle's rated motor power. It comfortably
+        // contains the target Sea Lion's 230 kW peak and plausible regen/charge values; anything
+        // beyond it is treated as a sentinel or Parcel parse glitch.
         private const val POWER_MIN_KW = -300
         private const val POWER_MAX_KW = 500
     }
@@ -61,22 +59,21 @@ class IternioTelemetryClient @Inject constructor(
      * @param userToken Per-vehicle live-data token from ABRP "Generic" provider.
      * @param data Live DiPars snapshot. SOC must be present — without it the
      *             call returns a failure without hitting the network.
-     * @param nominalCapacityKwh Nominal battery capacity (user setting; 72.9 on
-     *                           Leopard 3). Sent as Iternio `capacity` so ABRP
-     *                           can translate SOC% to kWh. We do NOT use the
-     *                           DiPars `batteryCapacityKwh` field — on Leopard
-     *                           3 it returns ~4.5 (not nominal capacity).
-     * @param battery Optional autoservice battery snapshot (Leopard 3 only).
-     *                Adds `soh` when SoH is readable.
-     * @param charging Optional autoservice charging snapshot (Leopard 3 only).
-     *                 Adds `is_dcfc` and `kwh_charged` when readable.
+     * @param nominalCapacityKwh Nominal battery capacity from Settings (80.64 kWh by default for
+     *                           the current Sea Lion profile). Sent as Iternio `capacity` so ABRP
+     *                           can translate SOC% to kWh. The similarly named live field is not
+     *                           trusted as nominal capacity across BYD firmware variants.
+     * @param battery Optional autoservice battery snapshot. Adds `soh` when the target firmware
+     *                exposes a sane value.
+     * @param charging Optional autoservice charging snapshot. Adds charging-session fields only
+     *                 while an AC/DC input state is confirmed.
      * @param carModel Optional ABRP car-model code from settings.
      * @param enginePowerKw Optional live battery power from autoservice ENG_POW
      *                     (fid 339738656, dev=1012, tx=5). When present takes
      *                     priority over `data.power` — autoservice reads
      *                     battery-side draw directly, while DiPars `power` is
      *                     motor mechanical and often null in reduced-payload
-     *                     mode on Leopard 3.
+     *                     mode on some BYD firmware variants.
      * @param sampleTimeMs Wall-clock time at which the snapshot was captured
      *                    (epoch millis). Used for the `utc` field so ABRP
      *                    plots samples at the moment of measurement, not at
@@ -141,16 +138,18 @@ class IternioTelemetryClient @Inject constructor(
             // nominal capacity by battery aging; is_dcfc separates fast-charge
             // sessions from AC; kwh_charged shows session progress.
             charging?.let { c ->
-                c.gunConnectState?.let { gun ->
-                    telemetry.put("is_dcfc", if (gun in DCFC_GUN_STATES) 1 else 0)
-                }
-                // -1.0f is the autoservice "no value" sentinel — drop it.
-                // .toDouble() is required: Android's JSONObject only exposes
-                // put(String, double) — there is no put(String, float). On JVM
-                // the desktop org.json has the float overload, so this lands as
-                // NoSuchMethodError only at runtime on the device.
-                c.chargingCapacityKwh?.takeIf { it >= 0f }?.let {
-                    telemetry.put("kwh_charged", it.toDouble())
+                // Export, disconnected and unknown states cannot safely own charging-session
+                // counters. Emit these fields only for a confirmed AC/DC input state.
+                c.gunConnectState?.takeIf(ChargeGunState::isCharging)?.let { gun ->
+                    telemetry.put("is_dcfc", if (ChargeGunState.isDcCharging(gun)) 1 else 0)
+                    // -1.0f is the autoservice "no value" sentinel — drop it.
+                    // .toDouble() is required: Android's JSONObject only exposes
+                    // put(String, double) — there is no put(String, float). On JVM
+                    // the desktop org.json has the float overload, so this lands as
+                    // NoSuchMethodError only at runtime on the device.
+                    c.chargingCapacityKwh?.takeIf { it >= 0f }?.let {
+                        telemetry.put("kwh_charged", it.toDouble())
+                    }
                 }
             }
             battery?.sohPercent?.takeIf { it in 0f..100f }?.let {
@@ -249,21 +248,20 @@ class IternioTelemetryClient @Inject constructor(
     }
 
     /**
-     * Charging detection: only physical-gun signals. Whitelist autoservice
-     * `gunConnectState` to {2=AC, 3=DC, 4=AC_DC, 5=VTOL} — anything else
-     * (incl. 0 sentinel from cold-start window and 1=NONE) means not plugged
-     * in. DiPars `chargeGunState == 2` is the same physical signal on
-     * non-Leopard 3 builds.
+     * Charging detection: only physical charging-input states {2=AC, 3=DC, 4=AC_DC}.
+     * State 5 is V2L/VTOL energy export and is intentionally excluded. Values 0 (cold-start
+     * sentinel), 1 (NONE) and unknown values are not charging.
      *
      * We deliberately do NOT use `power < 0` (regenerative braking gives
      * negative motor power but is not charging) or `chargingStatus > 0`
      * (firmware-specific values that fire spuriously on idle).
      */
     private fun isCharging(data: DiParsData, charging: ChargingReading?): Boolean {
-        charging?.gunConnectState?.let { gun ->
-            if (gun in DCFC_GUN_STATES || gun == 2) return true
+        charging?.gunConnectState?.takeIf(ChargeGunState::isKnown)?.let { gun ->
+            // A known autoservice value is newer/stronger than the DiPars fallback, including
+            // explicit NONE or V2L states that must override a stale "charging" sample.
+            return ChargeGunState.isCharging(gun)
         }
-        if (data.chargeGunState == 2) return true
-        return false
+        return ChargeGunState.isCharging(data.chargeGunState)
     }
 }

@@ -13,7 +13,7 @@ class SetWindowingModeCompatTest {
     private fun run(
         mode: Int = WINDOWING_MODE_FREEFORM,
         reflectSet: (Int, Int) -> Unit = { t, m -> ops += "reflect:$t:$m" },
-        resolveComponent: () -> String? = { ops += "resolve"; "ru.yandex.yandexnavi/.core.NavigatorActivity" },
+        resolveComponent: () -> String? = { ops += "resolve"; "com.waze/.FreeMapAppActivity" },
         shell: (String) -> String = { cmd -> ops += "shell:$cmd"; "" },
     ) = setWindowingModeCompat(36, mode, 4, reflectSet, resolveComponent, shell) { ops += "sleep:$it" }
 
@@ -32,7 +32,7 @@ class SetWindowingModeCompatTest {
         assertEquals(
             listOf(
                 "resolve",
-                "shell:am start --windowingMode 5 --display 4 -n ru.yandex.yandexnavi/.core.NavigatorActivity",
+                "shell:am start --windowingMode 5 --display 4 -n com.waze/.FreeMapAppActivity",
             ),
             ops,
         )
@@ -48,7 +48,7 @@ class SetWindowingModeCompatTest {
                 "resolve",
                 "shell:am stack remove 36",
                 "sleep:500",
-                "shell:am start --display 0 -n ru.yandex.yandexnavi/.core.NavigatorActivity",
+                "shell:am start --display 0 -n com.waze/.FreeMapAppActivity",
             ),
             ops,
         )

@@ -1,6 +1,7 @@
 package com.bydmate.app.demo
 
 import com.bydmate.app.data.remote.DiParsData
+import com.bydmate.app.data.vehicle.VehicleProfile
 import kotlin.math.sin
 
 /** Pure generator used by TrackingService; it never reads or writes vehicle APIs. */
@@ -22,7 +23,7 @@ object DemoVehicleDataFactory {
             avgBatTemp = 27,
             minBatTemp = 26,
             chargingStatus = 0,
-            batteryCapacityKwh = 82.5,
+            batteryCapacityKwh = VehicleProfile.CURRENT.nominalBatteryKwh,
             totalElecConsumption = 5_184.2 + distanceKm * 0.168,
             voltage12v = 13.6,
             maxCellVoltage = 3.728,

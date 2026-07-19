@@ -19,6 +19,8 @@ import com.bydmate.app.R
 import com.bydmate.app.data.vehicle.FreeformLaunchResult
 import com.bydmate.app.data.vehicle.HelperBootstrap
 import com.bydmate.app.data.vehicle.HelperClient
+import com.bydmate.app.data.vehicle.VehicleProfile
+import com.bydmate.app.navigation.WazeNavigation
 import com.bydmate.app.ui.overlay.OverlayNotificationManager
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -66,7 +68,7 @@ object ClusterProjectionManager {
     const val PREFS_NAME = "cluster_projection"
     // Master enable for star-controlled projection (settings switch). Read by SteeringWheelKeyService.
     const val KEY_MIRROR_ENABLED = "mirror_enabled"
-    // Steering-wheel keycode that toggles projection. Default = right star (DEFAULT_TRIGGER_KEYCODE).
+    // Learned steering-wheel keycode that toggles projection. Default 0 = unassigned.
     // Stored independently of the master switch so the choice survives turning the feature off.
     const val KEY_TRIGGER_KEYCODE = "trigger_keycode"
     // User-tunable window size, % of the cluster panel (MIN_PROJECTION_PCT..MAX, default = full).
@@ -79,14 +81,15 @@ object ClusterProjectionManager {
     // default 100 = native). Tunes what the projected app renders INSIDE the window — how big the
     // UI is and how much map fits — independent of the window size/position.
     const val KEY_SCALE_PCT = "scale_pct"
-    // App to project onto the cluster (default Yandex Navi). Label is cached only for the settings row.
+    // App to project onto the cluster (default Waze). Label is cached only for the settings row.
     const val KEY_TARGET_PACKAGE = "target_package"
     const val KEY_TARGET_LABEL = "target_label"
     // Last VirtualDisplay id we created. Persisted so a fresh app process can release the display
     // a prior (dead) process left orphaned in the long-lived daemon, instead of leaking it.
     private const val KEY_LAST_VD_ID = "last_vd_id"
-    /** Wave P: power the cluster compositor automatically around projection (default ON). */
+    /** Wave P: optional automatic compositor power; default OFF until verified on the target car. */
     const val KEY_AUTO_CONTAINER = "auto_container_enabled"
+    private const val KEY_SEA_LION_PROFILE_MIGRATION = "sea_lion_profile_v1_done"
     // Set while the daemon has powered the cluster compositor up for our projection; cleared only
     // after a CONFIRMED power-down. Survives process death: when the car shuts off mid-projection
     // the off sequence (18 -> pause -> 0) never runs, the compositor reboots in projection mode
@@ -101,6 +104,10 @@ object ClusterProjectionManager {
     // a fresh process after a crash can still restore windowing mode and drop the density
     // override on the next pull-back.
     const val KEY_DIRECT_DISPLAY_ID = "direct_display_id"
+    // Package that owns the direct-projection marker. It must travel with the display id: the
+    // selectable target can change while a task is projected, and navigation migrations can
+    // replace the target before crash recovery runs.
+    internal const val KEY_DIRECT_PACKAGE = "direct_package"
 
     // WindowConfiguration windowing mode (android.app; hidden constant, stable since API 28).
     private const val WINDOWING_MODE_FULLSCREEN = 1
@@ -293,33 +300,104 @@ object ClusterProjectionManager {
         }
     }
 
-    /** Saved window size as (widthPct, heightPct); defaults to a full-screen window. */
+    /** Saved window size as (widthPct, heightPct); defaults to the current vehicle profile. */
     private fun readSizePct(context: Context): Pair<Int, Int> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getInt(KEY_WIDTH_PCT, MAX_PROJECTION_PCT) to
-            prefs.getInt(KEY_HEIGHT_PCT, MAX_PROJECTION_PCT)
+        val preset = VehicleProfile.CURRENT.clusterProjectionPreset
+        return prefs.getInt(KEY_WIDTH_PCT, preset.widthPct) to
+            prefs.getInt(KEY_HEIGHT_PCT, preset.heightPct)
     }
 
-    /** Saved window position as (offsetXPct, offsetYPct); defaults to centered. */
+    /** Saved window position as (offsetXPct, offsetYPct); defaults to the current profile. */
     private fun readOffsetPct(context: Context): Pair<Int, Int> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return prefs.getInt(KEY_OFFSET_X_PCT, CENTER_OFFSET_PCT) to
-            prefs.getInt(KEY_OFFSET_Y_PCT, CENTER_OFFSET_PCT)
+        val preset = VehicleProfile.CURRENT.clusterProjectionPreset
+        return prefs.getInt(KEY_OFFSET_X_PCT, preset.offsetXPct) to
+            prefs.getInt(KEY_OFFSET_Y_PCT, preset.offsetYPct)
     }
 
-    /** Saved content scale %; the default reproduces native rendering. */
+    /** Saved content scale %; defaults to the current vehicle profile. */
     private fun readScalePct(context: Context): Int =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getInt(KEY_SCALE_PCT, DEFAULT_SCALE_PCT)
+            .getInt(KEY_SCALE_PCT, VehicleProfile.CURRENT.clusterProjectionPreset.scalePct)
 
-    /** Package to project — user-selectable in settings, defaults to Yandex Navi. */
-    private fun targetPackage(context: Context): String =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    /** Existing installs persisted Yandex as the old default. Migrate only that known value;
+     *  preserve any other app explicitly chosen for the generic cluster projector.
+     *
+     *  If an old build died during direct projection it has only a display marker, not an owner
+     *  package. Save that owner in the same preference transaction BEFORE replacing Yandex with
+     *  Waze, so startup recovery can still reclaim the actual legacy task. An absent saved target
+     *  meant the old build's Yandex default.
+     */
+    fun migrateLegacyNavigationTarget(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val savedPackage = prefs.getString(KEY_TARGET_PACKAGE, null)
+        val editor = prefs.edit()
+        var changed = false
+
+        if (prefs.getInt(KEY_DIRECT_DISPLAY_ID, -1) != -1 && !prefs.contains(KEY_DIRECT_PACKAGE)) {
+            editor.putString(
+                KEY_DIRECT_PACKAGE,
+                savedPackage ?: WazeNavigation.LEGACY_DEFAULT_PACKAGE,
+            )
+            changed = true
+        }
+        if (savedPackage != null && savedPackage in WazeNavigation.LEGACY_YANDEX_PACKAGES) {
+            editor
+                .putString(KEY_TARGET_PACKAGE, WazeNavigation.PACKAGE_NAME)
+                .putString(KEY_TARGET_LABEL, WazeNavigation.APP_LABEL)
+            changed = true
+        }
+        if (changed) editor.apply()
+    }
+
+    /**
+     * One-shot defaults for the target Sea Lion cluster. The planner deliberately refuses to
+     * modify partial/custom geometry and preserves every explicit auto-container choice.
+     */
+    fun migrateVehicleProfileDefaults(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        fun storedInt(key: String): Int? = if (prefs.contains(key)) prefs.getInt(key, 0) else null
+        val migration = planClusterDefaultsMigration(
+            ClusterDefaultsSnapshot(
+                migrationDone = prefs.getBoolean(KEY_SEA_LION_PROFILE_MIGRATION, false),
+                widthPct = storedInt(KEY_WIDTH_PCT),
+                heightPct = storedInt(KEY_HEIGHT_PCT),
+                offsetXPct = storedInt(KEY_OFFSET_X_PCT),
+                offsetYPct = storedInt(KEY_OFFSET_Y_PCT),
+                scalePct = storedInt(KEY_SCALE_PCT),
+                autoContainer = if (prefs.contains(KEY_AUTO_CONTAINER)) {
+                    prefs.getBoolean(KEY_AUTO_CONTAINER, false)
+                } else {
+                    null
+                },
+            ),
+            VehicleProfile.CURRENT.clusterProjectionPreset,
+        )
+        if (!migration.markDone) return
+
+        prefs.edit().apply {
+            migration.geometryToPersist?.let { geometry ->
+                putInt(KEY_WIDTH_PCT, geometry.widthPct)
+                putInt(KEY_HEIGHT_PCT, geometry.heightPct)
+                putInt(KEY_OFFSET_X_PCT, geometry.offsetXPct)
+                putInt(KEY_OFFSET_Y_PCT, geometry.offsetYPct)
+                putInt(KEY_SCALE_PCT, geometry.scalePct)
+            }
+            migration.autoContainer?.let { putBoolean(KEY_AUTO_CONTAINER, it) }
+            putBoolean(KEY_SEA_LION_PROFILE_MIGRATION, true)
+        }.apply()
+    }
+
+    /** Package to project — user-selectable in settings, defaults to Waze. */
+    private fun targetPackage(context: Context): String {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_TARGET_PACKAGE, NAVI_PACKAGE) ?: NAVI_PACKAGE
+    }
 
     private fun autoContainerEnabled(context: Context): Boolean =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_AUTO_CONTAINER, true)
+            .getBoolean(KEY_AUTO_CONTAINER, false)
 
     /** Persist the user's chosen trigger keycode (from the learn-button dialog). */
     fun setTriggerKeyCode(context: Context, keyCode: Int) {
@@ -399,7 +477,8 @@ object ClusterProjectionManager {
      * the compositor was powered up for projection, the off sequence never ran and the cluster
      * boots BLACK — the compositor sits in projection mode with nobody drawing. Sends the missing
      * power-down and clears the marker. No-op when a projection is live in THIS process (it owns
-     * the compositor), when no marker is set, or when auto-container is off.
+     * the compositor) or when no marker is set. A surviving marker proves that BYDMate powered the
+     * compositor and must be honored even when auto-container is currently disabled.
      */
     fun recoverStaleCompositor(context: Context, helper: HelperClient, bootstrap: HelperBootstrap) {
         val appContext = context.applicationContext
@@ -407,7 +486,7 @@ object ClusterProjectionManager {
             mutex.withLock {
                 val marker = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     .getBoolean(KEY_COMPOSITOR_POWERED, false)
-                if (!shouldRecoverCompositor(marker, currentMode, autoContainerEnabled(appContext))) return@withLock
+                if (!shouldRecoverCompositor(marker, currentMode)) return@withLock
                 if (!bootstrap.ensureRunning()) {
                     Log.w(TAG, "recoverStaleCompositor: daemon unreachable; keeping marker for next start")
                     return@withLock
@@ -462,14 +541,17 @@ object ClusterProjectionManager {
                 }
                 Log.i(TAG, "recoverStaleDirectTask: pulling back task left in direct mode by a prior session")
                 val resetOk = runCatching { helper.setDisplayDensity(staleId, 0) }.getOrDefault(false)
-                val taskId = helper.getTaskId(targetPackage(appContext))
+                val recoveryPackage = prefs.getString(KEY_DIRECT_PACKAGE, null)
+                    ?.takeIf(String::isNotBlank)
+                    ?: targetPackage(appContext)
+                val taskId = helper.getTaskId(recoveryPackage)
                 var modeOk = false
                 var moveOk = false
                 if (taskId != null) {
                     modeOk = helper.setTaskWindowingMode(taskId, WINDOWING_MODE_FULLSCREEN)
                     // Same compat-path handling as pullBackToMain: a changed task id means the
                     // daemon relaunched the task fullscreen on the main display already.
-                    val relaunchedId = if (modeOk) helper.getTaskId(targetPackage(appContext)) else null
+                    val relaunchedId = if (modeOk) helper.getTaskId(recoveryPackage) else null
                     if (relaunchedId != null && relaunchedId != taskId) {
                         moveOk = true
                     } else {
@@ -478,7 +560,10 @@ object ClusterProjectionManager {
                     }
                 }
                 if (shouldClearDirectMarker(resetOk, taskId != null, modeOk, moveOk)) {
-                    prefs.edit().putInt(KEY_DIRECT_DISPLAY_ID, -1).apply()
+                    prefs.edit()
+                        .putInt(KEY_DIRECT_DISPLAY_ID, -1)
+                        .remove(KEY_DIRECT_PACKAGE)
+                        .apply()
                 } else {
                     Log.w(TAG, "recoverStaleDirectTask: recovery incomplete " +
                         "(reset=$resetOk task=${taskId != null} mode=$modeOk move=$moveOk); keeping marker for next start")
@@ -603,7 +688,10 @@ object ClusterProjectionManager {
         // marker is healed by the next recoverStaleDirectTask / recoverStaleDirectDensity pass.
         @Suppress("ApplySharedPref")
         val markerWritten = withContext(Dispatchers.IO) {
-            prefs.edit().putInt(KEY_DIRECT_DISPLAY_ID, display.displayId).commit()
+            prefs.edit()
+                .putInt(KEY_DIRECT_DISPLAY_ID, display.displayId)
+                .putString(KEY_DIRECT_PACKAGE, pkg)
+                .commit()
         }
         if (!markerWritten) {
             Log.w(TAG, "direct projection: write-ahead marker not persisted; VD fallback")
@@ -624,6 +712,7 @@ object ClusterProjectionManager {
                 prefs.edit()
                     .putBoolean(KEY_FREEFORM_REBOOT_PENDING, true)
                     .putInt(KEY_DIRECT_DISPLAY_ID, -1)
+                    .remove(KEY_DIRECT_PACKAGE)
                     .apply()
                 Log.i(TAG, "direct projection: freeform unavailable (reboot pending); VD fallback")
                 // One-time overlay on the FIRST fallback after install/update: the settings hint
@@ -702,7 +791,7 @@ object ClusterProjectionManager {
             // While direct projection is active — or a crash marker survives (density reset
             // unconfirmed) — the display's logical density may be our own wm-density override;
             // absorbing it would compound the scale on every cycle. Keep the last-known base
-            // (320 default = native Leopard 3) instead.
+            // instead. The target-car voice keycode is learned in Settings.
             val markerId = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getInt(KEY_DIRECT_DISPLAY_ID, -1)
             if (shouldAbsorbDisplayDensity(directDisplayId, markerId, metrics.densityDpi)) {
@@ -818,7 +907,10 @@ object ClusterProjectionManager {
         // BOTH the density reset and the task reclaim are confirmed (or the task is gone), so
         // the next service start can retry.
         if (directId != -1 && shouldClearDirectMarker(resetOk, taskId != null, modeOk, moveOk)) {
-            prefs.edit().putInt(KEY_DIRECT_DISPLAY_ID, -1).apply()
+            prefs.edit()
+                .putInt(KEY_DIRECT_DISPLAY_ID, -1)
+                .remove(KEY_DIRECT_PACKAGE)
+                .apply()
         }
     }
 

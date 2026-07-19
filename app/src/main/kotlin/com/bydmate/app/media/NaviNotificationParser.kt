@@ -1,133 +1,134 @@
 package com.bydmate.app.media
 
 import android.app.Notification
-import android.widget.RemoteViews
-import java.lang.reflect.Field
+import com.bydmate.app.navdata.NavGuidance
+import com.bydmate.app.navdata.NavGuidanceParser
+import com.bydmate.app.navdata.NavManeuverCodes
 
-/** Reflection-based parser for the Yandex Navigator guidance notification.
- *  The useful fields (maneuver icon, distance, next street, ETA/remaining lines) live in
- *  custom RemoteViews, not in extras, so we walk Notification.contentView/bigContentView
- *  actions the way YNarrows (github.com/Iampatr/YNarrows) does. The layout is not
- *  contractual and changes with Navigator updates, and Android renamed the private
- *  fields across versions - every step fails soft to an empty result. */
+/** Parses Waze's standard navigation-notification extras without private RemoteViews reflection. */
 object NaviNotificationParser {
-
-    /** One setText/setImageResource action recorded in a RemoteViews, resource ids resolved to names. */
-    data class RvAction(val viewName: String, val method: String, val value: String)
-
     data class Parsed(
-        val maneuver: String?,          // short Russian phrase, e.g. "направо"
-        val maneuverResource: String?,  // raw icon resource name, e.g. notification_right_sdl
-        val distance: String?,          // distance to maneuver (titleView), e.g. "350 м"
-        val street: String?,            // next street (descriptionView)
-        val bigTexts: List<String>,     // all bigContentView texts; ETA/remaining live here
-    )
-
-    /** resolveName maps a resource id inside the NAVIGATOR's package to its entry name
-     *  (view ids and drawable names); return null when unknown. */
-    fun parse(notification: Notification, resolveName: (Int) -> String?): Parsed {
-        val content = extractActions(extractRemoteViews(notification, "contentView"), resolveName)
-        val big = extractActions(extractRemoteViews(notification, "bigContentView"), resolveName)
-        return fromActions(content, big)
+        val maneuver: String?,
+        val distance: String?,
+        val street: String?,
+        val bigTexts: List<String>,
+        val remainingDistance: String? = null,
+        val remainingTime: String? = null,
+        val guidance: NavGuidance? = null,
+    ) {
+        val hasGuidance: Boolean get() = guidance != null
     }
 
-    /** Calibration dump for logcat: every recognized action from both views. Used when a
-     *  Navigator update changes the layout and the mapped fields come back empty. */
-    fun dump(notification: Notification, resolveName: (Int) -> String?): String {
-        val content = extractActions(extractRemoteViews(notification, "contentView"), resolveName)
-        val big = extractActions(extractRemoteViews(notification, "bigContentView"), resolveName)
-        return "content=$content big=$big"
+    fun parse(notification: Notification): Parsed {
+        val extras = notification.extras
+        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+        val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()
+        val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
+        val textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+            ?.map(CharSequence::toString)
+            .orEmpty()
+        return fromText(title, text, subText, bigText, textLines)
     }
 
-    /** Pure mapping from extracted actions; unit-testable without real notifications. */
-    fun fromActions(content: List<RvAction>, big: List<RvAction>): Parsed {
-        var maneuverRes: String? = null
-        var distance: String? = null
-        var street: String? = null
-        content.forEach { a ->
-            when (a.viewName) {
-                "primaryIconTinted" -> if (a.method == "setImageResource") maneuverRes = a.value
-                "titleView" -> if (a.method == "setText") distance = a.value
-                "descriptionView" -> if (a.method == "setText") street = a.value
+    /** Pure parser used by tests and by calibration of real Waze notification shapes. */
+    fun fromText(
+        title: String?,
+        text: String?,
+        subText: String?,
+        bigText: String?,
+        textLines: List<String> = emptyList(),
+    ): Parsed {
+        val lines = buildList {
+            add(title)
+            add(text)
+            add(subText)
+            add(bigText)
+            addAll(textLines)
+        }.mapNotNull { it?.trim()?.takeIf(String::isNotEmpty) }
+            .filterNot(::isGenericWazeLine)
+            .distinct()
+
+        val maneuverLine = lines.firstOrNull { NavManeuverCodes.fromInstructionText(it) != 0 }
+        val maneuverCode = NavManeuverCodes.fromInstructionText(maneuverLine)
+        // A route summary such as "12 km · 18 min" is remaining distance, never distance to
+        // the next maneuver. Accept maneuver distance only inside the instruction itself or as
+        // a standalone title ("350 m") paired with a recognized instruction.
+        val distanceLine = maneuverLine?.takeIf { NavGuidanceParser.parseDistanceText(it) > 0 }
+            ?: maneuverLine?.let { lines.firstOrNull(::isStandaloneDistance) }
+        val distanceLabel = extractDistanceLabel(distanceLine)
+        val distanceMeters = NavGuidanceParser.parseDistanceText(distanceLine)
+        val routeSummary = lines.firstOrNull { looksLikeEta(it) && extractDistanceLabel(it) != null }
+        val street = extractStreet(maneuverLine)
+            ?: lines.firstOrNull { candidate ->
+                candidate != maneuverLine && candidate != distanceLine &&
+                    !looksLikeEta(candidate) && !isStandaloneDistance(candidate) &&
+                    NavManeuverCodes.fromInstructionText(candidate) == 0
             }
-        }
-        val bigTexts = big.filter { it.method == "setText" && it.value.isNotBlank() }.map { it.value }
+        val guidance = NavGuidance(
+            maneuverGaode = maneuverCode,
+            distanceMeters = distanceMeters,
+            road = street.orEmpty(),
+        // Distance-only and road-only notifications can be community alerts. A recognized
+        // instruction is required before notification text can activate or overwrite the HUD.
+        ).takeIf { it.maneuverGaode != 0 }
         return Parsed(
-            maneuver = maneuverRes?.let { MANEUVER_PHRASES[it] },
-            maneuverResource = maneuverRes,
-            distance = distance?.takeUnless { it.isBlank() },
-            street = street?.takeUnless { it.isBlank() },
-            bigTexts = bigTexts,
+            maneuver = NavManeuverCodes.gaodePhrase(maneuverCode),
+            distance = distanceLabel,
+            street = street,
+            bigTexts = lines,
+            remainingDistance = extractDistanceLabel(routeSummary),
+            remainingTime = routeSummary?.let(::extractDurationLabel),
+            guidance = guidance,
         )
     }
 
-    // -- reflection plumbing (all soft-fail) --
-
-    private fun extractRemoteViews(notification: Notification, field: String): RemoteViews? =
-        runCatching {
-            val f = Notification::class.java.getDeclaredField(field)
-            f.isAccessible = true
-            f.get(notification) as? RemoteViews
-        }.getOrNull()
-
-    private fun extractActions(views: RemoteViews?, resolveName: (Int) -> String?): List<RvAction> {
-        if (views == null) return emptyList()
-        val actions = runCatching {
-            val f = RemoteViews::class.java.getDeclaredField("mActions")
-            f.isAccessible = true
-            f.get(views) as? ArrayList<*>
-        }.getOrNull() ?: return emptyList()
-        return actions.mapNotNull { toRvAction(it, resolveName) }
+    fun dump(notification: Notification): String {
+        val e = notification.extras
+        return "category=${notification.category} channel=${notification.channelId} " +
+            "title=${e.getCharSequence(Notification.EXTRA_TITLE)} " +
+            "text=${e.getCharSequence(Notification.EXTRA_TEXT)} " +
+            "sub=${e.getCharSequence(Notification.EXTRA_SUB_TEXT)} " +
+            "big=${e.getCharSequence(Notification.EXTRA_BIG_TEXT)} " +
+            "lines=${e.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.contentToString()}"
     }
 
-    // Field names differ across Android versions: methodName/value on API <= 30,
-    // mMethodName/mValue from 31 (fields may also sit in a superclass). Try both.
-    private fun toRvAction(action: Any?, resolveName: (Int) -> String?): RvAction? {
-        if (action == null) return null
-        return runCatching {
-            val methodName = findField(action.javaClass, "methodName", "mMethodName")
-                ?.get(action) as? String ?: return null
-            if (methodName != "setText" && methodName != "setImageResource") return null
-            val viewIdField = findField(action.javaClass, "viewId", "mViewId") ?: return null
-            val viewId = viewIdField.getInt(action)
-            val raw = findField(action.javaClass, "value", "mValue")?.get(action) ?: return null
-            val value = if (methodName == "setImageResource" && raw is Int) {
-                resolveName(raw) ?: raw.toString()
-            } else raw.toString()
-            RvAction(resolveName(viewId) ?: viewId.toString(), methodName, value)
-        }.getOrNull()
+    private fun isGenericWazeLine(value: String): Boolean {
+        val lower = value.lowercase()
+        return lower == "waze" || lower == "waze is running" ||
+            lower == "running. tap to open." || lower == "waze запущен"
     }
 
-    /** Searches the class hierarchy for the first of the candidate field names. */
-    private fun findField(cls: Class<*>, vararg names: String): Field? {
-        var c: Class<*>? = cls
-        while (c != null) {
-            for (name in names) {
-                runCatching { return c.getDeclaredField(name).apply { isAccessible = true } }
-            }
-            c = c.superclass
+    private fun extractStreet(instruction: String?): String? {
+        if (instruction == null) return null
+        val patterns = listOf(
+            Regex("""\b(?:onto|toward|towards)\s+(.+)$""", RegexOption.IGNORE_CASE),
+            Regex("""(?:на улицу|в сторону|к)\s+(.+)$""", RegexOption.IGNORE_CASE),
+        )
+        return patterns.firstNotNullOfOrNull { regex ->
+            regex.find(instruction)?.groupValues?.get(1)?.trim()?.takeIf(String::isNotEmpty)
         }
-        return null
     }
 
-    /** Guidance icon resource name -> short Russian phrase for the voice agent. */
-    private val MANEUVER_PHRASES = mapOf(
-        "notification_left_sdl" to "налево",
-        "notification_right_sdl" to "направо",
-        "notification_slight_left_sdl" to "левее",
-        "notification_slight_right_sdl" to "правее",
-        "notification_hard_left_sdl" to "резко налево",
-        "notification_hard_right_sdl" to "резко направо",
-        "notification_straight_sdl" to "прямо",
-        "notification_enter_roundabout_sdl" to "круговое движение",
-        "notification_leave_roundabout_sdl" to "съезд с кольца",
-        "notification_exit_left_sdl" to "съезд налево",
-        "notification_exit_right_sdl" to "съезд направо",
-        "notification_fork_left_sdl" to "держись левее",
-        "notification_fork_right_sdl" to "держись правее",
-        "notification_uturn_left_sdl" to "разворот",
-        "notification_uturn_right_sdl" to "разворот направо",
-        "notification_finish_sdl" to "финиш рядом",
-        "notification_board_ferry_sdl" to "паром",
-    )
+    private fun looksLikeEta(value: String): Boolean =
+        Regex("""\b\d{1,2}:\d{2}\b""").containsMatchIn(value) ||
+            Regex("""\b\d+\s*(?:мин|min|mins|minute|minutes|ч|h|hr|hours)\b""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(value)
+
+    private fun isStandaloneDistance(value: String): Boolean = Regex(
+        """^(?:in\s+|через\s+)?\d+(?:[.,]\d+)?\s*(?:км|km|м|m|mi|mile|miles|ft|foot|feet)(?!\p{L})$""",
+        setOf(RegexOption.IGNORE_CASE),
+    ).matches(value.trim())
+
+    private fun extractDurationLabel(value: String): String? = Regex(
+        """\b\d+\s*(?:мин|min|mins|minute|minutes|ч|h|hr|hours)\b""",
+        RegexOption.IGNORE_CASE,
+    ).find(value)?.value?.trim()
+
+    private fun extractDistanceLabel(value: String?): String? = value?.let {
+        Regex(
+            """\d+(?:[.,]\d+)?\s*(?:км|km|м|m|mi|mile|miles|ft|foot|feet)(?!\p{L})""",
+            RegexOption.IGNORE_CASE,
+        ).find(it)?.value?.trim()
+    }
 }

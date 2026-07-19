@@ -7,12 +7,11 @@ import org.junit.Test
 
 class NavManeuverCodesTest {
 
-    private fun gaode(text: String?) = NavManeuverCodes.fromA11yDescription(text)
+    private fun gaode(text: String?) = NavManeuverCodes.fromInstructionText(text)
 
-    @Test fun `packages set contains navigator variants`() {
-        assertTrue("ru.yandex.yandexnavi" in NavPackages.YANDEX_NAVI)
-        assertTrue("ru.yandex.yandexnavi.inhouse" in NavPackages.YANDEX_NAVI)
-        assertTrue("ru.yandex.yandexnavi.rustore" in NavPackages.YANDEX_NAVI)
+    @Test fun `packages set contains only Waze`() {
+        assertTrue("com.waze" in NavPackages.WAZE)
+        assertEquals(false, NavPackages.isNavigationPackage("ru.yandex.yandexnavi"))
     }
 
     @Test fun `null and blank map to unknown`() {
@@ -54,19 +53,20 @@ class NavManeuverCodesTest {
         assertEquals(45, gaode("Промежуточная точка"))
     }
 
-    @Test fun `notification res names map to gaode`() {
-        assertEquals(2, NavManeuverCodes.fromNotificationRes("notification_right_sdl"))
-        assertEquals(1, NavManeuverCodes.fromNotificationRes("notification_left_sdl"))
-        assertEquals(11, NavManeuverCodes.fromNotificationRes("notification_straight_sdl"))
-        assertEquals(3, NavManeuverCodes.fromNotificationRes("notification_fork_left_sdl"))
-        assertEquals(8, NavManeuverCodes.fromNotificationRes("notification_exit_right_sdl"))
-        assertEquals(13, NavManeuverCodes.fromNotificationRes("notification_enter_roundabout_sdl"))
-        assertEquals(24, NavManeuverCodes.fromNotificationRes("notification_leave_roundabout_sdl"))
-        assertEquals(48, NavManeuverCodes.fromNotificationRes("notification_finish_sdl"))
-        assertEquals(46, NavManeuverCodes.fromNotificationRes("notification_ferry_sdl"))
-        assertEquals(46, NavManeuverCodes.fromNotificationRes("notification_board_ferry_sdl"))
-        assertEquals(0, NavManeuverCodes.fromNotificationRes("something_else"))
-        assertEquals(0, NavManeuverCodes.fromNotificationRes(null))
+    @Test fun `Waze English instructions map to gaode`() {
+        assertEquals(2, gaode("Turn right onto Main Street"))
+        assertEquals(1, gaode("Turn left"))
+        assertEquals(3, gaode("Keep left"))
+        assertEquals(4, gaode("Slight right"))
+        assertEquals(11, gaode("Continue straight"))
+        assertEquals(13, gaode("Enter the roundabout"))
+        assertEquals(24, gaode("Take the 2nd exit"))
+        assertEquals(48, gaode("You have arrived at your destination"))
+    }
+
+    @Test fun `short uppercase Waze arrow descriptions map to turns`() {
+        assertEquals(1, gaode("LEFT"))
+        assertEquals(2, gaode("RIGHT"))
     }
 
     @Test fun `gaode phrase for agent`() {

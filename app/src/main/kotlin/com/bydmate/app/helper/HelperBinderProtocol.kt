@@ -36,6 +36,7 @@ import com.bydmate.app.BuildConfig
  *       -> reply: writeInt(status), writeInt(0)   // status 0 = ok; -1 = not whitelisted / failed
  *   TX_ENABLE_NOTIFICATION_LISTENER : (no args)           -> reply: writeInt(status), writeInt(0)  // status 0 = our listener stub enabled
  *   TX_SET_CLUSTER_MODE: [int on(0|1)] -> [int status]; status 0 = ok.
+ *   TX_LAUNCH_WAZE_DEEP_LINK: [String officialHttpsUri] -> [int status, int 0].
  *
  * Projection status: 0 = success, <0 = error/unavailable. Surface is written LAST so a
  * marshalling test can assert the scalar args without round-tripping the Surface.
@@ -108,6 +109,10 @@ object HelperBinderProtocol {
      *  hardcoded target) so the in-app log recorder sees the daemon's logcat lines.
      *  (no args) -> [int status, int 0]. */
     val TX_GRANT_READ_LOGS: Int = IBinder.FIRST_CALL_TRANSACTION + 23          // 24
+
+    /** Narrow shell-uid Waze deep-link delivery. The daemon validates scheme, host, path and
+     *  query keys before invoking `am start`; this is not a generic URI/shell passthrough. */
+    val TX_LAUNCH_WAZE_DEEP_LINK: Int = IBinder.FIRST_CALL_TRANSACTION + 24    // 25
 
     /** Hard cap on items per TX_READ_BATCH call (FidMap is 58 today; 128 leaves headroom). */
     const val MAX_BATCH_ITEMS: Int = 128

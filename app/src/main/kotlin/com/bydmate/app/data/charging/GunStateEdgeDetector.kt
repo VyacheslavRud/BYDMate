@@ -1,8 +1,8 @@
 package com.bydmate.app.data.charging
 
 /**
- * Tracks `gunConnectState` across polls and reports the connected→disconnected
- * edge — the moment a charging session ends and we should finalize a row.
+ * Tracks `gunConnectState` across polls and reports when a charging-input state ends — either
+ * by disconnecting or switching to V2L — so the completed charge row can be finalized.
  *
  * Why a separate class? The pre-2.5.11 live-edge detector lived inside
  * TrackingService and consumed `data.chargeGunState` from DiPlus. On Leopard 3
@@ -18,9 +18,11 @@ package com.bydmate.app.data.charging
  *   2 = AC
  *   3 = DC
  *   4 = AC_DC
- *   5 = VTOL
+ *   5 = V2L/VTOL (energy export; not charging)
  *
- * Edge rule: previous state was a known non-NONE value AND current is NONE.
+ * Edge rule: previous state was a charging input (AC/DC/AC_DC) AND current is NONE or V2L.
+ * The direct charging->V2L transition covers a poll that missed the brief disconnected state;
+ * a standalone V2L disconnect still never finalizes a charge row.
  * A null reading is a transient autoservice glitch; we keep the previous
  * value and refuse to fire — phantom edges from sentinel reads were the
  * exact failure mode this class was written to prevent.
@@ -36,7 +38,8 @@ class GunStateEdgeDetector(initial: Int? = null) {
         if (current == null) return false
         val prev = previous
         previous = current
-        return prev != null && prev != GUN_STATE_NONE && current == GUN_STATE_NONE
+        return ChargeGunState.isCharging(prev) &&
+            (current == ChargeGunState.NONE || ChargeGunState.isV2l(current))
     }
 
     fun reset() {
@@ -44,6 +47,6 @@ class GunStateEdgeDetector(initial: Int? = null) {
     }
 
     companion object {
-        const val GUN_STATE_NONE = 1
+        const val GUN_STATE_NONE = ChargeGunState.NONE
     }
 }
