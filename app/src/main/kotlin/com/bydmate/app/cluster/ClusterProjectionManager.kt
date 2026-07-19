@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Point
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
@@ -16,6 +17,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
 import com.bydmate.app.R
+import com.bydmate.app.data.diagnostics.DiagnosticEvidenceStore
 import com.bydmate.app.data.vehicle.FreeformLaunchResult
 import com.bydmate.app.data.vehicle.HelperBootstrap
 import com.bydmate.app.data.vehicle.HelperClient
@@ -27,6 +29,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -64,6 +70,8 @@ object ClusterProjectionManager {
     private const val OVERLAY_TYPE = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY  // 2038, minSdk 29
     private const val OVERLAY_FLAGS = 264                     // FLAG_NOT_FOCUSABLE(8) | FLAG_LAYOUT_IN_SCREEN(256)
     private const val SURFACE_TIMEOUT_MS = 3000L              // give up if the overlay Surface never gets created
+    private const val DISPLAY_WAIT_TIMEOUT_MS = 3000L         // DiLink may publish the container display asynchronously
+    private const val DISPLAY_WAIT_INTERVAL_MS = 100L
 
     const val PREFS_NAME = "cluster_projection"
     // Master enable for star-controlled projection (settings switch). Read by SteeringWheelKeyService.
@@ -115,6 +123,9 @@ object ClusterProjectionManager {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val mutex = Mutex()
 
+    private val _diagnosticState = MutableStateFlow(ClusterProjectionDiagnosticState())
+    val diagnosticState: StateFlow<ClusterProjectionDiagnosticState> = _diagnosticState.asStateFlow()
+
     @Volatile
     var currentMode: ClusterMode = ClusterMode.OFF
         private set
@@ -151,6 +162,18 @@ object ClusterProjectionManager {
         scope.launch {
             mutex.withLock {
                 if (mode == currentMode) return@withLock
+                if (mode == ClusterMode.FULLSCREEN) {
+                    _diagnosticState.update {
+                        it.copy(
+                            phase = ClusterProjectionPhase.STARTING,
+                            attemptStartedAtMs = System.currentTimeMillis(),
+                            attemptFinishedAtMs = null,
+                            displaySearchElapsedMs = null,
+                            selectedDisplay = null,
+                            lastFailure = null,
+                        )
+                    }
+                }
                 Log.i(TAG, "setMode: $currentMode -> $mode")
                 applyModeLocked(appContext, mode, helper, bootstrap)
             }
@@ -435,6 +458,12 @@ object ClusterProjectionManager {
                 projectedPackage = null
                 currentMode = ClusterMode.OFF
                 lastFailure = null
+                _diagnosticState.update {
+                    it.copy(
+                        phase = ClusterProjectionPhase.OFF,
+                        attemptFinishedAtMs = System.currentTimeMillis(),
+                    )
+                }
                 if (autoContainerEnabled(context)) powerDownCompositor(context, helper)
             }
             ClusterMode.FULLSCREEN -> {
@@ -442,6 +471,20 @@ object ClusterProjectionManager {
                 if (failure == null) {
                     currentMode = mode
                     lastFailure = null
+                    val now = System.currentTimeMillis()
+                    DiagnosticEvidenceStore.record(
+                        context,
+                        DiagnosticEvidenceStore.Evidence.CLUSTER_PROJECTION,
+                        now,
+                    )
+                    _diagnosticState.update {
+                        it.copy(
+                            phase = ClusterProjectionPhase.ACTIVE,
+                            attemptFinishedAtMs = now,
+                            lastFailure = null,
+                            lastSuccessAtMs = now,
+                        )
+                    }
                 } else {
                     // projection failed: keep state honest. project() already tore down the
                     // overlay/VD on its failure paths; make sure Navi is back on the main screen.
@@ -450,6 +493,13 @@ object ClusterProjectionManager {
                     projectedPackage = null
                     currentMode = ClusterMode.OFF
                     lastFailure = failure
+                    _diagnosticState.update {
+                        it.copy(
+                            phase = ClusterProjectionPhase.FAILED,
+                            attemptFinishedAtMs = System.currentTimeMillis(),
+                            lastFailure = failure,
+                        )
+                    }
                     if (autoContainerEnabled(context)) powerDownCompositor(context, helper)
                 }
             }
@@ -594,16 +644,17 @@ object ClusterProjectionManager {
         }
         if (overlayView != null) hideOverlay(helper)  // defensive: never stack overlays
         if (!ensureOverlayPermission(context, helper)) {
-            Log.e(TAG, "overlay permission unavailable; aborting projection"); return "projection"
+            Log.e(TAG, "overlay permission unavailable; aborting projection"); return "overlay_permission"
         }
-        val display = resolveClusterDisplay(context) ?: run {
-            Log.e(TAG, "cluster display not found"); return "projection"
+        val display = awaitClusterDisplay(context) ?: run {
+            Log.e(TAG, "cluster display not found after ${DISPLAY_WAIT_TIMEOUT_MS}ms")
+            return "display_not_found"
         }
         val (widthPct, heightPct) = readSizePct(context)
         val (offsetXPct, offsetYPct) = readOffsetPct(context)
         val geo = geometryFor(
             mode, clusterWidth, clusterHeight, widthPct, heightPct, offsetXPct, offsetYPct,
-        ) ?: return "projection"
+        ) ?: return "geometry"
         val plan = renderPlanFor(geo, clusterDensityDpi, readScalePct(context))
 
         // Direct mode first (2026-07-15, validated on-car): Navi runs ON the cluster display
@@ -622,7 +673,7 @@ object ClusterProjectionManager {
             }
             if (surface == null) {
                 Log.e(TAG, "overlay Surface not ready within ${SURFACE_TIMEOUT_MS}ms")
-                hideOverlay(helper); return "projection"
+                hideOverlay(helper); return "surface_timeout"
             }
             // Release a stale VD (a prior release that failed) before overwriting the id. If it
             // fails AGAIN, abort rather than dropping the only handle — otherwise the daemon-side
@@ -631,7 +682,7 @@ object ClusterProjectionManager {
                 val staleId = remoteDisplayId
                 if (!helper.releaseVirtualDisplay(staleId)) {
                     Log.w(TAG, "stale releaseVirtualDisplay($staleId) failed; aborting to keep retry handle")
-                    hideOverlay(helper); return "projection"
+                    hideOverlay(helper); return "stale_display_release"
                 }
                 remoteDisplayId = -1
             } else {
@@ -642,7 +693,7 @@ object ClusterProjectionManager {
             }
             val id = createClusterVd(helper, plan, surface)
             if (id == null) {
-                Log.e(TAG, "createVirtualDisplay failed"); hideOverlay(helper); return "projection"
+                Log.e(TAG, "createVirtualDisplay failed"); hideOverlay(helper); return "virtual_display"
             }
             remoteDisplayId = id
             saveLastVdId(context, id)
@@ -650,7 +701,7 @@ object ClusterProjectionManager {
             Log.i(TAG, "VirtualDisplay id=$id ${plan.bufferWidth}x${plan.bufferHeight}@${plan.densityDpi}; launchAndForce $pkg")
             val ok = helper.launchAndForce(pkg, id, plan.bufferWidth, plan.bufferHeight)
             if (!ok) {
-                Log.e(TAG, "launchAndForce failed"); hideOverlay(helper); return "projection"
+                Log.e(TAG, "launchAndForce failed"); hideOverlay(helper); return "task_launch"
             }
             projectedPackage = pkg
             null
@@ -659,7 +710,7 @@ object ClusterProjectionManager {
             // overlay down and report failure so applyModeLocked falls back to OFF + pull-back,
             // keeping currentMode honest.
             Log.e(TAG, "projection threw: ${e.message}", e)
-            hideOverlay(helper); "projection"
+            hideOverlay(helper); "exception"
         }
     }
 
@@ -773,14 +824,70 @@ object ClusterProjectionManager {
      * if it is absent we take the first projection surface, else fall back to id 2. Name-based
      * selection survives containerservice reassigning display ids at boot. Updates cluster W/H/dpi.
      */
+    private suspend fun awaitClusterDisplay(context: Context): Display? {
+        val started = SystemClock.elapsedRealtime()
+        _diagnosticState.update { it.copy(phase = ClusterProjectionPhase.WAITING_FOR_DISPLAY) }
+        while (true) {
+            val match = resolveClusterDisplay(context)
+            val elapsed = SystemClock.elapsedRealtime() - started
+            _diagnosticState.update { state ->
+                state.copy(
+                    displaySearchElapsedMs = elapsed,
+                    selectedDisplay = match?.let(::displayDiagnostic),
+                )
+            }
+            if (match != null) {
+                Log.i(TAG, "cluster display appeared after ${elapsed}ms")
+                return match
+            }
+            if (elapsed >= DISPLAY_WAIT_TIMEOUT_MS) return null
+            delay(DISPLAY_WAIT_INTERVAL_MS)
+        }
+    }
+
+    /** App-visible display inventory used by both projection selection and the passive diagnostics
+     * screen. It never creates a display or powers the cluster container. */
+    fun inspectDisplays(context: Context): List<ClusterDisplayDiagnostic> {
+        val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        return dm.displays.map(::displayDiagnostic)
+    }
+
+    private fun displayDiagnostic(display: Display): ClusterDisplayDiagnostic {
+        val point = Point()
+        @Suppress("DEPRECATION")
+        display.getRealSize(point)
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        display.getMetrics(metrics)
+        return ClusterDisplayDiagnostic(
+            id = display.displayId,
+            name = display.name ?: "Display ${display.displayId}",
+            widthPx = point.x,
+            heightPx = point.y,
+            densityDpi = metrics.densityDpi,
+            state = display.state,
+            isClusterCandidate = display.name?.contains(
+                "XDJAScreenProjection",
+                ignoreCase = true,
+            ) == true || display.displayId == DEFAULT_CLUSTER_DISPLAY_ID,
+        )
+    }
+
     private fun resolveClusterDisplay(context: Context): Display? {
         val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-        val projectionDisplays = dm.displays.filter {
+        val allDisplays = dm.displays.toList()
+        val projectionDisplays = allDisplays.filter {
             it.name.contains("XDJAScreenProjection", ignoreCase = true)
         }
         val match = projectionDisplays.firstOrNull { it.name.endsWith("_1") }
             ?: projectionDisplays.firstOrNull()
-            ?: dm.getDisplay(DEFAULT_CLUSTER_DISPLAY_ID)
+            ?: allDisplays.firstOrNull { it.displayId == DEFAULT_CLUSTER_DISPLAY_ID }
+        _diagnosticState.update {
+            it.copy(
+                visibleDisplays = allDisplays.map(::displayDiagnostic),
+                selectedDisplay = match?.let(::displayDiagnostic),
+            )
+        }
         if (match != null) {
             val point = Point()
             @Suppress("DEPRECATION") match.getRealSize(point)

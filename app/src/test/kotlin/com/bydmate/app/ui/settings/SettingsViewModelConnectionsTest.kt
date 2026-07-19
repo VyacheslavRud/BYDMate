@@ -108,6 +108,7 @@ class SettingsViewModelConnectionsTest {
         override fun getLastTrip(): Flow<TripEntity?> = flowOf(null)
         override fun getRecent(limit: Int): Flow<List<TripEntity>> = flowOf(emptyList())
         override suspend fun getCount(): Int = 0
+        override suspend fun getCountBySource(source: String): Int = 0
         override suspend fun getByBydId(bydId: Long): TripEntity? = null
         override suspend fun getTripsWithoutSoc(): List<TripEntity> = emptyList()
         override suspend fun getTripsWithoutCost(): List<TripEntity> = emptyList()

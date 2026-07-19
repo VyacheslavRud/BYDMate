@@ -10,6 +10,31 @@ const val NAVI_PACKAGE = WazeNavigation.PACKAGE_NAME
 /** Cluster projection state (OFF / FULLSCREEN). */
 enum class ClusterMode { OFF, FULLSCREEN }
 
+/** Fine-grained state retained for the diagnostics screen even after a failed attempt falls back
+ * to [ClusterMode.OFF]. */
+enum class ClusterProjectionPhase { OFF, STARTING, WAITING_FOR_DISPLAY, ACTIVE, FAILED }
+
+data class ClusterDisplayDiagnostic(
+    val id: Int,
+    val name: String,
+    val widthPx: Int,
+    val heightPx: Int,
+    val densityDpi: Int,
+    val state: Int,
+    val isClusterCandidate: Boolean,
+)
+
+data class ClusterProjectionDiagnosticState(
+    val phase: ClusterProjectionPhase = ClusterProjectionPhase.OFF,
+    val attemptStartedAtMs: Long? = null,
+    val attemptFinishedAtMs: Long? = null,
+    val displaySearchElapsedMs: Long? = null,
+    val selectedDisplay: ClusterDisplayDiagnostic? = null,
+    val visibleDisplays: List<ClusterDisplayDiagnostic> = emptyList(),
+    val lastFailure: String? = null,
+    val lastSuccessAtMs: Long? = null,
+)
+
 /** Where Navi renders on the cluster overlay. VirtualDisplay size == SurfaceView size (1:1). */
 data class ClusterGeometry(val width: Int, val height: Int, val xOffset: Int, val yOffset: Int)
 

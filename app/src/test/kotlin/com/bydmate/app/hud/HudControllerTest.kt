@@ -37,6 +37,7 @@ class HudControllerTest {
     private fun controller(bridge: HudSomeIpBridge? = null): HudController =
         HudController(context, helperClient, helperBootstrap).apply {
             scope = CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined)
+            reconnectDelayMs = { 0L }
             if (bridge != null) bridgeFactory = { _, _ -> bridge }
         }
 
@@ -144,24 +145,61 @@ class HudControllerTest {
         assertFalse(controller().requiresA11y())
     }
 
-    @Test fun `connection lost cleans up so service restart can recover`() {
+    @Test fun `connection lost automatically rebuilds the HUD channel`() {
         installSomeIp()
         coEvery { helperBootstrap.ensureRunning() } returns true
         val bridge = connectedBridge()
         var onLost: () -> Unit = {}
         val c = HudController(context, helperClient, helperBootstrap).apply {
             scope = CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined)
+            reconnectDelayMs = { 0L }
             bridgeFactory = { _, lost -> onLost = lost; bridge }
         }
         c.setEnabled(true)
         assertEquals(HudController.Status.ON, c.status.value)
         onLost()   // gateway binding died
-        awaitTrue { c.status.value == HudController.Status.BIND_FAILED }
-        assertFalse(NavA11yFeed.isEnabled)
-        c.startIfEnabled()   // TrackingService restart on next ignition
-        awaitTrue { c.status.value == HudController.Status.ON }
-        verify(exactly = 2) { bridge.startService(HudSomeIpBridge.SERVICE_ID_NAVI) }
+        awaitTrue {
+            runCatching {
+                verify(exactly = 2) { bridge.startService(HudSomeIpBridge.SERVICE_ID_NAVI) }
+            }.isSuccess
+        }
+        assertEquals(HudController.Status.ON, c.status.value)
+        assertTrue(NavA11yFeed.isEnabled)
         c.setEnabled(false)
+    }
+
+    @Test fun `initial bind timeout retries without restarting TrackingService`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = mockk<HudSomeIpBridge>(relaxed = true)
+        coEvery { bridge.bind() } returnsMany listOf(false, true)
+        every { bridge.startService(any()) } returns 0
+        val c = controller(bridge)
+
+        c.setEnabled(true)
+
+        awaitTrue { c.status.value == HudController.Status.ON }
+        coVerify(exactly = 2) { bridge.bind() }
+        verify(exactly = 1) { bridge.startService(HudSomeIpBridge.SERVICE_ID_NAVI) }
+        assertTrue(c.deliveryDiagnostics.value.lastRecoveredAtMs != null)
+        c.setEnabled(false)
+    }
+
+    @Test fun `reconnect policy is bounded and waits for sustained send failure`() {
+        assertEquals(5_000L, HudController.reconnectDelayForAttempt(0))
+        assertEquals(15_000L, HudController.reconnectDelayForAttempt(1))
+        assertEquals(30_000L, HudController.reconnectDelayForAttempt(2))
+        assertEquals(60_000L, HudController.reconnectDelayForAttempt(20))
+        assertFalse(
+            HudController.shouldReconnectAfterSendFailures(
+                HudController.SEND_FAILURES_BEFORE_RECONNECT - 1,
+            ),
+        )
+        assertTrue(
+            HudController.shouldReconnectAfterSendFailures(
+                HudController.SEND_FAILURES_BEFORE_RECONNECT,
+            ),
+        )
     }
 
     @Test fun `service restart stop then start lands ON with ordered default scope`() {

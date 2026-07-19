@@ -19,6 +19,7 @@ import android.location.LocationManager
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import android.view.accessibility.AccessibilityManager
 import androidx.core.app.NotificationCompat
@@ -106,6 +107,7 @@ class TrackingService : Service(), LocationListener {
     private var pollingJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wakeLockRenewer: WakeLockRenewer? = null
+    private var liveFeatureWatchdogJob: Job? = null
     private var locationManager: LocationManager? = null
     private var firstDataReceived = false
     @Volatile private var demoServiceActive = false
@@ -165,6 +167,9 @@ class TrackingService : Service(), LocationListener {
     // transition (gunEdgeDetector.onSample is not synchronized — @Volatile
     // gives visibility, not atomicity).
     private val pollGunInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    // GrantSelfHeal can wait up to 30 seconds for DiLink to bind accessibility. Startup, wake and
+    // the periodic live-feature watchdog may arrive close together; keep only one repair loop.
+    private val starHealInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     // Catch-up resolution tracking. The startup retry loop only covers ~12 s,
     // which loses the cold-boot race when autoservice warms up slower (DiLink
     // 4.0 field reports). While the last outcome is unresolved (SENTINEL /
@@ -264,11 +269,24 @@ class TrackingService : Service(), LocationListener {
         // dead socket) — field incident 2026-07-05 saw 26 respawn bails in 2 minutes hammering a
         // stale ADB socket.
         private const val HELPER_RESPAWN_COOLDOWN_MS = 60_000L
+        private const val LIVE_FEATURE_WATCHDOG_INTERVAL_MS = 30_000L
+        private const val EXPLICIT_STOP_RESTART_SUPPRESSION_MS = 10_000L
+
+        @Volatile
+        private var suppressRestartUntilElapsedMs: Long = 0L
 
         /** Pure cooldown gate for the watchdog respawn below — internal (not private) so
          *  WatchdogGateTest can exercise it directly without touching Android. */
         internal fun shouldAttemptRespawn(nowMs: Long, lastAttemptMs: Long): Boolean =
             nowMs - lastAttemptMs >= HELPER_RESPAWN_COOLDOWN_MS
+
+        /** Pure lifecycle gate so the intentional reconfiguration stop used by Dev Demo cannot
+         * race WorkManager and resurrect the old mode before its preference is changed. */
+        internal fun shouldScheduleRestart(
+            liveBackgroundMode: Boolean,
+            nowElapsedMs: Long,
+            suppressUntilElapsedMs: Long,
+        ): Boolean = liveBackgroundMode && nowElapsedMs >= suppressUntilElapsedMs
 
         /**
          * П4a: gun-connect-state sample for the edge detector, reused from this tick's
@@ -316,6 +334,17 @@ class TrackingService : Service(), LocationListener {
         private val _isRunning = MutableStateFlow(false)
         val isRunning: StateFlow<Boolean> = _isRunning
 
+        /** Start of the current service instance. This is deliberately separate from the
+         * ignition/session clock exposed by [sessionStartedAt]. */
+        private val _serviceStartedAt = MutableStateFlow<Long?>(null)
+        val serviceStartedAt: StateFlow<Long?> = _serviceStartedAt
+
+        /** Wall-clock time of the latest live vehicle snapshot. [lastData] can intentionally
+         * survive a regular shutdown while the trip is finalized, so diagnostics must use this
+         * timestamp together with [isRunning] instead of treating non-null data as fresh. */
+        private val _lastDataUpdatedAt = MutableStateFlow<Long?>(null)
+        val lastDataUpdatedAt: StateFlow<Long?> = _lastDataUpdatedAt
+
         private val _vehicleDataConnected = MutableStateFlow(true)
         val vehicleDataConnected: StateFlow<Boolean> = _vehicleDataConnected
 
@@ -362,9 +391,15 @@ class TrackingService : Service(), LocationListener {
         fun start(context: Context) {
             val intent = Intent(context, TrackingService::class.java)
             context.startForegroundService(intent)
+            suppressRestartUntilElapsedMs = 0L
         }
 
         fun stop(context: Context) {
+            suppressRestartUntilElapsedMs =
+                SystemClock.elapsedRealtime() + EXPLICIT_STOP_RESTART_SUPPRESSION_MS
+            runCatching {
+                WorkManager.getInstance(context).cancelUniqueWork(ServiceStartWorker.WORK_NAME)
+            }
             context.stopService(Intent(context, TrackingService::class.java))
         }
     }
@@ -373,6 +408,8 @@ class TrackingService : Service(), LocationListener {
         super.onCreate()
         Log.i(TAG, "onCreate: starting TrackingService")
         ChainLog.append(this, "TrackingService onCreate")
+        _serviceStartedAt.value = System.currentTimeMillis()
+        _lastDataUpdatedAt.value = null
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.service_foreground_content_starting)))
         ChainLog.append(this, "startForeground OK")
@@ -503,13 +540,14 @@ class TrackingService : Service(), LocationListener {
         // Keep steering-wheel star control bound across boot and every wake. The bind can lose the
         // boot-time race, so we verify-and-retry here (in its own coroutine, independent of the
         // helper bootstrap above) and re-run on every SCREEN_ON / USER_PRESENT.
-        serviceScope.launch { ensureStarServiceRunning("startup") }
+        requestStarServiceHeal("startup")
         serviceScope.launch { notificationListenerGrant.ensure("startup") }
         // READ_LOGS lands in this process' gids only on the NEXT app start, so granting early
         // (service start, not first recorder use) minimizes the window where the log recorder
         // still cannot see the helper daemon's lines.
         serviceScope.launch { readLogsGrant.ensure("startup") }
         registerScreenWakeReceiver()
+        startLiveFeatureWatchdog()
 
         // Start the network monitor BEFORE polling so the first evaluate() tick
         // already has access to the latest VALIDATED edge state.
@@ -586,7 +624,7 @@ class TrackingService : Service(), LocationListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         maybeAttachWidget()
-        return if (BuildConfig.DEBUG) START_NOT_STICKY else START_STICKY
+        return if (BuildConfig.LIVE_BACKGROUND_MODE) START_STICKY else START_NOT_STICKY
     }
 
     private fun startDemoMode() {
@@ -611,6 +649,7 @@ class TrackingService : Service(), LocationListener {
                 val elapsedSeconds = ((now - startedAt) / 1000L).coerceAtLeast(0L)
                 val data = DemoVehicleDataFactory.snapshot(elapsedSeconds)
                 _lastData.value = data
+                _lastDataUpdatedAt.value = now
                 _lastRangeKm.value = (365.0 - elapsedSeconds * 0.003).coerceAtLeast(0.0)
                 _tripDistanceKm.value = 12.4 + elapsedSeconds * (46.0 / 3600.0)
                 ConsumptionAggregator.onSample(
@@ -856,6 +895,8 @@ class TrackingService : Service(), LocationListener {
             _tripDistanceKm.value = null
             _sessionStartedAt.value = null
             _vehicleDataConnected.value = true
+            _serviceStartedAt.value = null
+            _lastDataUpdatedAt.value = null
             instance = null
             _isRunning.value = false
             serviceScope.cancel()
@@ -918,10 +959,14 @@ class TrackingService : Service(), LocationListener {
         wakeLock?.let { if (it.isHeld) it.release() }
         instance = null
         _isRunning.value = false
+        _serviceStartedAt.value = null
 
-        // Stable is an always-on trip logger. Dev is intentionally manual-start only so it
-        // can coexist with stable on a tester's car without silently waking in the background.
-        if (!BuildConfig.DEBUG) {
+        val restartAllowed = shouldScheduleRestart(
+            BuildConfig.LIVE_BACKGROUND_MODE,
+            SystemClock.elapsedRealtime(),
+            suppressRestartUntilElapsedMs,
+        )
+        if (restartAllowed) {
             try {
                 val request = OneTimeWorkRequestBuilder<ServiceStartWorker>().build()
                 WorkManager.getInstance(this).enqueueUniqueWork(
@@ -933,6 +978,8 @@ class TrackingService : Service(), LocationListener {
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to schedule restart: ${e.message}")
             }
+        } else {
+            Log.i(TAG, "Restart suppressed for intentional stop or non-live build")
         }
 
         super.onDestroy()
@@ -940,8 +987,13 @@ class TrackingService : Service(), LocationListener {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        if (BuildConfig.DEBUG) {
-            Log.i(TAG, "onTaskRemoved: Dev build will not restart")
+        if (!shouldScheduleRestart(
+                BuildConfig.LIVE_BACKGROUND_MODE,
+                SystemClock.elapsedRealtime(),
+                suppressRestartUntilElapsedMs,
+            )
+        ) {
+            Log.i(TAG, "onTaskRemoved: restart suppressed")
             return
         }
         Log.i(TAG, "onTaskRemoved: scheduling restart via WorkManager")
@@ -990,6 +1042,7 @@ class TrackingService : Service(), LocationListener {
             sharedAdaptiveLoop.flow.collect { data ->
                 try {
                     _lastData.value = data
+                    _lastDataUpdatedAt.value = System.currentTimeMillis()
                     alicePollingManager.latestData = data
                     // Cache for AutoserviceChargingDetector — avoids extra parsReader.fetch() inside runCatchUp.
                     autoserviceDetector.onSample(data)
@@ -1313,7 +1366,9 @@ class TrackingService : Service(), LocationListener {
     // so a healthy service is never disturbed.
     private val screenWakeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            serviceScope.launch { ensureStarServiceRunning("wake:${intent?.action}") }
+            val reason = "wake:${intent?.action}"
+            hudController.ensureRunning(reason)
+            requestStarServiceHeal(reason)
             serviceScope.launch { notificationListenerGrant.ensure("wake:${intent?.action}") }
         }
     }
@@ -1326,6 +1381,30 @@ class TrackingService : Service(), LocationListener {
             registerReceiver(screenWakeReceiver, filter)
         } catch (e: Exception) {
             Log.w(TAG, "screen-wake receiver register failed: ${e.message}")
+        }
+    }
+
+    /** Independent of vehicle polling: HUD/accessibility must recover even while telemetry is
+     * temporarily unavailable, the car is parked, or Waze is the only active integration. */
+    private fun startLiveFeatureWatchdog() {
+        liveFeatureWatchdogJob?.cancel()
+        liveFeatureWatchdogJob = serviceScope.launch {
+            while (isActive) {
+                delay(LIVE_FEATURE_WATCHDOG_INTERVAL_MS)
+                hudController.ensureRunning("watchdog")
+                requestStarServiceHeal("watchdog")
+            }
+        }
+    }
+
+    private fun requestStarServiceHeal(reason: String) {
+        if (!starHealInFlight.compareAndSet(false, true)) return
+        serviceScope.launch {
+            try {
+                ensureStarServiceRunning(reason)
+            } finally {
+                starHealInFlight.set(false)
+            }
         }
     }
 

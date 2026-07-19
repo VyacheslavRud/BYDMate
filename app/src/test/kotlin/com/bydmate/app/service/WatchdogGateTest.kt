@@ -27,4 +27,28 @@ class WatchdogGateTest {
         val last = 1_000_000L
         assertTrue(TrackingService.shouldAttemptRespawn(nowMs = last + 120_000L, lastAttemptMs = last))
     }
+
+    @Test fun `live lifecycle restarts outside an intentional stop window`() {
+        assertFalse(
+            TrackingService.shouldScheduleRestart(
+                liveBackgroundMode = false,
+                nowElapsedMs = 20_000L,
+                suppressUntilElapsedMs = 0L,
+            ),
+        )
+        assertFalse(
+            TrackingService.shouldScheduleRestart(
+                liveBackgroundMode = true,
+                nowElapsedMs = 9_999L,
+                suppressUntilElapsedMs = 10_000L,
+            ),
+        )
+        assertTrue(
+            TrackingService.shouldScheduleRestart(
+                liveBackgroundMode = true,
+                nowElapsedMs = 10_000L,
+                suppressUntilElapsedMs = 10_000L,
+            ),
+        )
+    }
 }

@@ -32,13 +32,10 @@ class BootReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        // A development installation may live next to the stable app in a real car.
-        // Never let it start itself after boot; the tester must open it explicitly.
-        if (BuildConfig.DEBUG) {
-            Log.i(TAG, "Ignoring boot event in Dev build: ${intent.action}")
+        if (!BuildConfig.LIVE_BACKGROUND_MODE) {
+            Log.i(TAG, "Ignoring boot event: live background mode is disabled")
             return
         }
-
         val validActions = setOf(
             Intent.ACTION_BOOT_COMPLETED,
             "android.intent.action.QUICKBOOT_POWERON",

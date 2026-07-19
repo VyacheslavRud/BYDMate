@@ -62,6 +62,7 @@ import com.bydmate.app.service.UpdateChecker
 import com.bydmate.app.ui.charges.ChargesScreen
 import com.bydmate.app.ui.automation.AutomationScreen
 import com.bydmate.app.ui.dashboard.DashboardScreen
+import com.bydmate.app.ui.diagnostics.DiagnosticsScreen
 import com.bydmate.app.ui.settings.DonateDialog
 import com.bydmate.app.ui.settings.DonateEntry
 import com.bydmate.app.ui.settings.DonationReminder
@@ -79,6 +80,8 @@ enum class Screen(val route: String, val labelRes: Int, val icon: ImageVector) {
     Automation("automation", R.string.nav_tab_automation, Icons.Outlined.Bolt),
     Settings("settings", R.string.nav_tab_settings, Icons.Outlined.Settings)
 }
+
+private const val DIAGNOSTICS_ROUTE = "diagnostics"
 
 @Composable
 fun AppNavigation(
@@ -197,12 +200,13 @@ fun AppNavigation(
         )
     }
 
-    val isWelcome = currentDestination?.route == "welcome"
+    val hideBottomBar = currentDestination?.route == "welcome" ||
+        currentDestination?.route == DIAGNOSTICS_ROUTE
 
     Scaffold(
         containerColor = NavyDark,
         bottomBar = {
-            if (!isWelcome) {
+            if (!hideBottomBar) {
                 NavigationBar(
                     containerColor = NavBarBackground
                 ) {
@@ -264,7 +268,11 @@ fun AppNavigation(
                 SettingsScreen(
                     onNavigateToAgentChat = { navController.navigate("agent_chat") },
                     onNavigateToVoiceJournal = { navController.navigate("voice_journal") },
+                    onNavigateToDiagnostics = { navController.navigate(DIAGNOSTICS_ROUTE) },
                 )
+            }
+            composable(DIAGNOSTICS_ROUTE) {
+                DiagnosticsScreen(onBack = { navController.popBackStack() })
             }
             composable("agent_chat") {
                 com.bydmate.app.ui.debug.AgentChatScreen(onBack = { navController.popBackStack() })

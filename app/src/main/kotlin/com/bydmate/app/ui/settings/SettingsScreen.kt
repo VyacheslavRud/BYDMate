@@ -145,6 +145,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
     onNavigateToAgentChat: () -> Unit = {},
     onNavigateToVoiceJournal: () -> Unit = {},
+    onNavigateToDiagnostics: () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -265,7 +266,11 @@ fun SettingsScreen(
                         SettingsSection.WIDGET -> WidgetSection()
                         SettingsSection.DISPLAY -> DisplaySection()
                         SettingsSection.PLACES -> PlacesSection()
-                        SettingsSection.SERVICE -> ServiceSection(state, viewModel)
+                        SettingsSection.SERVICE -> ServiceSection(
+                            state,
+                            viewModel,
+                            onNavigateToDiagnostics,
+                        )
                         SettingsSection.APP -> AppSection(state, viewModel)
                         SettingsSection.SMART_HOME -> SmartHomeSection(state, viewModel)
                     }
@@ -1278,7 +1283,11 @@ private fun LearnButtonDialog(
 
 
 @Composable
-private fun ServiceSection(state: SettingsUiState, viewModel: SettingsViewModel) {
+private fun ServiceSection(
+    state: SettingsUiState,
+    viewModel: SettingsViewModel,
+    onNavigateToDiagnostics: () -> Unit,
+) {
     val context = LocalContext.current
 
     // SAF picker for restore — must be declared at composable top level
@@ -1364,6 +1373,25 @@ private fun ServiceSection(state: SettingsUiState, viewModel: SettingsViewModel)
             },
             containerColor = CardSurfaceElevated,
         )
+    }
+
+    // Vehicle diagnostics entry point. The live diagnostics stay on their own screen so the
+    // already dense service section remains easy to scan on the car display.
+    SectionHeader(text = stringResource(R.string.settings_diagnostics_header))
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = CardSurfaceElevated),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            SettingActionRow(
+                title = stringResource(R.string.settings_diagnostics_title),
+                description = stringResource(R.string.settings_diagnostics_desc),
+                buttonLabel = stringResource(R.string.settings_diagnostics_open),
+                onClick = onNavigateToDiagnostics,
+                style = SettingButtonStyle.Primary,
+            )
+        }
     }
 
     // Autostart status card

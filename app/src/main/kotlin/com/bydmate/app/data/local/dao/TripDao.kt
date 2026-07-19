@@ -43,6 +43,9 @@ interface TripDao {
     @Query("SELECT COUNT(*) FROM trips")
     suspend fun getCount(): Int
 
+    @Query("SELECT COUNT(*) FROM trips WHERE source = :source")
+    suspend fun getCountBySource(source: String): Int
+
     @Query("SELECT * FROM trips WHERE byd_id = :bydId LIMIT 1")
     suspend fun getByBydId(bydId: Long): TripEntity?
 

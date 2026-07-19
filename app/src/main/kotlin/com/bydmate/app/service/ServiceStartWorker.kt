@@ -26,13 +26,10 @@ class ServiceStartWorker(
     }
 
     override suspend fun doWork(): Result {
-        // Defense in depth: Dev is manual-start only, even if stale WorkManager state
-        // from an earlier build happens to invoke this worker.
-        if (BuildConfig.DEBUG) {
-            Log.i(TAG, "Skipping background service start in Dev build")
+        if (!BuildConfig.LIVE_BACKGROUND_MODE) {
+            Log.i(TAG, "Skipping service start: live background mode is disabled")
             return Result.success()
         }
-
         Log.i(TAG, "Starting TrackingService via WorkManager")
         ChainLog.append(applicationContext, "Worker doWork started")
         return try {

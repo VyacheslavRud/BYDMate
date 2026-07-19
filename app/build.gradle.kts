@@ -27,8 +27,14 @@ android {
         // on DiLink Android 12 (requestLegacyExternalStorage works).
         // targetSdk 30+ would break listFiles() on /storage/emulated/0/energydata/
         targetSdk = 29
-        versionCode = 369
-        versionName = "3.6.1"
+        versionCode = 370
+        versionName = "3.6.2"
+
+        // Both stable and Dev are real on-car applications. DEBUG still controls logging,
+        // demo tools and update checks, but it must not weaken the background lifecycle: the
+        // separate Dev package is now expected to keep HUD/navigation alive across task removal,
+        // process reclaim and DiLink boot/wake just like the stable package.
+        buildConfigField("boolean", "LIVE_BACKGROUND_MODE", "true")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -50,7 +56,8 @@ android {
         debug {
             // The development build is a completely separate Android app. It can be
             // installed next to the stable release and owns its own UID, settings,
-            // Room database, permissions, services and files.
+            // Room database, permissions, services and files. It intentionally uses the
+            // production background lifecycle so it can be validated as the daily driver.
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
         }

@@ -89,6 +89,16 @@ class EnergyDataDeadDetector(
         "dead=${store.isDead()} streak=${store.streak()} pending=${store.pendingDriving()} " +
             "stored_fp=${store.fingerprint()} current_fp=${reader.sourceFingerprint()}"
 
+    /** Typed, side-effect-free counterpart of [debugState] for the in-app diagnostics screen. */
+    fun snapshot(): EnergyDataLivenessSnapshot = EnergyDataLivenessSnapshot(
+        dead = store.isDead(),
+        frozenDrivingStreak = store.streak(),
+        pendingDriving = store.pendingDriving(),
+        storedFingerprint = store.fingerprint(),
+        currentFingerprint = reader.sourceFingerprint(),
+        lastIncrementAtMs = store.lastIncrementTs().takeIf { it > 0L },
+    )
+
     private fun evaluate() {
         val fpNow = reader.sourceFingerprint() ?: return
         val stored = store.fingerprint()
@@ -132,3 +142,12 @@ class EnergyDataDeadDetector(
         internal const val MIN_INCREMENT_SPACING_MS = 30 * 60_000L
     }
 }
+
+data class EnergyDataLivenessSnapshot(
+    val dead: Boolean,
+    val frozenDrivingStreak: Int,
+    val pendingDriving: Boolean,
+    val storedFingerprint: Pair<Long, Long>?,
+    val currentFingerprint: Pair<Long, Long>?,
+    val lastIncrementAtMs: Long?,
+)
