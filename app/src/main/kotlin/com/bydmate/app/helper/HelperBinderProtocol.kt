@@ -1,6 +1,7 @@
 package com.bydmate.app.helper
 
 import android.os.IBinder
+import com.bydmate.app.BuildConfig
 
 /**
  * Wire contract shared by the in-app binder client (HelperClientImpl) and the
@@ -42,8 +43,22 @@ import android.os.IBinder
  * status/value carry the raw autoservice transact result (see HelperDaemon).
  */
 object HelperBinderProtocol {
-    const val SERVICE_NAME = "bydmate_helper"
-    const val PROCESS_NAME = "bydmate_helper"   // app_process --nice-name + ps lookup
+    // Debug is installed alongside release, so every global shell/system identifier must
+    // also be distinct. Release deliberately keeps the historical names for compatibility.
+    val SERVICE_NAME = if (BuildConfig.DEBUG) "bydmate_helper_dev" else "bydmate_helper"
+    // Linux process names are limited to 15 visible characters; keep both values below that
+    // limit because heartbeat/kill deliberately match the exact process name.
+    val PROCESS_NAME = if (BuildConfig.DEBUG) "bydmate_dev" else "bydmate_helper"
+    val LOCK_PATH = if (BuildConfig.DEBUG) {
+        "/data/local/tmp/bydmate_helper_dev.lock"
+    } else {
+        "/data/local/tmp/bydmate_helper.lock"
+    }
+    val LOG_PATH = if (BuildConfig.DEBUG) {
+        "/data/local/tmp/bydmate_helper_dev.log"
+    } else {
+        "/data/local/tmp/bydmate_helper.log"
+    }
     const val DESCRIPTOR = "com.bydmate.app.helper.IHelper"
 
     const val TX_PING = IBinder.FIRST_CALL_TRANSACTION       // 1
@@ -98,15 +113,15 @@ object HelperBinderProtocol {
     const val MAX_BATCH_ITEMS: Int = 128
 
     /** Our own package — target of the narrow grantOverlayPermission appops call. */
-    const val APP_PACKAGE = "com.bydmate.app"
+    val APP_PACKAGE = BuildConfig.APPLICATION_ID
 
     /**
      * Flattened ComponentName of our steering-wheel accessibility service — appended
      * (never clobbering existing entries) to Settings.Secure enabled_accessibility_services
      * by the narrow enableAccessibilityService daemon op, since DiLink has no a11y settings UI.
      */
-    const val ACCESSIBILITY_SERVICE_COMPONENT =
-        "com.bydmate.app/com.bydmate.app.cluster.SteeringWheelKeyService"
+    val ACCESSIBILITY_SERVICE_COMPONENT =
+        "$APP_PACKAGE/com.bydmate.app.cluster.SteeringWheelKeyService"
 
     /**
      * Flattened ComponentName of our notification-listener stub — appended (never clobbering
@@ -114,6 +129,6 @@ object HelperBinderProtocol {
      * enableNotificationListener daemon op, mirroring ACCESSIBILITY_SERVICE_COMPONENT. Grants
      * MediaSessionManager.getActiveSessions() access to our process for real Yandex Music playback.
      */
-    const val NOTIFICATION_LISTENER_COMPONENT =
-        "com.bydmate.app/com.bydmate.app.media.MediaSessionListenerService"
+    val NOTIFICATION_LISTENER_COMPONENT =
+        "$APP_PACKAGE/com.bydmate.app.media.MediaSessionListenerService"
 }

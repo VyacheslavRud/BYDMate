@@ -3,6 +3,7 @@ package com.bydmate.app.service
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.bydmate.app.BuildConfig
 import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -25,6 +26,13 @@ class ServiceStartWorker(
     }
 
     override suspend fun doWork(): Result {
+        // Defense in depth: Dev is manual-start only, even if stale WorkManager state
+        // from an earlier build happens to invoke this worker.
+        if (BuildConfig.DEBUG) {
+            Log.i(TAG, "Skipping background service start in Dev build")
+            return Result.success()
+        }
+
         Log.i(TAG, "Starting TrackingService via WorkManager")
         ChainLog.append(applicationContext, "Worker doWork started")
         return try {

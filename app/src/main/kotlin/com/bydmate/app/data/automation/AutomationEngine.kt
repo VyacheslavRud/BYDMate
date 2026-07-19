@@ -22,6 +22,7 @@ import com.bydmate.app.data.local.entity.RuleLogEntity
 import com.bydmate.app.data.local.entity.TriggerDef
 import com.bydmate.app.data.remote.DiParsData
 import com.bydmate.app.R
+import com.bydmate.app.BuildConfig
 import com.bydmate.app.data.repository.PlaceRepository
 import com.bydmate.app.service.TrackingService
 import com.bydmate.app.ui.overlay.OverlayNotificationManager
@@ -51,8 +52,8 @@ class AutomationEngine @Inject constructor(
         private const val CONFIRM_TIMEOUT_MS = 30_000L
         private const val NOTIF_BASE_ID = 5000
 
-        const val ACTION_CONFIRM = "com.bydmate.app.AUTOMATION_CONFIRM"
-        const val ACTION_CANCEL = "com.bydmate.app.AUTOMATION_CANCEL"
+        val ACTION_CONFIRM = "${BuildConfig.APPLICATION_ID}.AUTOMATION_CONFIRM"
+        val ACTION_CANCEL = "${BuildConfig.APPLICATION_ID}.AUTOMATION_CANCEL"
         const val EXTRA_NOTIF_ID = "notif_id"
 
         // How long after the first evaluate() the service_start trigger stays

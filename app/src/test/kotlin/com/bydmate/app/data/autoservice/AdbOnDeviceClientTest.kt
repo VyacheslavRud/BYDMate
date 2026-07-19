@@ -1,6 +1,8 @@
 package com.bydmate.app.data.autoservice
 
 import androidx.test.core.app.ApplicationProvider
+import com.bydmate.app.BuildConfig
+import com.bydmate.app.helper.HelperBinderProtocol
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -148,10 +150,13 @@ class AdbOnDeviceClientTest {
         assertTrue("must contain setsid", cmd.contains("setsid"))
         assertTrue("must contain CLASSPATH=", cmd.contains("CLASSPATH="))
         assertTrue("must contain app_process", cmd.contains("app_process"))
-        assertTrue("must contain --nice-name=bydmate_helper", cmd.contains("--nice-name=bydmate_helper"))
+        assertTrue(
+            "must contain this build's helper process name",
+            cmd.contains("--nice-name=${HelperBinderProtocol.PROCESS_NAME}")
+        )
         assertTrue("must contain HelperDaemon class", cmd.contains("com.bydmate.app.helper.HelperDaemon"))
         assertTrue("must contain caller uid", cmd.contains(android.os.Process.myUid().toString()))
-        assertTrue("must redirect to bydmate_helper.log", cmd.contains("bydmate_helper.log"))
+        assertTrue("must redirect to this build's helper log", cmd.contains(HelperBinderProtocol.LOG_PATH))
 
         // SIGHUP-race fix: the spawning shell must stay alive (poll-loop on the
         // service registry) until the detached app_process has booted and called
@@ -188,8 +193,8 @@ class AdbOnDeviceClientTest {
         // Must select via ps + exact NAME (comm) equality — the discipline helperHeartbeat uses.
         assertTrue("must select via ps -A -o PID,NAME", cmd.contains("ps -A -o PID,NAME"))
         assertTrue(
-            "must match the process NAME exactly (== \"bydmate_helper\")",
-            cmd.contains("\$2==\"bydmate_helper\"")
+            "must match this build's process NAME exactly",
+            cmd.contains("\$2==\"${HelperBinderProtocol.PROCESS_NAME}\"")
         )
         assertTrue("must kill -9 the selected pids", cmd.contains("kill -9"))
     }
@@ -214,5 +219,25 @@ class AdbOnDeviceClientTest {
         val result = client.killHelper()
 
         assertFalse("killHelper must not claim success when exec returns null", result)
+    }
+
+    @Test
+    fun `usage stats grant accepts only this build package`() = runTest {
+        val fake = FakeProtocol(connectResult = true)
+        val client = newClient(fake)
+        client.connect()
+
+        assertTrue(client.grantUsageStatsAppop(BuildConfig.APPLICATION_ID))
+        assertEquals(
+            "appops set ${BuildConfig.APPLICATION_ID} GET_USAGE_STATS allow",
+            fake.execCalls.single()
+        )
+
+        try {
+            client.grantUsageStatsAppop("com.bydmate.another")
+            fail("Expected a foreign package to be rejected")
+        } catch (e: IllegalArgumentException) {
+            assertTrue(e.message!!.contains("refused package"))
+        }
     }
 }

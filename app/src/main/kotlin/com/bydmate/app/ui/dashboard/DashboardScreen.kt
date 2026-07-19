@@ -525,7 +525,7 @@ private fun TopBar(isServiceRunning: Boolean, vehicleDataConnected: Boolean, adb
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "BYDMate",
+            text = stringResource(R.string.app_name),
             color = TextPrimary,
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold

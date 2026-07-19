@@ -17,9 +17,6 @@ import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
 import kotlin.system.exitProcess
 
-// Lock path on the device filesystem (writable by shell uid).
-private const val LOCK_PATH = "/data/local/tmp/bydmate_helper.lock"
-
 /**
  * Acquires an exclusive file lock on [path]. Returns a (FileChannel, FileLock) pair on
  * success, or null if the lock is already held (either by another process or by the same JVM).
@@ -72,7 +69,7 @@ fun main(args: Array<String>) {
     }
 
     // Step 1: single-owner lock — prevents duplicate daemons.
-    val lockPair = acquireSingleOwnerLock(LOCK_PATH)
+    val lockPair = acquireSingleOwnerLock(HelperBinderProtocol.LOCK_PATH)
     if (lockPair == null) {
         println("ALREADY_RUNNING")
         // Clean exit: another owner already holds the service. Must exitProcess

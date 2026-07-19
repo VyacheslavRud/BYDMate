@@ -2,6 +2,7 @@ package com.bydmate.app.data.autoservice
 
 import android.content.Context
 import android.util.Log
+import com.bydmate.app.helper.HelperBinderProtocol
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -41,7 +42,7 @@ interface AdbOnDeviceClient {
     /**
      * Spawns the helper daemon under shell uid via app_process, using the app's
      * own signed base.apk as CLASSPATH (no dex push — integrity comes from the
-     * APK signature). The daemon registers itself as the `bydmate_helper` binder
+     * APK signature). The daemon registers itself under this build's fixed binder
      * service; reachability is verified separately by the binder client's ping,
      * not here. Returns true if the spawn command was dispatched without error
      * (NOT a liveness guarantee).
@@ -64,7 +65,7 @@ interface AdbOnDeviceClient {
     /** Reads the daemon's stdout/stderr log (READY / ERR lines) for diagnostics. Null on transport error. */
     suspend fun readHelperLog(): String?
 
-    /** Read-only check: is a process named `bydmate_helper` running? */
+    /** Read-only check: is this build's helper process running? */
     suspend fun helperHeartbeat(): Boolean
 
     /** Closes any underlying socket. Idempotent. */
@@ -130,7 +131,7 @@ class AdbOnDeviceClientImpl @Inject constructor(
 
     override suspend fun grantUsageStatsAppop(packageName: String): Boolean = withContext(Dispatchers.IO) {
         // Only permit our own package — never grant appops to anything else.
-        require(packageName.matches(PACKAGE_NAME_REGEX)) {
+        require(packageName == ctx.packageName) {
             "grantUsageStatsAppop: refused package $packageName"
         }
         val cmd = "appops set $packageName GET_USAGE_STATS allow"
@@ -164,9 +165,9 @@ class AdbOnDeviceClientImpl @Inject constructor(
             // spawn recipe; see reference_autoservice_write_channel.md.
             val spawnCmd =
                 "CLASSPATH=${ctx.packageCodePath} setsid app_process /system/bin " +
-                "--nice-name=$HELPER_PROCESS_NAME com.bydmate.app.helper.HelperDaemon " +
-                "${android.os.Process.myUid()} </dev/null >$HELPER_LOG_PATH 2>&1 & " +
-                "for i in 1 2 3; do service list 2>/dev/null | grep -q $HELPER_PROCESS_NAME && break; sleep 1; done"
+                "--nice-name=${HelperBinderProtocol.PROCESS_NAME} com.bydmate.app.helper.HelperDaemon " +
+                "${android.os.Process.myUid()} </dev/null >${HelperBinderProtocol.LOG_PATH} 2>&1 & " +
+                "for i in 1 2 3; do service list 2>/dev/null | grep -q ${HelperBinderProtocol.SERVICE_NAME} && break; sleep 1; done"
             // exec() returns null only on a dead/disconnected socket (AdbProtocolClient.exec) — an
             // honest false here matters: HelperBootstrap.ensureRunningLocked() persists the spawned
             // versionCode ONLY after a dispatch that actually succeeded, and bails otherwise.
@@ -194,7 +195,7 @@ class AdbOnDeviceClientImpl @Inject constructor(
             // shells here have comm != "bydmate_helper" and cannot self-match. Empty match →
             // `kill -9` runs for no pids → harmless.
             // Honest false on a dead socket, same reasoning as spawnHelper above.
-            p.exec("for p in \$(ps -A -o PID,NAME | awk '\$2==\"$HELPER_PROCESS_NAME\"{print \$1}'); do kill -9 \$p; done") != null
+            p.exec("for p in \$(ps -A -o PID,NAME | awk '\$2==\"${HelperBinderProtocol.PROCESS_NAME}\"{print \$1}'); do kill -9 \$p; done") != null
         } catch (e: Exception) {
             Log.w(TAG, "killHelper failed: ${e.message}")
             false
@@ -203,13 +204,13 @@ class AdbOnDeviceClientImpl @Inject constructor(
 
     override suspend fun readHelperLog(): String? = withContext(Dispatchers.IO) {
         val p = protocol ?: return@withContext null
-        runCatching { p.exec("cat $HELPER_LOG_PATH") }.getOrNull()
+        runCatching { p.exec("cat ${HelperBinderProtocol.LOG_PATH}") }.getOrNull()
     }
 
     override suspend fun helperHeartbeat(): Boolean = withContext(Dispatchers.IO) {
         val p = protocol ?: return@withContext false
         val out = runCatching { p.exec("ps -A -o NAME") }.getOrNull() ?: return@withContext false
-        out.lineSequence().any { it.trim() == HELPER_PROCESS_NAME }
+        out.lineSequence().any { it.trim() == HelperBinderProtocol.PROCESS_NAME }
     }
 
     override suspend fun shutdown() {
@@ -229,11 +230,7 @@ class AdbOnDeviceClientImpl @Inject constructor(
         // Rejects tx=6 (setInt), tx=8 (setBuffer), and arbitrary shell.
         private val WRITE_BARRIER_REGEX = Regex("""^service call autoservice [579] i32 \d+ i32 -?\d+$""")
 
-        // Narrow whitelist for grantUsageStatsAppop — only our own package.
-        private val PACKAGE_NAME_REGEX = Regex("""^com\.bydmate\.app$""")
-
-        // Helper daemon — hardcoded so neither caller can inject paths/cmdlines.
-        private const val HELPER_PROCESS_NAME = "bydmate_helper"
-        private const val HELPER_LOG_PATH = "/data/local/tmp/bydmate_helper.log"
+        // Helper daemon names come from HelperBinderProtocol. They are fixed per build
+        // (stable/dev), not caller-controlled, so shell command arguments stay non-injectable.
     }
 }

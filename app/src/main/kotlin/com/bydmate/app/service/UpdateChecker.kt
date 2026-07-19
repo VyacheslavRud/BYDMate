@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.net.Uri
 import android.os.Environment
 import androidx.core.content.FileProvider
+import com.bydmate.app.BuildConfig
 import com.bydmate.app.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -56,6 +57,10 @@ class UpdateChecker @Inject constructor(
     )
 
     suspend fun checkForUpdate(context: Context, forceCheck: Boolean = false): UpdateInfo? = withContext(Dispatchers.IO) {
+        // GitHub releases contain the stable package. A Dev installation must never offer
+        // that APK as an in-place update because it is a separate application.
+        if (BuildConfig.DEBUG) return@withContext null
+
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val lastCheck = prefs.getLong(KEY_LAST_CHECK, 0)
         val now = System.currentTimeMillis()

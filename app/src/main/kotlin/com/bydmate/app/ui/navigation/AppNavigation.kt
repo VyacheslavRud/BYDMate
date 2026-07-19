@@ -49,6 +49,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.bydmate.app.R
+import com.bydmate.app.BuildConfig
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -114,7 +115,8 @@ fun AppNavigation(
     // before the update dialog — support first, then offer the update once it is dismissed.
     var showDonation by remember { mutableStateOf(false) }
     LaunchedEffect(startDestination) {
-        if (startDestination == "dashboard" &&
+        if (!BuildConfig.DEBUG &&
+            startDestination == "dashboard" &&
             UpdateChecker.getLastSeenVersion(autoCheckContext) == currentAppVersion &&
             DonationReminder.shouldShow(autoCheckContext, currentAppVersion)
         ) {
@@ -169,7 +171,10 @@ fun AppNavigation(
 
     // Post-install reminder: первый запуск новой версии → напомнить про Disable background Apps.
     var showPostInstallReminder by remember {
-        mutableStateOf(UpdateChecker.getLastSeenVersion(autoCheckContext) != currentAppVersion)
+        mutableStateOf(
+            !BuildConfig.DEBUG &&
+                UpdateChecker.getLastSeenVersion(autoCheckContext) != currentAppVersion
+        )
     }
     if (showPostInstallReminder) {
         PostInstallReminderDialog(

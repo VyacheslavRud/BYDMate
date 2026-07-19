@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.bydmate.app.BuildConfig
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -31,6 +32,13 @@ class BootReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        // A development installation may live next to the stable app in a real car.
+        // Never let it start itself after boot; the tester must open it explicitly.
+        if (BuildConfig.DEBUG) {
+            Log.i(TAG, "Ignoring boot event in Dev build: ${intent.action}")
+            return
+        }
+
         val validActions = setOf(
             Intent.ACTION_BOOT_COMPLETED,
             "android.intent.action.QUICKBOOT_POWERON",

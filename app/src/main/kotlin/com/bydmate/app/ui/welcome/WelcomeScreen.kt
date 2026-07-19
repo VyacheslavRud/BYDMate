@@ -70,7 +70,7 @@ fun WelcomeScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            "Welcome to BYDMate!",
+            "Welcome to ${stringResource(R.string.app_name)}!",
             color = AccentGreen,
             fontSize = 28.sp,
             fontWeight = FontWeight.Bold
@@ -227,7 +227,7 @@ private fun AutoStartStep(state: WelcomeUiState, viewModel: WelcomeViewModel) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(stringResource(R.string.welcome_autostart_dilink_instruction), color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 Spacer(modifier = Modifier.height(2.dp))
-                val dilinkCommand = "打开应用com.bydmate.app"
+                val dilinkCommand = "打开应用${context.packageName}"
                 val copiedToast = stringResource(R.string.welcome_autostart_command_copied_toast)
                 Text(
                     dilinkCommand,
@@ -242,7 +242,7 @@ private fun AutoStartStep(state: WelcomeUiState, viewModel: WelcomeViewModel) {
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    stringResource(R.string.welcome_autostart_command_explanation),
+                    stringResource(R.string.welcome_autostart_command_explanation, context.packageName),
                     color = TextMuted,
                     fontSize = 10.sp
                 )

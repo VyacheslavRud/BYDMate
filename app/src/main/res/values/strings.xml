@@ -460,7 +460,7 @@
     <string name="place_edit_error_min_radius">Минимальный радиус 20 м</string>
 
     <!-- Welcome Wizard -->
-    <string name="welcome_step_indicator">Шаг %1$d из 3</string>
+    <string name="welcome_step_indicator">Шаг %1$d из 2</string>
     <string name="welcome_model_step_title">Какая у тебя модель BYD?</string>
     <string name="welcome_model_step_description">Это определит источник данных поездок.\nTitan 3 хранит данные во встроенной БД BYD (energydata).\nSong и другие модели — только в DiPlus.</string>
     <string name="welcome_model_song_label">Song / другая</string>
@@ -486,7 +486,7 @@
     <string name="welcome_autostart_dilink_hint">Если автозапуск не сработал, добавьте в Di+:</string>
     <string name="welcome_autostart_dilink_instruction">Di+ → Predefined → Startup tasks</string>
     <string name="welcome_autostart_command_copied_toast">Скопировано!</string>
-    <string name="welcome_autostart_command_explanation">打开应用 = «открыть приложение» + имя пакета.\nДля двух приложений через точку с запятой:\n打开应用ru.yandex.yandexnavi;打开应用com.bydmate.app</string>
+    <string name="welcome_autostart_command_explanation">打开应用 = «открыть приложение» + имя пакета.\nДля двух приложений через точку с запятой:\n打开应用ru.yandex.yandexnavi;打开应用%1$s</string>
     <string name="welcome_system_settings_section_title">Системные настройки</string>
     <string name="welcome_autostart_open_settings_button">Открыть настройки автозапуска</string>
     <string name="welcome_autostart_open_settings_error">Не удалось открыть настройки автозапуска DiLink. Открыты настройки приложения.</string>

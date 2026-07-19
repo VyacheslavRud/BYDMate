@@ -847,17 +847,20 @@ class TrackingService : Service(), LocationListener {
         instance = null
         _isRunning.value = false
 
-        // Auto-restart via WorkManager (like BydConnect AutoRestartReceiver)
-        try {
-            val request = OneTimeWorkRequestBuilder<ServiceStartWorker>().build()
-            WorkManager.getInstance(this).enqueueUniqueWork(
-                ServiceStartWorker.WORK_NAME,
-                ExistingWorkPolicy.KEEP,
-                request
-            )
-            Log.i(TAG, "Restart scheduled via WorkManager")
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to schedule restart: ${e.message}")
+        // Stable is an always-on trip logger. Dev is intentionally manual-start only so it
+        // can coexist with stable on a tester's car without silently waking in the background.
+        if (!BuildConfig.DEBUG) {
+            try {
+                val request = OneTimeWorkRequestBuilder<ServiceStartWorker>().build()
+                WorkManager.getInstance(this).enqueueUniqueWork(
+                    ServiceStartWorker.WORK_NAME,
+                    ExistingWorkPolicy.KEEP,
+                    request
+                )
+                Log.i(TAG, "Restart scheduled via WorkManager")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to schedule restart: ${e.message}")
+            }
         }
 
         super.onDestroy()
@@ -865,6 +868,10 @@ class TrackingService : Service(), LocationListener {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
+        if (BuildConfig.DEBUG) {
+            Log.i(TAG, "onTaskRemoved: Dev build will not restart")
+            return
+        }
         Log.i(TAG, "onTaskRemoved: scheduling restart via WorkManager")
         ChainLog.append(this, "onTaskRemoved → restart")
         try {
@@ -1148,7 +1155,7 @@ class TrackingService : Service(), LocationListener {
         serviceScope.launch {
             try {
                 if (adbOnDeviceClient.connect().isSuccess) {
-                    val granted = adbOnDeviceClient.grantUsageStatsAppop("com.bydmate.app")
+                    val granted = adbOnDeviceClient.grantUsageStatsAppop(packageName)
                     Log.i(TAG, "GET_USAGE_STATS appop grant: $granted")
                 } else {
                     Log.w(TAG, "ADB connect refused — camera detection may be inactive until appop is granted manually")
@@ -1293,7 +1300,7 @@ class TrackingService : Service(), LocationListener {
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "BYDMate Tracking",
+            "${getString(R.string.app_name)} Tracking",
             NotificationManager.IMPORTANCE_LOW
         ).apply {
             description = "Trip and charge tracking"
@@ -1310,7 +1317,7 @@ class TrackingService : Service(), LocationListener {
             PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("BYDMate")
+            .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setContentIntent(pendingIntent)

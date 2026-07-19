@@ -379,7 +379,7 @@
     <string name="place_edit_lon_label">Longitude</string>
     <string name="place_edit_radius_label">Radius, m</string>
     <string name="place_edit_error_min_radius">Minimum radius is 20 m</string>
-    <string name="welcome_step_indicator">Step %1$d of 3</string>
+    <string name="welcome_step_indicator">Step %1$d of 2</string>
     <string name="welcome_model_step_title">Which BYD model do you have?</string>
     <string name="welcome_model_step_description">This determines the trip data source.\nTitan 3 stores data in the BYD built-in database (energydata).\nSong and other models — only in DiPlus.</string>
     <string name="welcome_model_song_label">Song / other</string>
@@ -405,7 +405,7 @@
     <string name="welcome_autostart_dilink_hint">If autostart did not work, add this in Di+:</string>
     <string name="welcome_autostart_dilink_instruction">Di+ -> Predefined -> Startup tasks</string>
     <string name="welcome_autostart_command_copied_toast">Copied!</string>
-    <string name="welcome_autostart_command_explanation">打开应用 = \"open app\" + package name.\nFor two apps separated by semicolon:\n打开应用ru.yandex.yandexnavi;打开应用com.bydmate.app</string>
+    <string name="welcome_autostart_command_explanation">打开应用 = \"open app\" + package name.\nFor two apps separated by semicolon:\n打开应用ru.yandex.yandexnavi;打开应用%1$s</string>
     <string name="welcome_system_settings_section_title">System settings</string>
     <string name="welcome_autostart_open_settings_button">Open autostart settings</string>
     <string name="welcome_autostart_open_settings_error">Could not open DiLink autostart settings. App settings were opened.</string>

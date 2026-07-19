@@ -47,6 +47,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            // The development build is a completely separate Android app. It can be
+            // installed next to the stable release and owns its own UID, settings,
+            // Room database, permissions, services and files.
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+        }
         release {
             signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true

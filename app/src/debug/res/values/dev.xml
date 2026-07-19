@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BYDMate Dev</string>
+    <color name="dev_launcher_background">#E85D04</color>
+</resources>
