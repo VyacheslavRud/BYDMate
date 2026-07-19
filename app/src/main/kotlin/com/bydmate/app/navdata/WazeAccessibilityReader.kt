@@ -10,11 +10,21 @@ import android.view.accessibility.AccessibilityNodeInfo
  * layout for landscape/cluster displays, or expose a container whose useful text is in a child.
  */
 object WazeAccessibilityReader {
+    private val COMPOSE_TEST_TAG = Regex("^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$")
+    private val SPEED_LIMIT = Regex("""(?<![-+\d])(\d{1,3})(?!\d)""")
+    private val NUMBERED_EXIT = Regex(
+        """(?<!\d)(\d{1,2})(?:[-‑ ]?(?:й|я|е|st|nd|rd|th))?\s+(?:съезд|exit)(?!\p{L})""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val SHORT_DIRECTIONS = setOf("LEFT", "RIGHT", "STRAIGHT", "U-TURN", "U TURN")
     private val routeAnchorSuffixes = listOf(
         "navBarDistance",
         "navBarStreetLine",
         "navBarDirectionText",
+        "navBarInstructionText",
+        "navBarInstruction",
         "instructionView",
+        "navBarDirection",
     )
 
     data class Fields(
@@ -28,12 +38,36 @@ object WazeAccessibilityReader {
         val exitNumber: String?,
     )
 
+    /** Stable ranking for choosing between multiple Waze windows/displays. An anchor-only
+     *  surface stays eligible, while a complete current route bar wins over a stale icon or
+     *  minimized shell. No field contents are retained or logged. */
+    internal fun guidanceScore(fields: Fields?, hasAnchor: Boolean): Int {
+        if (fields == null) return if (hasAnchor) 1 else 0
+        var score = if (hasAnchor) 1 else 0
+        if (!fields.maneuver.isNullOrBlank()) {
+            score += 40
+            if (NavManeuverCodes.fromInstructionText(fields.maneuver) != 0) score += 5
+        }
+        if (!fields.maneuverDistance.isNullOrBlank()) score += 30
+        if (!fields.street.isNullOrBlank()) score += 20
+        if (!fields.remainingDistance.isNullOrBlank()) score += 6
+        if (!fields.remainingTime.isNullOrBlank()) score += 6
+        if (!fields.arrivalTime.isNullOrBlank()) score += 4
+        if (!fields.speedLimit.isNullOrBlank()) score += 2
+        if (!fields.exitNumber.isNullOrBlank()) score += 2
+        return score
+    }
+
     fun read(root: AccessibilityNodeInfo?): Fields? {
-        if (root == null || !NavPackages.isNavigationPackage(root.packageName?.toString())) return null
-        val pkg = root.packageName.toString()
-        val maneuver = firstValue(
+        if (root == null) return null
+        val pkg = runCatching { root.packageName?.toString() }.getOrNull()
+            ?.takeIf(NavPackages::isNavigationPackage)
+            ?: return null
+        val maneuver = maneuverValue(
             root,
             "$pkg:id/navBarDirectionText",
+            "$pkg:id/navBarInstructionText",
+            "$pkg:id/navBarInstruction",
             "$pkg:id/instructionView",
             "$pkg:id/navBarDirection",
         )
@@ -47,16 +81,19 @@ object WazeAccessibilityReader {
             root,
             "$pkg:id/minimizedEtaBarDistanceToDestination",
             "$pkg:id/minimizedEtaBarOfflineDistanceToDestination",
+            "$pkg:id/etaBarDistanceToDestination",
             "$pkg:id/lblDistanceToDestination",
         )
         val remainingTime = firstValue(
             root,
             "$pkg:id/minimizedEtaBarTimeToDestination",
+            "$pkg:id/etaBarTimeToDestination",
             "$pkg:id/lblTimeToDestination",
         )
         val arrivalTime = firstValue(
             root,
             "$pkg:id/minimizedEtaBarArrivalTime",
+            "$pkg:id/etaBarArrivalTime",
             "$pkg:id/lblArrivalTime",
         )
         val speedLimit = firstValue(
@@ -82,8 +119,10 @@ object WazeAccessibilityReader {
 
     /** Shared route-window discriminator used by both the reader and window selection. */
     fun hasRouteAnchor(root: AccessibilityNodeInfo?): Boolean {
-        if (root == null || !NavPackages.isNavigationPackage(root.packageName?.toString())) return false
-        val pkg = root.packageName.toString()
+        if (root == null) return false
+        val pkg = runCatching { root.packageName?.toString() }.getOrNull()
+            ?.takeIf(NavPackages::isNavigationPackage)
+            ?: return false
         for (suffix in routeAnchorSuffixes) {
             val nodes = runCatching {
                 root.findAccessibilityNodeInfosByViewId("$pkg:id/$suffix")
@@ -102,7 +141,7 @@ object WazeAccessibilityReader {
             var found: String? = null
             for (node in nodes) {
                 if (found == null && runCatching { node.isVisibleToUser }.getOrDefault(false)) {
-                    found = nodeValue(node, depth = 2)
+                    found = runCatching { nodeValue(node, depth = 2) }.getOrNull()
                 }
                 recycle(node)
             }
@@ -111,12 +150,88 @@ object WazeAccessibilityReader {
         return null
     }
 
+    /** Prefer a full spoken instruction over a short arrow description when both are visible.
+     *  On Waze 5.x the icon and text can coexist briefly during a reroute; the text describes the
+     *  current first maneuver while the icon node may still expose its previous LEFT/RIGHT value. */
+    private fun maneuverValue(root: AccessibilityNodeInfo, vararg ids: String): String? {
+        data class Value(
+            val text: String,
+            val idIndex: Int,
+            val nodeIndex: Int,
+            val valueIndex: Int,
+            val parsed: NavManeuverCodes.ParseResult,
+        )
+        val values = mutableListOf<Value>()
+        ids.forEachIndexed { idIndex, id ->
+            val nodes = runCatching { root.findAccessibilityNodeInfosByViewId(id) }.getOrNull()
+                ?: return@forEachIndexed
+            nodes.forEachIndexed { nodeIndex, node ->
+                if (runCatching { node.isVisibleToUser }.getOrDefault(false)) {
+                    runCatching { maneuverNodeValues(node, depth = 2) }
+                        .getOrDefault(emptyList())
+                        .forEachIndexed { valueIndex, value ->
+                            values += Value(
+                                value,
+                                idIndex,
+                                nodeIndex,
+                                valueIndex,
+                                NavManeuverCodes.parseInstructionText(value),
+                            )
+                        }
+                }
+                recycle(node)
+            }
+        }
+        if (values.isEmpty()) return null
+        val recognized = values.filter { it.parsed.gaode != 0 }
+        if (recognized.isEmpty()) return values.minWith(
+            compareBy<Value> { it.idIndex }.thenBy { it.nodeIndex }.thenBy { it.valueIndex },
+        ).text
+        return recognized.maxWith(
+            compareBy<Value> { isDetailedInstruction(it.text) }
+                .thenBy { it.parsed.recognizedCodes.size }
+                .thenBy { it.text.length }
+                .thenBy { -it.idIndex }
+                .thenBy { -it.nodeIndex }
+                .thenBy { -it.valueIndex },
+        ).text
+    }
+
+    /** Unlike generic text fields, maneuver nodes need both text and contentDescription: a Waze
+     *  icon can expose RIGHT only through accessibility while its sibling text carries the full
+     *  instruction. Detailed text still wins later in [maneuverValue]. */
+    private fun maneuverNodeValues(node: AccessibilityNodeInfo, depth: Int): List<String> {
+        if (!runCatching { node.isVisibleToUser }.getOrDefault(false)) return emptyList()
+        val values = linkedSetOf<String>()
+        runCatching { node.text?.toString()?.trim() }.getOrNull()
+            ?.takeIf(String::isNotEmpty)?.let(values::add)
+        runCatching { node.contentDescription?.toString()?.trim() }.getOrNull()
+            ?.takeIf(::isUsefulDescription)?.let(values::add)
+        if (depth <= 0) return values.toList()
+        val childCount = runCatching { node.childCount }.getOrDefault(0)
+        for (index in 0 until childCount) {
+            val child = runCatching { node.getChild(index) }.getOrNull() ?: continue
+            try {
+                values += maneuverNodeValues(child, depth - 1)
+            } finally {
+                recycle(child)
+            }
+        }
+        return values.toList()
+    }
+
+    private fun isDetailedInstruction(value: String): Boolean =
+        value.trim().uppercase() !in SHORT_DIRECTIONS
+
     private fun nodeValue(node: AccessibilityNodeInfo, depth: Int): String? {
         if (!runCatching { node.isVisibleToUser }.getOrDefault(false)) return null
-        node.text?.toString()?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
-        node.contentDescription?.toString()?.trim()?.takeIf(::isUsefulDescription)?.let { return it }
+        runCatching { node.text?.toString()?.trim() }.getOrNull()
+            ?.takeIf { it.isNotEmpty() }?.let { return it }
+        runCatching { node.contentDescription?.toString()?.trim() }.getOrNull()
+            ?.takeIf(::isUsefulDescription)?.let { return it }
         if (depth <= 0) return null
-        for (index in 0 until node.childCount) {
+        val childCount = runCatching { node.childCount }.getOrDefault(0)
+        for (index in 0 until childCount) {
             val child = runCatching { node.getChild(index) }.getOrNull() ?: continue
             try {
                 nodeValue(child, depth - 1)?.let { return it }
@@ -129,20 +244,19 @@ object WazeAccessibilityReader {
 
     /** Compose-style test tags contain at least one underscore; LEFT and BRNO remain valid text. */
     private fun isUsefulDescription(value: String): Boolean =
-        value.isNotEmpty() && !Regex("^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$").matches(value)
+        value.isNotEmpty() && !COMPOSE_TEST_TAG.matches(value)
 
     private fun recycle(node: AccessibilityNodeInfo) {
         @Suppress("DEPRECATION")
         runCatching { node.recycle() }
     }
 
-    private fun numericSpeedLimit(value: String): String? = Regex("""\b(\d{1,3})\b""")
+    private fun numericSpeedLimit(value: String): String? = SPEED_LIMIT
         .find(value)?.groupValues?.get(1)?.toIntOrNull()
-        ?.takeIf { it in 5..200 }
+        ?.takeIf { it in 5..250 }
         ?.toString()
 
     private fun numberedExit(value: String?): String? = value?.let {
-        Regex("""\b(\d{1,2})(?:[-‑ ]?(?:й|я|е|st|nd|rd|th))?\s+(?:съезд|exit)\b""", RegexOption.IGNORE_CASE)
-            .find(it)?.groupValues?.get(1)
+        NUMBERED_EXIT.find(it)?.groupValues?.get(1)
     }
 }

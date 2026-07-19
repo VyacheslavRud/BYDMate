@@ -12,8 +12,16 @@ class NavGuidanceHubTest {
 
     private fun data(
         gaode: Int = 0, dist: Int = 0, road: String = "",
-        eta: Int = 0, total: Int = 0, limit: Int = 0,
-    ) = NavGuidance(gaode, dist, road, eta, total, limit)
+        eta: Int = 0, arrival: String = "", total: Int = 0, limit: Int = 0,
+    ) = NavGuidance(
+        maneuverGaode = gaode,
+        distanceMeters = dist,
+        road = road,
+        etaSeconds = eta,
+        arrivalTime = arrival,
+        totalDistMeters = total,
+        speedLimit = limit,
+    )
 
     @Test fun `update activates and fills fields`() {
         NavGuidanceHub.update(data(gaode = 2, dist = 250, road = "ул. Ленина", eta = 300, total = 5000, limit = 60),
@@ -49,7 +57,7 @@ class NavGuidanceHubTest {
         assertEquals(NavGuidanceHub.Source.A11Y, s.source)
     }
 
-    @Test fun `a11y replacement clears fields missing after reroute`() {
+    @Test fun `partial same-source update retains route fields inside bounded hold`() {
         NavGuidanceHub.update(
             data(gaode = 2, dist = 250, road = "Старая улица", eta = 300),
             NavGuidanceHub.Source.A11Y,
@@ -64,8 +72,38 @@ class NavGuidanceHubTest {
         val rerouted = NavGuidanceHub.snapshot(nowMs = 2_000)
         assertEquals(1, rerouted.maneuverGaode)
         assertEquals(900, rerouted.distanceMeters)
-        assertEquals("", rerouted.road)
-        assertEquals(0, rerouted.etaSeconds)
+        assertEquals("Старая улица", rerouted.road)
+        assertEquals(300, rerouted.etaSeconds)
+        assertEquals(1_000, rerouted.etaUpdatedAtMs)
+
+        val expiredFields = NavGuidanceHub.snapshot(
+            nowMs = 1_001 + NavGuidanceHub.ROUTE_TEXT_HOLD_MS,
+        )
+        assertTrue(expiredFields.active)
+        assertEquals("", expiredFields.road)
+        assertEquals(0, expiredFields.etaSeconds)
+    }
+
+    @Test fun `distance hold spans two refresh periods but still expires`() {
+        NavGuidanceHub.update(
+            data(gaode = 2, dist = 250),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 1_000,
+        )
+
+        assertEquals(
+            250,
+            NavGuidanceHub.snapshot(1_000 + NavGuidanceHub.DISTANCE_HOLD_MS).distanceMeters,
+        )
+        NavGuidanceHub.markRouteObserved(
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 1_001 + NavGuidanceHub.DISTANCE_HOLD_MS,
+        )
+        val expired = NavGuidanceHub.snapshot(
+            nowMs = 1_001 + NavGuidanceHub.DISTANCE_HOLD_MS,
+        )
+        assertTrue(expired.active)
+        assertEquals(0, expired.distanceMeters)
     }
 
     @Test fun `fresh a11y wins while notification only fills missing values`() {
@@ -92,7 +130,7 @@ class NavGuidanceHubTest {
         assertEquals(500, snapshot.etaSeconds)
     }
 
-    @Test fun `notification becomes primary after a11y source expires`() {
+    @Test fun `newer notification remains primary while its maneuver fields are current`() {
         NavGuidanceHub.update(
             data(gaode = 2, dist = 250),
             NavGuidanceHub.Source.A11Y,
@@ -103,7 +141,7 @@ class NavGuidanceHubTest {
             nowMs = 50_000,
         )
 
-        val snapshot = NavGuidanceHub.snapshot(nowMs = 91_001)
+        val snapshot = NavGuidanceHub.snapshot(nowMs = 60_000)
         assertTrue(snapshot.active)
         assertEquals(NavGuidanceHub.Source.NOTIFICATION, snapshot.source)
         assertEquals(1, snapshot.maneuverGaode)
@@ -161,10 +199,96 @@ class NavGuidanceHubTest {
         assertEquals(0, snapshot.etaSeconds)
     }
 
-    @Test fun `snapshot expires after timeout`() {
+    @Test fun `route lease expires after one minute without any route evidence`() {
         NavGuidanceHub.update(data(gaode = 2), NavGuidanceHub.Source.A11Y, nowMs = 1000)
         assertTrue(NavGuidanceHub.snapshot(nowMs = 1000 + NavGuidanceHub.ACTIVE_TIMEOUT_MS).active)
         assertFalse(NavGuidanceHub.snapshot(nowMs = 1001 + NavGuidanceHub.ACTIVE_TIMEOUT_MS).active)
+        assertEquals(
+            NavGuidanceHub.RouteEndReason.LEASE_EXPIRED,
+            NavGuidanceHub.diagnostics().lastRouteEndReason,
+        )
+    }
+
+    @Test fun `delayed route presence refresh keeps route active without stale arrow forever`() {
+        NavGuidanceHub.update(data(gaode = 2, dist = 5_000), NavGuidanceHub.Source.A11Y, nowMs = 1_000)
+        NavGuidanceHub.markRouteObserved(
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 1_000 + NavGuidanceHub.ROUTE_LEASE_TIMEOUT_MS + 1,
+        )
+
+        val stillActive = NavGuidanceHub.snapshot(
+            nowMs = 1_000 + NavGuidanceHub.ROUTE_LEASE_TIMEOUT_MS + 2,
+        )
+        assertTrue(stillActive.active)
+        assertEquals(0, stillActive.maneuverGaode)
+        assertEquals(1_000, stillActive.lastUpdateMs)
+        assertEquals(
+            1_000 + NavGuidanceHub.ROUTE_LEASE_TIMEOUT_MS + 1,
+            stillActive.lastRouteObservedMs,
+        )
+    }
+
+    @Test fun `periodic unchanged guidance refresh keeps long straight maneuver alive`() {
+        NavGuidanceHub.update(data(gaode = 2, dist = 5_000), NavGuidanceHub.Source.A11Y, nowMs = 1_000)
+        NavGuidanceHub.update(data(gaode = 2, dist = 5_000), NavGuidanceHub.Source.A11Y, nowMs = 45_000)
+
+        val stillActive = NavGuidanceHub.snapshot(nowMs = 61_000)
+        assertTrue(stillActive.active)
+        assertEquals(2, stillActive.maneuverGaode)
+        assertEquals(45_000, stillActive.lastUpdateMs)
+    }
+
+    @Test fun `relative ETA keeps its own source anchor`() {
+        NavGuidanceHub.updateFromNotification(data(eta = 900), nowMs = 10_000)
+        NavGuidanceHub.update(data(gaode = 2, dist = 500), NavGuidanceHub.Source.A11Y, nowMs = 11_000)
+
+        val snapshot = NavGuidanceHub.snapshot(nowMs = 11_000)
+        assertEquals(900, snapshot.etaSeconds)
+        assertEquals(10_000, snapshot.etaUpdatedAtMs)
+    }
+
+    @Test fun `direct arrival clock is retained independently from relative ETA`() {
+        NavGuidanceHub.update(
+            data(gaode = 2, eta = 900, arrival = "21:45"),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 10_000,
+        )
+        NavGuidanceHub.update(data(dist = 400), NavGuidanceHub.Source.A11Y, nowMs = 11_000)
+
+        val snapshot = NavGuidanceHub.snapshot(nowMs = 11_000)
+        assertEquals("21:45", snapshot.arrivalTime)
+        assertEquals(900, snapshot.etaSeconds)
+        assertEquals(10_000, snapshot.etaUpdatedAtMs)
+    }
+
+    @Test fun `unchanged rounded ETA keeps its original arrival anchor`() {
+        NavGuidanceHub.update(
+            data(gaode = 2, eta = 18 * 60),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 10_000,
+        )
+        NavGuidanceHub.update(
+            data(gaode = 2, eta = 18 * 60),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 25_000,
+        )
+
+        assertEquals(10_000, NavGuidanceHub.snapshot(nowMs = 25_000).etaUpdatedAtMs)
+    }
+
+    @Test fun `changed rounded ETA advances its arrival anchor`() {
+        NavGuidanceHub.update(
+            data(gaode = 2, eta = 18 * 60),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 10_000,
+        )
+        NavGuidanceHub.update(
+            data(gaode = 2, eta = 17 * 60),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 25_000,
+        )
+
+        assertEquals(25_000, NavGuidanceHub.snapshot(nowMs = 25_000).etaUpdatedAtMs)
     }
 
     @Test fun `speed limit clears after its own timeout`() {
@@ -192,6 +316,10 @@ class NavGuidanceHubTest {
         assertTrue(NavGuidanceHub.snapshot(nowMs = 2000).active)
         NavGuidanceHub.markNoGuidance(nowMs = 2000 + NavGuidanceHub.NO_GUIDANCE_DEACTIVATE_MS)
         assertFalse(NavGuidanceHub.snapshot(nowMs = 2000 + NavGuidanceHub.NO_GUIDANCE_DEACTIVATE_MS).active)
+        assertEquals(
+            NavGuidanceHub.RouteEndReason.EXPLICIT_NO_ROUTE,
+            NavGuidanceHub.diagnostics().lastRouteEndReason,
+        )
     }
 
     @Test fun `guidance update resets no-guidance streak`() {
@@ -227,11 +355,22 @@ class NavGuidanceHubTest {
         assertEquals(0, s.maneuverGaode)
     }
 
-    @Test fun `single no-guidance signal deactivates via snapshot after deadline`() {
+    @Test fun `single no-guidance signal never deactivates route by itself`() {
         NavGuidanceHub.update(data(gaode = 2, dist = 500), NavGuidanceHub.Source.A11Y, nowMs = 1_000)
         NavGuidanceHub.markNoGuidance(nowMs = 2_000)
-        assertTrue(NavGuidanceHub.snapshot(nowMs = 5_000).active)      // deadline not reached yet
-        assertFalse(NavGuidanceHub.snapshot(nowMs = 12_001).active)    // >=10 s, NO second event
+        assertTrue(NavGuidanceHub.snapshot(nowMs = 5_000).active)
+        assertTrue(NavGuidanceHub.snapshot(nowMs = 12_001).active)
+        assertEquals(1, NavGuidanceHub.diagnostics().explicitNoRouteObservationCount)
+    }
+
+    @Test fun `indeterminate window cancels pending no-route confirmation`() {
+        NavGuidanceHub.update(data(gaode = 2, dist = 500), NavGuidanceHub.Source.A11Y, nowMs = 1_000)
+        NavGuidanceHub.markNoGuidance(nowMs = 2_000)
+        NavGuidanceHub.markRouteIndeterminate()
+        NavGuidanceHub.markNoGuidance(nowMs = 7_000)
+
+        assertTrue(NavGuidanceHub.snapshot(nowMs = 12_000).active)
+        assertEquals(1, NavGuidanceHub.diagnostics().explicitNoRouteObservationCount)
     }
 
     @Test fun `guidance update cancels pending no-guidance deadline`() {
@@ -252,20 +391,65 @@ class NavGuidanceHubTest {
         assertEquals(300, snapshot.distanceMeters)
     }
 
-    @Test fun `notification end deactivates notification-only guidance immediately`() {
+    @Test fun `confirmed empty Waze window keeps independent live notification route`() {
+        NavGuidanceHub.update(
+            data(gaode = 2, dist = 500, road = "A11Y road"),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 1_000,
+        )
+        NavGuidanceHub.updateFromNotification(
+            data(gaode = 2, dist = 480, road = "Notification road"),
+            nowMs = 2_000,
+        )
+
+        assertEquals(
+            NavGuidanceHub.NoGuidanceResult.PENDING,
+            NavGuidanceHub.markNoGuidance(nowMs = 3_000),
+        )
+        assertEquals(
+            NavGuidanceHub.NoGuidanceResult.A11Y_CLEARED_NOTIFICATION_RETAINED,
+            NavGuidanceHub.markNoGuidance(
+                nowMs = 3_000 + NavGuidanceHub.NO_GUIDANCE_DEACTIVATE_MS,
+            ),
+        )
+
+        val retained = NavGuidanceHub.snapshot(
+            nowMs = 3_000 + NavGuidanceHub.NO_GUIDANCE_DEACTIVATE_MS,
+        )
+        assertTrue(retained.active)
+        assertEquals(NavGuidanceHub.Source.NOTIFICATION, retained.source)
+        assertEquals(2, retained.maneuverGaode)
+        assertEquals("Notification road", retained.road)
+        assertEquals(null, NavGuidanceHub.diagnostics().lastRouteEndReason)
+    }
+
+    @Test fun `notification end uses grace before deactivating notification-only guidance`() {
         NavGuidanceHub.updateFromNotification(
             data(gaode = 1, dist = 500, road = "ул. Ленина"),
             nowMs = 1_000,
         )
         assertTrue(NavGuidanceHub.snapshot(nowMs = 1_500).active)
         NavGuidanceHub.markNotificationEnded(nowMs = 2_000)
-        assertFalse(NavGuidanceHub.snapshot(nowMs = 2_100).active)
+        assertTrue(NavGuidanceHub.snapshot(nowMs = 2_100).active)
+        assertFalse(
+            NavGuidanceHub.snapshot(
+                nowMs = 2_001 + NavGuidanceHub.NOTIFICATION_END_GRACE_MS,
+            ).active,
+        )
+        assertEquals(
+            NavGuidanceHub.RouteEndReason.NOTIFICATION_REMOVED,
+            NavGuidanceHub.diagnostics().lastRouteEndReason,
+        )
     }
 
     @Test fun `notification end ignored while a11y guidance is fresh`() {
         NavGuidanceHub.update(data(gaode = 2, dist = 300), NavGuidanceHub.Source.A11Y, nowMs = 1_000)
         NavGuidanceHub.markNotificationEnded(nowMs = 2_000)
-        assertTrue(NavGuidanceHub.snapshot(nowMs = 2_100).active)
+        assertTrue(
+            NavGuidanceHub.snapshot(
+                nowMs = 2_001 + NavGuidanceHub.NOTIFICATION_END_GRACE_MS,
+            ).active,
+        )
     }
 
     @Test fun `new route after expiry does not inherit stale fields`() {
@@ -288,25 +472,28 @@ class NavGuidanceHubTest {
         assertEquals(900, fresh.distanceMeters)
     }
 
-    @Test fun `new route evaluates no-guidance deadline before merging`() {
+    @Test fun `new route after confirmed no-guidance does not inherit old fields`() {
         NavGuidanceHub.update(
             data(gaode = 2, dist = 250, road = "Старая улица"),
             NavGuidanceHub.Source.A11Y,
             nowMs = 1_000,
         )
         NavGuidanceHub.markNoGuidance(nowMs = 2_000)
+        NavGuidanceHub.markNoGuidance(
+            nowMs = 2_000 + NavGuidanceHub.NO_GUIDANCE_DEACTIVATE_MS,
+        )
 
-        // No snapshot() call in between: update itself must notice that the old route expired.
         NavGuidanceHub.update(
             data(dist = 900),
             NavGuidanceHub.Source.A11Y,
-            nowMs = 12_001,
+            nowMs = 7_000,
         )
 
-        val fresh = NavGuidanceHub.snapshot(nowMs = 12_001)
+        val fresh = NavGuidanceHub.snapshot(nowMs = 7_000)
         assertTrue(fresh.active)
         assertEquals(0, fresh.maneuverGaode)
         assertEquals("", fresh.road)
         assertEquals(900, fresh.distanceMeters)
+        assertEquals(null, NavGuidanceHub.diagnostics().lastRouteEndReason)
     }
 }

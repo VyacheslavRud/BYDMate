@@ -1397,8 +1397,8 @@ class AgentTools @Inject constructor(
         val now = nowMs()
         val snap = NaviRouteHolder.snapshot(now)
         // Screen is windows-aware: findNavigatorRoot() sees the Navigator minimized or
-        // projected to the cluster. The hub keeps the last 90 s of guidance from the
-        // a11y feed / notification channel for moments when no window read succeeds.
+        // projected to the cluster. The hub keeps a bounded route lease and shorter per-field
+        // holds for moments when no window read succeeds.
         val screen = runCatching { naviScreenProvider() }.getOrNull()
         val hub = com.bydmate.app.navdata.NavGuidanceHub.snapshot(now)
         if (snap == null && screen == null && !hub.active)

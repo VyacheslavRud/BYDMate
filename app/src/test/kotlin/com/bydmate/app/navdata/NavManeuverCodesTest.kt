@@ -44,6 +44,7 @@ class NavManeuverCodesTest {
         assertEquals(13, gaode("Въезжайте на кольцо"))
         assertEquals(24, gaode("Выезд с кольца"))
         assertEquals(24, gaode("2-й съезд"))
+        assertEquals(0, gaode("Take the 11th exit"))
     }
 
     @Test fun `arrive ferry tunnel waypoint`() {
@@ -67,6 +68,33 @@ class NavManeuverCodesTest {
     @Test fun `short uppercase Waze arrow descriptions map to turns`() {
         assertEquals(1, gaode("LEFT"))
         assertEquals(2, gaode("RIGHT"))
+    }
+
+    @Test fun `compound instruction selects first maneuver by textual position`() {
+        assertEquals(2, gaode("Turn right, then turn left"))
+        assertEquals(1, gaode("Turn left, then turn right"))
+        assertEquals(2, gaode("Поверните направо, затем налево"))
+        assertEquals(1, gaode("Поверните налево, затем направо"))
+    }
+
+    @Test fun `specific first maneuver wins overlapping generic direction`() {
+        assertEquals(4, gaode("Slight right, then turn left"))
+        assertEquals(10, gaode("Make a U-turn to the right, then keep left"))
+        assertEquals(24, gaode("At the roundabout, take the 2nd exit, then turn left"))
+        assertEquals(2, gaode("Turn right, then take the 2nd exit"))
+    }
+
+    @Test fun `diagnostic result contains only recognized maneuver sequence`() {
+        val result = NavManeuverCodes.parseInstructionText("Turn right onto Secret Road, then turn left")
+        assertEquals(listOf(2, 1), result.recognizedCodes)
+        assertEquals("recognized=RIGHT>LEFT selected=RIGHT gaode=2", result.diagnosticSummary())
+        assertEquals(false, "Secret Road" in result.diagnosticSummary())
+    }
+
+    @Test fun `road names and engagement copy are not maneuvers`() {
+        assertEquals(0, gaode("Left Bank Road"))
+        assertEquals(0, gaode("Правый берег"))
+        assertEquals(0, gaode("Your destination is waiting"))
     }
 
     @Test fun `gaode phrase for agent`() {

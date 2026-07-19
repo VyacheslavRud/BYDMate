@@ -20,6 +20,7 @@ import com.bydmate.app.hud.HudController
 import com.bydmate.app.hud.HudSomeIpBridge
 import com.bydmate.app.navdata.NavA11yFeed
 import com.bydmate.app.navdata.NavA11yExtractor
+import com.bydmate.app.navdata.NavGuidanceHub
 import com.bydmate.app.navdata.WazeAccessibilityReader
 import com.bydmate.app.navigation.WazeNavigation
 import com.bydmate.app.service.TrackingService
@@ -87,7 +88,7 @@ class VehicleDiagnosticsCollector @Inject constructor(
         )
         val hudDelivery = hudController.deliveryDiagnostics.value
         val hudSuccess = newest(
-            hudDelivery.lastFrameSuccessAtMs,
+            hudDelivery.lastGuidanceFrameSuccessAtMs,
             DiagnosticEvidenceStore.timestamp(
                 context,
                 DiagnosticEvidenceStore.Evidence.FACTORY_HUD_FRAME,
@@ -116,6 +117,8 @@ class VehicleDiagnosticsCollector @Inject constructor(
         val liveData = TrackingService.lastData.value
         val lastVehicleDataAt = TrackingService.lastDataUpdatedAt.value
         val now = System.currentTimeMillis()
+        val route = NavGuidanceHub.snapshot(now)
+        val routeDiagnostics = NavGuidanceHub.diagnostics()
 
         VehicleDiagnosticsSnapshot(
             capturedAtMs = now,
@@ -203,6 +206,25 @@ class VehicleDiagnosticsCollector @Inject constructor(
             userConfirmedAtMs = CapabilityId.entries.mapNotNull { id ->
                 DiagnosticEvidenceStore.userConfirmationAt(context, id)?.let { id to it }
             }.toMap(),
+            routeActive = route.active,
+            routeSource = route.source?.name,
+            routeManeuverGaode = route.maneuverGaode,
+            routeRenderable = route.active && route.maneuverGaode > 0,
+            routeLastUpdateAtMs = route.lastUpdateMs.takeIf { it > 0L },
+            routeLastObservedAtMs = route.lastRouteObservedMs.takeIf { it > 0L },
+            routeEndReason = routeDiagnostics.lastRouteEndReason?.name,
+            routeEndedAtMs = routeDiagnostics.lastRouteEndedAtMs,
+            wazeLastNoGuidanceAtMs = a11yDiagnostics.lastNoGuidanceAtMs,
+            wazeLastWindowUnreachableAtMs = a11yDiagnostics.lastWindowUnreachableAtMs,
+            wazeLastUnreadableAtMs = a11yDiagnostics.lastUnreadableAtMs,
+            wazeLastProbeResult = a11yDiagnostics.lastProbeResult?.name,
+            hudLastDeliveryKind = hudDelivery.lastDeliveryKind?.name,
+            hudLastGuidanceSuccessAtMs = hudDelivery.lastGuidanceFrameSuccessAtMs,
+            hudLastClearAttemptAtMs = hudDelivery.lastClearAttemptAtMs,
+            hudLastClearSuccessAtMs = hudDelivery.lastClearSuccessAtMs,
+            clusterMonitoredDisplayId = cluster.monitoredDisplayId,
+            clusterLastDisplayEvent = cluster.lastDisplayEvent,
+            clusterLastDisplayEventAtMs = cluster.lastDisplayEventAtMs,
         )
     }
 

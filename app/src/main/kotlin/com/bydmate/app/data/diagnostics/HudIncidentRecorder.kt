@@ -38,12 +38,19 @@ data class HudIncident(
     val failure: String?,
     val routeSource: String?,
     val routeAgeMs: Long?,
+    val routeObservedAgeMs: Long?,
+    val routeManeuverGaode: Int,
+    val routeRenderable: Boolean,
+    val routeEndReason: String?,
     val accessibilityConnected: Boolean,
     val feedEnabled: Boolean,
     val wazeWindowReachable: Boolean?,
     val wazeEventAgeMs: Long?,
     val wazeGuidanceAgeMs: Long?,
     val wazeNoGuidanceAgeMs: Long?,
+    val wazeWindowUnreachableAgeMs: Long?,
+    val wazeUnreadableAgeMs: Long?,
+    val wazeProbeResult: String?,
 )
 
 /** One immutable technical sample. Kept Android-free so cause selection can be unit-tested. */
@@ -58,43 +65,46 @@ internal data class HudHealthSample(
     val routeActive: Boolean,
     val routeSource: String?,
     val routeAgeMs: Long?,
+    val routeObservedAgeMs: Long?,
+    val routeManeuverGaode: Int,
+    val routeRenderable: Boolean,
+    val routeEndReason: NavGuidanceHub.RouteEndReason?,
+    val routeEndAgeMs: Long?,
     val accessibilityConnected: Boolean,
     val feedEnabled: Boolean,
     val wazeWindowReachable: Boolean?,
     val wazeEventAgeMs: Long?,
     val wazeGuidanceAgeMs: Long?,
     val wazeNoGuidanceAgeMs: Long?,
+    val wazeWindowUnreachableAgeMs: Long?,
+    val wazeUnreadableAgeMs: Long?,
+    val wazeProbeResult: NavA11yFeed.ProbeResult?,
+    val lastDeliveryKind: String? = null,
+    val lastClearAttemptAgeMs: Long? = null,
+    val lastClearSuccessAgeMs: Long? = null,
+    val reconnectAttempt: Int = 0,
+    val nextReconnectAtMs: Long? = null,
 )
 
 internal object HudIncidentClassifier {
     const val OUTAGE_CONFIRM_MS = 5_000L
-    const val RECENT_SERVICE_START_MS = 15_000L
     const val RECENT_WAZE_EVENT_MS = 15_000L
-    const val WAZE_DATA_STALE_MS = NavGuidanceHub.ACTIVE_TIMEOUT_MS
+    const val WAZE_DATA_STALE_MS = NavA11yFeed.REFRESH_INTERVAL_MS * 3
 
     /**
      * The HUD controller deliberately repeats the current maneuver between event-driven Waze
-     * updates. A successful recent SOME/IP frame therefore proves delivery health even when the
-     * source event itself is older than five seconds. Source loss is classified only after an
-     * actual frame outage or when the guidance hub transitions inactive at its own TTL.
+     * updates. A successful recent SOME/IP frame proves that the HUD did not disappear, even if
+     * accessibility is temporarily blind. Input degradation is retained as evidence and becomes
+     * the cause if the route lease later expires; it is not itself a delivery outage.
      */
     fun deliveryHealthy(sample: HudHealthSample): Boolean {
         val frameHealthy = sample.hudStatus == HudController.Status.ON &&
             (sample.lastFrameSuccessAgeMs ?: Long.MAX_VALUE) < 1_500L
-        if (!frameHealthy) return false
-        if (sample.routeSource == NavGuidanceHub.Source.A11Y.name) {
-            if (!sample.accessibilityConnected || !sample.feedEnabled) return false
-            if (sample.wazeWindowReachable == false) return false
-        }
-        return true
+        return sample.routeRenderable && frameHealthy
     }
 
     fun cause(sample: HudHealthSample): HudIncidentCause {
-        val recentExplicitRouteEnd = sample.wazeNoGuidanceAgeMs != null &&
-            sample.wazeNoGuidanceAgeMs <= RECENT_WAZE_EVENT_MS
         return when {
-            sample.serviceUptimeMs in 0..RECENT_SERVICE_START_MS ->
-                HudIncidentCause.SERVICE_RESTART
             sample.hudStatus != HudController.Status.ON ||
                 (sample.resultCode ?: 0) < 0 ||
                 sample.failure?.contains("bind", ignoreCase = true) == true ||
@@ -106,14 +116,20 @@ internal object HudIncidentClassifier {
                 HudIncidentCause.ACCESSIBILITY
             sample.routeSource == NavGuidanceHub.Source.A11Y.name &&
                 sample.wazeWindowReachable == false &&
-                sample.wazeEventAgeMs != null &&
-                sample.wazeEventAgeMs <= RECENT_WAZE_EVENT_MS ->
+                (sample.wazeProbeResult == NavA11yFeed.ProbeResult.WINDOW_UNREACHABLE ||
+                    sample.wazeWindowUnreachableAgeMs?.let {
+                        it <= RECENT_WAZE_EVENT_MS
+                    } == true) ->
                 HudIncidentCause.WAZE_WINDOW
-            !recentExplicitRouteEnd &&
-                (sample.routeAgeMs == null || sample.routeAgeMs > WAZE_DATA_STALE_MS ||
-                    (sample.routeSource == NavGuidanceHub.Source.A11Y.name &&
-                        (sample.wazeGuidanceAgeMs == null ||
-                            sample.wazeGuidanceAgeMs > WAZE_DATA_STALE_MS))) ->
+            !sample.routeRenderable -> HudIncidentCause.WAZE_DATA
+            sample.wazeProbeResult == NavA11yFeed.ProbeResult.ROUTE_UNREADABLE &&
+                sample.wazeUnreadableAgeMs != null &&
+                sample.wazeUnreadableAgeMs <= RECENT_WAZE_EVENT_MS ->
+                HudIncidentCause.WAZE_DATA
+            sample.routeAgeMs == null || sample.routeAgeMs > WAZE_DATA_STALE_MS ||
+                (sample.routeSource == NavGuidanceHub.Source.A11Y.name &&
+                    (sample.wazeGuidanceAgeMs == null ||
+                        sample.wazeGuidanceAgeMs > WAZE_DATA_STALE_MS)) ->
                 HudIncidentCause.WAZE_DATA
             else -> HudIncidentCause.HUD_PIPELINE
         }
@@ -127,18 +143,24 @@ internal object HudIncidentClassifier {
         previousRouteSource: String?,
         previousRouteAgeMs: Long?,
     ): HudIncidentCause? = when {
-        sample.wazeWindowReachable == true &&
-            sample.wazeNoGuidanceAgeMs != null &&
-            sample.wazeNoGuidanceAgeMs <= RECENT_WAZE_EVENT_MS -> null
+        sample.routeEndAgeMs != null &&
+            sample.routeEndAgeMs <= RECENT_WAZE_EVENT_MS &&
+            sample.routeEndReason == NavGuidanceHub.RouteEndReason.EXPLICIT_NO_ROUTE -> null
+        sample.routeEndAgeMs != null &&
+            sample.routeEndAgeMs <= RECENT_WAZE_EVENT_MS &&
+            sample.routeEndReason == NavGuidanceHub.RouteEndReason.NOTIFICATION_REMOVED -> null
         previousRouteSource == NavGuidanceHub.Source.A11Y.name &&
             (!sample.accessibilityConnected || !sample.feedEnabled) ->
             HudIncidentCause.ACCESSIBILITY
         previousRouteSource == NavGuidanceHub.Source.A11Y.name &&
             sample.wazeWindowReachable == false &&
-            sample.wazeEventAgeMs != null &&
-            sample.wazeEventAgeMs <= RECENT_WAZE_EVENT_MS -> HudIncidentCause.WAZE_WINDOW
-        (previousRouteAgeMs ?: 0L) > WAZE_DATA_STALE_MS &&
-            (sample.wazeEventAgeMs == null || sample.wazeEventAgeMs > WAZE_DATA_STALE_MS) ->
+            (sample.wazeProbeResult == NavA11yFeed.ProbeResult.WINDOW_UNREACHABLE ||
+                sample.wazeWindowUnreachableAgeMs?.let {
+                    it <= RECENT_WAZE_EVENT_MS
+                } == true) -> HudIncidentCause.WAZE_WINDOW
+        sample.routeEndReason == NavGuidanceHub.RouteEndReason.LEASE_EXPIRED ->
+            HudIncidentCause.WAZE_DATA
+        (previousRouteAgeMs ?: 0L) > WAZE_DATA_STALE_MS ->
             HudIncidentCause.WAZE_DATA
         else -> null
     }
@@ -172,11 +194,26 @@ class HudIncidentRecorder @Inject constructor(
             current: List<HudIncident>,
             incident: HudIncident,
         ): List<HudIncident> = (current + incident).takeLast(MAX_INCIDENTS)
+
+        internal fun restartReferenceAt(
+            nowMs: Long,
+            previousRuntimeActive: Boolean,
+            previousRouteActive: Boolean,
+            previousHudEnabled: Boolean,
+            previousReferenceAtMs: Long?,
+        ): Long? = previousReferenceAtMs?.takeIf {
+            previousRuntimeActive && previousRouteActive && previousHudEnabled &&
+                nowMs - it in 0..RESTART_INCIDENT_MAX_AGE_MS
+        }
+
+        internal fun ownsGeneration(expected: Long, current: Long): Boolean = expected == current
     }
 
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val lock = Any()
+    private val lifecycleLock = Any()
     @Volatile private var monitorJob: Job? = null
+    @Volatile private var monitorGeneration: Long = 0L
     @Volatile private var cachedIncidents: List<HudIncident> = loadIncidents()
 
     private var serviceStartedAtElapsedMs: Long = 0L
@@ -193,76 +230,102 @@ class HudIncidentRecorder @Inject constructor(
     fun incidents(): List<HudIncident> = cachedIncidents
 
     fun start(scope: CoroutineScope) {
-        monitorJob?.cancel()
-        serviceStartedAtElapsedMs = SystemClock.elapsedRealtime()
-        outageSinceElapsedMs = null
-        activeIncidentAtMs = null
-        lastRouteActive = false
-        lastRouteSource = null
-        lastRouteUpdatedAtMs = null
-        suspectedRouteLoss = false
+        val generation = synchronized(lifecycleLock) {
+            monitorJob?.cancel()
+            monitorGeneration++
+            serviceStartedAtElapsedMs = SystemClock.elapsedRealtime()
+            outageSinceElapsedMs = null
+            // Preserve an unresolved incident across service/HUD lifecycle boundaries. It is
+            // recovered only after a fresh route frame succeeds.
+            activeIncidentAtMs = cachedIncidents.lastOrNull {
+                it.recoveredAtMs == null
+            }?.detectedAtMs
+            lastRouteActive = false
+            lastRouteSource = null
+            lastRouteUpdatedAtMs = null
+            suspectedRouteLoss = false
 
-        val now = System.currentTimeMillis()
-        val previousRouteActive = prefs.getBoolean(KEY_ROUTE_ACTIVE, false)
-        val previousHudEnabled = prefs.getBoolean(KEY_HUD_ENABLED, false)
-        val previousReference = maxOf(
-            prefs.getLong(KEY_LAST_FRAME_AT, 0L),
-            prefs.getLong(KEY_LAST_HEARTBEAT_AT, 0L),
-        ).takeIf { it > 0L }
-        pendingRestartReferenceAtMs = previousReference?.takeIf {
-            previousRouteActive && previousHudEnabled && now - it in 0..RESTART_INCIDENT_MAX_AGE_MS
+            val now = System.currentTimeMillis()
+            val previousRuntimeActive = prefs.getBoolean(KEY_RUNTIME_ACTIVE, false)
+            val previousRouteActive = prefs.getBoolean(KEY_ROUTE_ACTIVE, false)
+            val previousHudEnabled = prefs.getBoolean(KEY_HUD_ENABLED, false)
+            val previousReference = maxOf(
+                prefs.getLong(KEY_LAST_FRAME_AT, 0L),
+                prefs.getLong(KEY_LAST_HEARTBEAT_AT, 0L),
+            ).takeIf { it > 0L }
+            pendingRestartReferenceAtMs = restartReferenceAt(
+                nowMs = now,
+                previousRuntimeActive = previousRuntimeActive,
+                previousRouteActive = previousRouteActive,
+                previousHudEnabled = previousHudEnabled,
+                previousReferenceAtMs = previousReference,
+            )
+            persistRuntimeMarker(
+                runtimeActive = true,
+                routeActive = false,
+                hudEnabled = hudController.isEnabled(),
+                lastFrameAtMs =
+                    hudController.deliveryDiagnostics.value.lastGuidanceFrameSuccessAtMs,
+                force = true,
+            )
+            monitorGeneration
         }
-        persistRuntimeMarker(
-            runtimeActive = true,
-            routeActive = false,
-            hudEnabled = hudController.isEnabled(),
-            lastFrameAtMs = hudController.deliveryDiagnostics.value.lastFrameSuccessAtMs,
-            force = true,
-        )
 
-        monitorJob = scope.launch(Dispatchers.Default) {
-            while (isActive) {
-                runCatching { tick() }
+        val job = scope.launch(Dispatchers.Default) {
+            while (isActive && ownsGeneration(generation, monitorGeneration)) {
+                runCatching { tick(generation) }
                     .onFailure { Log.w(TAG, "HUD incident sample failed: ${it.message}") }
                 delay(500L)
             }
         }
+        synchronized(lifecycleLock) {
+            if (ownsGeneration(generation, monitorGeneration)) monitorJob = job else job.cancel()
+        }
     }
 
     /** Called before HudController.stop(), while route and delivery evidence are still intact. */
-    fun stop() {
-        val now = System.currentTimeMillis()
-        val routeActive = runCatching { NavGuidanceHub.snapshot(now).active }.getOrDefault(false)
-        persistRuntimeMarker(
-            runtimeActive = false,
-            routeActive = routeActive && hudController.isEnabled(),
-            hudEnabled = hudController.isEnabled(),
-            lastFrameAtMs = hudController.deliveryDiagnostics.value.lastFrameSuccessAtMs,
-            force = true,
-        )
-        monitorJob?.cancel()
-        monitorJob = null
+    fun stop(expectRestart: Boolean = false) {
+        synchronized(lifecycleLock) {
+            monitorGeneration++
+            monitorJob?.cancel()
+            monitorJob = null
+            val now = System.currentTimeMillis()
+            val routeActive = runCatching {
+                NavGuidanceHub.snapshot(now).active
+            }.getOrDefault(false)
+            persistRuntimeMarker(
+                // A process kill or planned live self-heal must leave a restart breadcrumb. An
+                // intentional terminal stop cannot become a SERVICE_RESTART incident.
+                runtimeActive = expectRestart,
+                routeActive = routeActive && hudController.isEnabled(),
+                hudEnabled = hudController.isEnabled(),
+                lastFrameAtMs =
+                    hudController.deliveryDiagnostics.value.lastGuidanceFrameSuccessAtMs,
+                force = true,
+            )
+        }
     }
 
-    private fun tick() {
+    private fun tick(generation: Long) = synchronized(lifecycleLock) {
+        if (!ownsGeneration(generation, monitorGeneration)) return@synchronized
         val nowElapsed = SystemClock.elapsedRealtime()
-        val sample = sample()
+        val sample = runtimeSample()
         persistRuntimeMarker(
             runtimeActive = true,
             routeActive = sample.routeActive,
             hudEnabled = sample.hudEnabled,
-            lastFrameAtMs = hudController.deliveryDiagnostics.value.lastFrameSuccessAtMs,
+            lastFrameAtMs = hudController.deliveryDiagnostics.value.lastGuidanceFrameSuccessAtMs,
             force = lastPersistedRouteActive != sample.routeActive ||
                 nowElapsed - lastMarkerPersistElapsedMs >= MARKER_PERSIST_INTERVAL_MS,
         )
 
         if (!sample.hudEnabled) {
-            resetRuntimeOutage(nowElapsed)
+            resetObservation(nowElapsed)
             lastRouteActive = false
             lastRouteSource = null
             lastRouteUpdatedAtMs = null
             pendingRestartReferenceAtMs = null
-            return
+            return@synchronized
         }
 
         pendingRestartReferenceAtMs?.let { referenceAt ->
@@ -289,7 +352,7 @@ class HudIncidentRecorder @Inject constructor(
             suspectedRouteLoss = false
             if (HudIncidentClassifier.deliveryHealthy(sample)) {
                 markRuntimeRecovered(sample.nowMs, nowElapsed)
-                return
+                return@synchronized
             }
 
             val since = outageSinceElapsedMs ?: nowElapsed.also { outageSinceElapsedMs = it }
@@ -302,7 +365,7 @@ class HudIncidentRecorder @Inject constructor(
             ) {
                 record(sample, HudIncidentClassifier.cause(sample), observedOutageMs)
             }
-            return
+            return@synchronized
         }
 
         if (lastRouteActive) {
@@ -323,7 +386,7 @@ class HudIncidentRecorder @Inject constructor(
                 suspectedRouteLoss = false
                 lastRouteSource = null
                 lastRouteUpdatedAtMs = null
-                resetRuntimeOutage(nowElapsed)
+                resetObservation(nowElapsed)
                 return
             }
             val since = outageSinceElapsedMs ?: nowElapsed.also { outageSinceElapsedMs = it }
@@ -339,9 +402,10 @@ class HudIncidentRecorder @Inject constructor(
         }
     }
 
-    private fun sample(): HudHealthSample {
+    internal fun runtimeSample(): HudHealthSample {
         val now = System.currentTimeMillis()
         val route = NavGuidanceHub.snapshot(now)
+        val routeDiagnostics = NavGuidanceHub.diagnostics()
         val delivery = hudController.deliveryDiagnostics.value
         val a11y = NavA11yFeed.diagnostics()
         fun age(timestamp: Long?): Long? = timestamp?.let { (now - it).coerceAtLeast(0L) }
@@ -351,18 +415,31 @@ class HudIncidentRecorder @Inject constructor(
                 .coerceAtLeast(0L),
             hudEnabled = hudController.isEnabled(),
             hudStatus = hudController.status.value,
-            lastFrameSuccessAgeMs = age(delivery.lastFrameSuccessAtMs),
+            lastFrameSuccessAgeMs = age(delivery.lastGuidanceFrameSuccessAtMs),
             resultCode = delivery.lastResultCode,
             failure = delivery.lastFailure,
             routeActive = route.active,
             routeSource = route.source?.name,
             routeAgeMs = age(route.lastUpdateMs.takeIf { it > 0L }),
+            routeObservedAgeMs = age(route.lastRouteObservedMs.takeIf { it > 0L }),
+            routeManeuverGaode = route.maneuverGaode,
+            routeRenderable = route.active && route.maneuverGaode > 0,
+            routeEndReason = routeDiagnostics.lastRouteEndReason,
+            routeEndAgeMs = age(routeDiagnostics.lastRouteEndedAtMs),
             accessibilityConnected = SteeringWheelKeyService.isConnected,
             feedEnabled = a11y.enabled,
             wazeWindowReachable = a11y.windowReachable,
             wazeEventAgeMs = age(a11y.lastWazeEventAtMs),
             wazeGuidanceAgeMs = age(a11y.lastGuidanceAtMs),
             wazeNoGuidanceAgeMs = age(a11y.lastNoGuidanceAtMs),
+            wazeWindowUnreachableAgeMs = age(a11y.lastWindowUnreachableAtMs),
+            wazeUnreadableAgeMs = age(a11y.lastUnreadableAtMs),
+            wazeProbeResult = a11y.lastProbeResult,
+            lastDeliveryKind = delivery.lastDeliveryKind?.name,
+            lastClearAttemptAgeMs = age(delivery.lastClearAttemptAtMs),
+            lastClearSuccessAgeMs = age(delivery.lastClearSuccessAtMs),
+            reconnectAttempt = delivery.reconnectAttempt,
+            nextReconnectAtMs = delivery.nextReconnectAtMs,
         )
     }
 
@@ -378,12 +455,19 @@ class HudIncidentRecorder @Inject constructor(
             failure = sample.failure,
             routeSource = sample.routeSource,
             routeAgeMs = sample.routeAgeMs,
+            routeObservedAgeMs = sample.routeObservedAgeMs,
+            routeManeuverGaode = sample.routeManeuverGaode,
+            routeRenderable = sample.routeRenderable,
+            routeEndReason = sample.routeEndReason?.name,
             accessibilityConnected = sample.accessibilityConnected,
             feedEnabled = sample.feedEnabled,
             wazeWindowReachable = sample.wazeWindowReachable,
             wazeEventAgeMs = sample.wazeEventAgeMs,
             wazeGuidanceAgeMs = sample.wazeGuidanceAgeMs,
             wazeNoGuidanceAgeMs = sample.wazeNoGuidanceAgeMs,
+            wazeWindowUnreachableAgeMs = sample.wazeWindowUnreachableAgeMs,
+            wazeUnreadableAgeMs = sample.wazeUnreadableAgeMs,
+            wazeProbeResult = sample.wazeProbeResult?.name,
         )
         synchronized(lock) {
             cachedIncidents = appendBounded(cachedIncidents, incident)
@@ -403,11 +487,10 @@ class HudIncidentRecorder @Inject constructor(
      * channel recovered. */
     private fun markRuntimeRecovered(nowMs: Long, nowElapsed: Long) {
         if (activeIncidentAtMs != null) markRecovered(nowMs)
-        resetRuntimeOutage(nowElapsed)
+        resetObservation(nowElapsed)
     }
 
-    private fun resetRuntimeOutage(nowElapsed: Long) {
-        activeIncidentAtMs = null
+    private fun resetObservation(nowElapsed: Long) {
         outageSinceElapsedMs = null
         suspectedRouteLoss = false
         if (lastMarkerPersistElapsedMs > nowElapsed) lastMarkerPersistElapsedMs = nowElapsed
@@ -479,12 +562,19 @@ internal object HudIncidentJson {
                 putNullable("failure", incident.failure)
                 putNullable("routeSource", incident.routeSource)
                 putNullable("routeAgeMs", incident.routeAgeMs)
+                putNullable("routeObservedAgeMs", incident.routeObservedAgeMs)
+                put("routeManeuverGaode", incident.routeManeuverGaode)
+                put("routeRenderable", incident.routeRenderable)
+                putNullable("routeEndReason", incident.routeEndReason)
                 put("accessibilityConnected", incident.accessibilityConnected)
                 put("feedEnabled", incident.feedEnabled)
                 putNullable("wazeWindowReachable", incident.wazeWindowReachable)
                 putNullable("wazeEventAgeMs", incident.wazeEventAgeMs)
                 putNullable("wazeGuidanceAgeMs", incident.wazeGuidanceAgeMs)
                 putNullable("wazeNoGuidanceAgeMs", incident.wazeNoGuidanceAgeMs)
+                putNullable("wazeWindowUnreachableAgeMs", incident.wazeWindowUnreachableAgeMs)
+                putNullable("wazeUnreadableAgeMs", incident.wazeUnreadableAgeMs)
+                putNullable("wazeProbeResult", incident.wazeProbeResult)
             })
         }
     }.toString()
@@ -493,11 +583,11 @@ internal object HudIncidentJson {
         val array = JSONArray(raw)
         return buildList {
             for (index in 0 until array.length()) {
-                val item = array.getJSONObject(index)
-                val cause = runCatching {
-                    HudIncidentCause.valueOf(item.getString("cause"))
-                }.getOrNull() ?: continue
-                add(
+                // One partially written/old object must not erase every healthy incident around
+                // it. Required fields fail only this entry; newly added evidence is optional.
+                val incident = runCatching {
+                    val item = array.optJSONObject(index) ?: return@runCatching null
+                    val cause = HudIncidentCause.valueOf(item.getString("cause"))
                     HudIncident(
                         detectedAtMs = item.getLong("detectedAtMs"),
                         cause = cause,
@@ -508,14 +598,23 @@ internal object HudIncidentJson {
                         failure = item.optNullableString("failure"),
                         routeSource = item.optNullableString("routeSource"),
                         routeAgeMs = item.optNullableLong("routeAgeMs"),
+                        routeObservedAgeMs = item.optNullableLong("routeObservedAgeMs"),
+                        routeManeuverGaode = item.optInt("routeManeuverGaode", 0),
+                        routeRenderable = item.optBoolean("routeRenderable", false),
+                        routeEndReason = item.optNullableString("routeEndReason"),
                         accessibilityConnected = item.optBoolean("accessibilityConnected", false),
                         feedEnabled = item.optBoolean("feedEnabled", false),
                         wazeWindowReachable = item.optNullableBoolean("wazeWindowReachable"),
                         wazeEventAgeMs = item.optNullableLong("wazeEventAgeMs"),
                         wazeGuidanceAgeMs = item.optNullableLong("wazeGuidanceAgeMs"),
                         wazeNoGuidanceAgeMs = item.optNullableLong("wazeNoGuidanceAgeMs"),
-                    ),
-                )
+                        wazeWindowUnreachableAgeMs =
+                            item.optNullableLong("wazeWindowUnreachableAgeMs"),
+                        wazeUnreadableAgeMs = item.optNullableLong("wazeUnreadableAgeMs"),
+                        wazeProbeResult = item.optNullableString("wazeProbeResult"),
+                    )
+                }.getOrNull()
+                if (incident != null) add(incident)
             }
         }
     }

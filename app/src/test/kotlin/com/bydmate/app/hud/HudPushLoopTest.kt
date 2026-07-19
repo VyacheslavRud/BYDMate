@@ -11,11 +11,15 @@ import org.junit.Test
 
 class HudPushLoopTest {
 
-    private class FakeSink(private val result: Int = 0) : HudEventSink {
+    private class FakeSink(
+        private val result: Int = 0,
+        results: List<Int> = emptyList(),
+    ) : HudEventSink {
         val events = mutableListOf<Pair<Long, ByteArray>>()
+        private val queuedResults = ArrayDeque(results)
         override fun fireEvent(topic: Long, payload: ByteArray): Int {
             events.add(topic to payload)
-            return result
+            return queuedResults.removeFirstOrNull() ?: result
         }
     }
 
@@ -49,6 +53,41 @@ class HudPushLoopTest {
         assertArrayEquals(expected, sink.events.single().second)
     }
 
+    @Test fun `active route without maneuver never manufactures straight HUD frame`() {
+        NavGuidanceHub.update(
+            NavGuidance(road = "A", distanceMeters = 250),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 1000L,
+        )
+        val snapshot = NavGuidanceHub.snapshot(1000L)
+        assertTrue(snapshot.active)
+        assertFalse(hasRenderableHudGuidance(snapshot))
+        val sink = FakeSink()
+        val loop = HudPushLoop(sink, nowMsProvider = { 1000L })
+
+        assertFalse(loop.tick(wasActive = false))
+
+        assertTrue(sink.events.isEmpty())
+    }
+
+    @Test fun `loss of renderable maneuver clears previous HUD frame`() {
+        activeHub(nowMs = 1000L)
+        val sink = FakeSink()
+        val loop = HudPushLoop(sink, nowMsProvider = { 1000L })
+        assertTrue(loop.tick(wasActive = false))
+        NavGuidanceHub.reset()
+        NavGuidanceHub.update(
+            NavGuidance(road = "A", distanceMeters = 250),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 1000L,
+        )
+
+        assertFalse(loop.tick(wasActive = true))
+
+        assertEquals(2, sink.events.size)
+        assertArrayEquals(HudProtobufBuilder.buildClearFrame(0), sink.events.last().second)
+    }
+
     @Test fun `guidance end sends single clear frame`() {
         activeHub(nowMs = 1000L)
         val sink = FakeSink()
@@ -59,6 +98,84 @@ class HudPushLoopTest {
         assertFalse(loop.tick(wasActive = false))    // silence
         assertEquals(2, sink.events.size)
         assertArrayEquals(HudProtobufBuilder.buildClearFrame(0), sink.events[1].second)
+    }
+
+    @Test fun `rejected clear frame retries until accepted`() {
+        activeHub(nowMs = 1000L)
+        val sink = FakeSink(results = listOf(0, -7, -7, 0))
+        val results = mutableListOf<Int>()
+        val loop = HudPushLoop(
+            sink,
+            nowMsProvider = { 1000L },
+            onDeliveryResult = results::add,
+        )
+        assertTrue(loop.tick(wasActive = false))
+        NavGuidanceHub.reset()
+        assertFalse(loop.tick(wasActive = true))
+        assertFalse(loop.tick(wasActive = false))
+        assertFalse(loop.tick(wasActive = false))
+        assertFalse(loop.tick(wasActive = false))
+        assertEquals(listOf(0, -7, -7, 0), results)
+        assertEquals(4, sink.events.size) // guidance + three clear attempts; then silence
+    }
+
+    @Test fun `rejected clear frame gives up after bounded attempts`() {
+        activeHub(nowMs = 1000L)
+        val sink = FakeSink(result = -7)
+        val loop = HudPushLoop(sink, nowMsProvider = { 1000L })
+        assertTrue(loop.tick(wasActive = false))
+        NavGuidanceHub.reset()
+        assertFalse(loop.tick(wasActive = true))
+        repeat(HudPushLoop.CLEAR_MAX_ATTEMPTS + 2) {
+            assertFalse(loop.tick(wasActive = false))
+        }
+        assertEquals(1 + HudPushLoop.CLEAR_MAX_ATTEMPTS, sink.events.size)
+    }
+
+    @Test fun `throwing clear sink still gives up after bounded attempts`() {
+        activeHub(nowMs = 1000L)
+        var calls = 0
+        val results = mutableListOf<Int>()
+        val loop = HudPushLoop(
+            sink = object : HudEventSink {
+                override fun fireEvent(topic: Long, payload: ByteArray): Int {
+                    calls++
+                    if (calls == 1) return 0 // initial guidance frame
+                    error("synthetic clear failure")
+                }
+            },
+            nowMsProvider = { 1000L },
+            onDeliveryResult = results::add,
+        )
+        assertTrue(loop.tick(wasActive = false))
+        NavGuidanceHub.reset()
+        assertFalse(loop.tick(wasActive = true))
+        repeat(HudPushLoop.CLEAR_MAX_ATTEMPTS + 2) {
+            assertFalse(loop.tick(wasActive = false))
+        }
+
+        assertEquals(1 + HudPushLoop.CLEAR_MAX_ATTEMPTS, calls)
+        assertEquals(
+            listOf(0) + List(HudPushLoop.CLEAR_MAX_ATTEMPTS) {
+                HudSomeIpBridge.RESULT_LOCAL_ERROR
+            },
+            results,
+        )
+    }
+
+    @Test fun `deferred clear retries immediately after a channel reconnect`() {
+        val sink = FakeSink(result = 0)
+        val loop = HudPushLoop(
+            sink = sink,
+            nowMsProvider = { 1000L },
+            initialClearPending = true,
+        )
+
+        assertFalse(loop.tick(wasActive = false))
+        assertFalse(loop.tick(wasActive = false))
+
+        assertEquals(1, sink.events.size)
+        assertArrayEquals(HudProtobufBuilder.buildClearFrame(0), sink.events.single().second)
     }
 
     @Test fun `speed sign toggle off builds frame without sign`() {
@@ -83,6 +200,15 @@ class HudPushLoopTest {
         assertTrue(loop.etaString(1620)!!.matches(Regex("""\d{2}:\d{2}""")))
     }
 
+    @Test fun `eta fallback stays anchored to guidance update`() {
+        var now = 1_000_000_000_000L
+        val updatedAt = now
+        val loop = HudPushLoop(FakeSink(), nowMsProvider = { now })
+        val first = loop.etaString(1620, updatedAt)
+        now += 60_000L
+        assertEquals(first, loop.etaString(1620, updatedAt))
+    }
+
     @Test fun `delivery result reports gateway rejection`() {
         activeHub(nowMs = 1000L)
         val results = mutableListOf<Int>()
@@ -93,5 +219,22 @@ class HudPushLoopTest {
         )
         assertTrue(loop.tick(wasActive = false))
         assertEquals(listOf(-7), results)
+    }
+
+    @Test fun `push failure is reported without killing loop state`() {
+        activeHub(nowMs = 1000L)
+        val failures = mutableListOf<Throwable>()
+        val loop = HudPushLoop(
+            sink = object : HudEventSink {
+                override fun fireEvent(topic: Long, payload: ByteArray): Int =
+                    error("synthetic sink failure")
+            },
+            nowMsProvider = { 1000L },
+            onLoopFailure = failures::add,
+        )
+
+        assertTrue(loop.tickSafely(wasActive = true))
+        assertEquals(1, failures.size)
+        assertEquals("synthetic sink failure", failures.single().message)
     }
 }

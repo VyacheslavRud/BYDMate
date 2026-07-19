@@ -61,6 +61,7 @@ import com.bydmate.app.data.vehicle.SeatChannelStore
 import com.bydmate.app.service.BootReceiver
 import com.bydmate.app.service.TrackingService
 import com.bydmate.app.ui.widget.WidgetController
+import com.bydmate.app.cluster.ClusterProjectionManager
 import com.bydmate.app.cluster.DEFAULT_VOICE_KEYCODE
 import com.bydmate.app.voice.AgentPersona
 import com.bydmate.app.voice.TtsGender
@@ -1434,6 +1435,10 @@ class SettingsViewModel @Inject constructor(
      * reachable.
      */
     private suspend fun writeDiagnosticHeader(file: File) = withContext(Dispatchers.IO) {
+        val clusterState = ClusterProjectionManager.diagnosticState.value
+        val clusterDisplayProbe = withContext(Dispatchers.Main.immediate) {
+            runCatching { ClusterProjectionManager.inspectDisplays(appContext) }
+        }
         // Build the header. Each piece is independently caught so a single
         // failing getter doesn't drop the whole header.
         val header = buildString {
@@ -1509,6 +1514,67 @@ class SettingsViewModel @Inject constructor(
                 appendLine("(failed to gather vehicle data sources: ${e.message})")
             }
 
+            appendLine("--- HUD live pipeline ---")
+            try {
+                val sample = hudIncidentRecorder.runtimeSample()
+                appendLine(
+                    "route: active=${sample.routeActive} source=${sample.routeSource} " +
+                        "renderable=${sample.routeRenderable} maneuver=${sample.routeManeuverGaode} " +
+                        "updateAgeMs=${sample.routeAgeMs} observedAgeMs=${sample.routeObservedAgeMs} " +
+                        "endReason=${sample.routeEndReason} endAgeMs=${sample.routeEndAgeMs}",
+                )
+                appendLine(
+                    "hud: enabled=${sample.hudEnabled} status=${sample.hudStatus} " +
+                        "guidanceSuccessAgeMs=${sample.lastFrameSuccessAgeMs} " +
+                        "kind=${sample.lastDeliveryKind} rc=${sample.resultCode} " +
+                        "failure=${sample.failure} " +
+                        "clearAttemptAgeMs=${sample.lastClearAttemptAgeMs} " +
+                        "clearSuccessAgeMs=${sample.lastClearSuccessAgeMs} " +
+                        "reconnectAttempt=${sample.reconnectAttempt} " +
+                        "nextReconnectAtMs=${sample.nextReconnectAtMs}",
+                )
+                appendLine(
+                    "waze_a11y: connected=${sample.accessibilityConnected} " +
+                        "feed=${sample.feedEnabled} window=${sample.wazeWindowReachable} " +
+                        "probe=${sample.wazeProbeResult} eventAgeMs=${sample.wazeEventAgeMs} " +
+                        "guidanceAgeMs=${sample.wazeGuidanceAgeMs} " +
+                        "noGuidanceAgeMs=${sample.wazeNoGuidanceAgeMs} " +
+                        "windowUnreachableAgeMs=${sample.wazeWindowUnreachableAgeMs} " +
+                        "unreadableAgeMs=${sample.wazeUnreadableAgeMs}",
+                )
+            } catch (e: Exception) {
+                appendLine("(failed to gather live HUD pipeline: ${e.message})")
+            }
+
+            appendLine("--- cluster projection live state ---")
+            try {
+                appendLine(
+                    "mode=${ClusterProjectionManager.currentMode} phase=${clusterState.phase} " +
+                        "attemptAt=${clusterState.attemptStartedAtMs} " +
+                        "finishedAt=${clusterState.attemptFinishedAtMs} " +
+                        "displayWaitMs=${clusterState.displaySearchElapsedMs} " +
+                        "selected=${clusterState.selectedDisplay?.id} " +
+                        "monitored=${clusterState.monitoredDisplayId} " +
+                        "failure=${clusterState.lastFailure ?: ClusterProjectionManager.lastFailure}",
+                )
+                appendLine(
+                    "lastDisplayEvent=${clusterState.lastDisplayEvent} " +
+                        "at=${clusterState.lastDisplayEventAtMs}",
+                )
+                val clusterDisplays = clusterDisplayProbe.getOrThrow()
+                appendLine("visible_displays: ${clusterDisplays.size}")
+                clusterDisplays.forEach { display ->
+                    appendLine(
+                        "  id=${display.id} name=${display.name} " +
+                            "size=${display.widthPx}x${display.heightPx} " +
+                            "density=${display.densityDpi} state=${display.state} " +
+                            "candidate=${display.isClusterCandidate}",
+                    )
+                }
+            } catch (e: Exception) {
+                appendLine("(failed to gather cluster projection state: ${e.message})")
+            }
+
             appendLine("--- HUD incident recorder ---")
             try {
                 val incidents = hudIncidentRecorder.incidents()
@@ -1525,11 +1591,18 @@ class SettingsViewModel @Inject constructor(
                             "hud=${incident.hudStatus} rc=${incident.resultCode} " +
                             "failure=${incident.failure} route=${incident.routeSource} " +
                             "routeAgeMs=${incident.routeAgeMs} " +
+                            "routeObservedAgeMs=${incident.routeObservedAgeMs} " +
+                            "maneuver=${incident.routeManeuverGaode} " +
+                            "renderable=${incident.routeRenderable} " +
+                            "routeEndReason=${incident.routeEndReason} " +
                             "a11y=${incident.accessibilityConnected} feed=${incident.feedEnabled} " +
                             "window=${incident.wazeWindowReachable} " +
                             "eventAgeMs=${incident.wazeEventAgeMs} " +
                             "guidanceAgeMs=${incident.wazeGuidanceAgeMs} " +
-                            "noGuidanceAgeMs=${incident.wazeNoGuidanceAgeMs}",
+                            "noGuidanceAgeMs=${incident.wazeNoGuidanceAgeMs} " +
+                            "windowUnreachableAgeMs=${incident.wazeWindowUnreachableAgeMs} " +
+                            "unreadableAgeMs=${incident.wazeUnreadableAgeMs} " +
+                            "probe=${incident.wazeProbeResult}",
                     )
                 }
             } catch (e: Exception) {
@@ -1658,7 +1731,8 @@ class SettingsViewModel @Inject constructor(
                     // only once READ_LOGS is granted AND the app process restarted - the daemon
                     // runs under the shell uid), guidance feed transitions, grant self-heal.
                     "bydmate_helper:*", "HudIconLoader:*",
-                    "NavA11yFeed:*", "NavGuidanceHub:*", "GrantSelfHeal:*"
+                    "NavA11yFeed:*", "NavGuidanceHub:*",
+                    "WazeNotifListener:*", "WazeNotifParser:*", "GrantSelfHeal:*"
                 ))
 
                 // Background thread to pipe logcat to file with size limit.

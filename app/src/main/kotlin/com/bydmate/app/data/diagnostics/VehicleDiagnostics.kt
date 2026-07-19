@@ -29,6 +29,7 @@ enum class DiagnosticReason {
     BYD_DISCONNECTED,
 
     WAZE_GUIDANCE_VISIBLE,
+    WAZE_GUIDANCE_FALLBACK,
     WAZE_READY_ROUTE_INACTIVE,
     WAZE_ROUTE_UNREADABLE,
     WAZE_WINDOW_UNREACHABLE,
@@ -142,6 +143,25 @@ data class VehicleDiagnosticsSnapshot(
     val energyDataLivenessKnown: Boolean = true,
     val demoModeEnabled: Boolean = false,
     val userConfirmedAtMs: Map<CapabilityId, Long> = emptyMap(),
+    val routeActive: Boolean = false,
+    val routeSource: String? = null,
+    val routeManeuverGaode: Int = 0,
+    val routeRenderable: Boolean = false,
+    val routeLastUpdateAtMs: Long? = null,
+    val routeLastObservedAtMs: Long? = null,
+    val routeEndReason: String? = null,
+    val routeEndedAtMs: Long? = null,
+    val wazeLastNoGuidanceAtMs: Long? = null,
+    val wazeLastWindowUnreachableAtMs: Long? = null,
+    val wazeLastUnreadableAtMs: Long? = null,
+    val wazeLastProbeResult: String? = null,
+    val hudLastDeliveryKind: String? = null,
+    val hudLastGuidanceSuccessAtMs: Long? = null,
+    val hudLastClearAttemptAtMs: Long? = null,
+    val hudLastClearSuccessAtMs: Long? = null,
+    val clusterMonitoredDisplayId: Int? = null,
+    val clusterLastDisplayEvent: String? = null,
+    val clusterLastDisplayEventAtMs: Long? = null,
 )
 
 data class DiagnosticSectionResult(
@@ -237,6 +257,12 @@ object VehicleDiagnosticsEvaluator {
         val recentWazeEvent = snapshot.wazeLastEventAtMs?.let {
             nowMs - it in 0..WAZE_EVENT_RECENT_MS
         } == true
+        val recentWindowLoss = snapshot.wazeLastWindowUnreachableAtMs?.let {
+            nowMs - it in 0..WAZE_EVENT_RECENT_MS
+        } == true
+        val recentUnreadable = snapshot.wazeLastUnreadableAtMs?.let {
+            nowMs - it in 0..WAZE_EVENT_RECENT_MS
+        } == true
         val navigation = when {
             !snapshot.wazeInstalled -> result(
                 DiagnosticSection.NAVIGATION, DiagnosticHealth.ERROR,
@@ -247,12 +273,27 @@ object VehicleDiagnosticsEvaluator {
             !snapshot.accessibilityConnected -> result(
                 DiagnosticSection.NAVIGATION, DiagnosticHealth.ATTENTION,
                 DiagnosticReason.WAZE_ACCESSIBILITY_DISCONNECTED)
+            snapshot.routeActive && !snapshot.routeRenderable -> result(
+                DiagnosticSection.NAVIGATION, DiagnosticHealth.ERROR,
+                DiagnosticReason.WAZE_ROUTE_UNREADABLE)
             snapshot.wazeWindowState == WazeWindowState.GUIDANCE_VISIBLE -> result(
                 DiagnosticSection.NAVIGATION, DiagnosticHealth.HEALTHY,
                 DiagnosticReason.WAZE_GUIDANCE_VISIBLE)
             snapshot.wazeWindowState == WazeWindowState.ROUTE_UNREADABLE -> result(
                 DiagnosticSection.NAVIGATION, DiagnosticHealth.ERROR,
                 DiagnosticReason.WAZE_ROUTE_UNREADABLE)
+            snapshot.routeActive && snapshot.wazeWindowState == WazeWindowState.NO_WINDOW -> result(
+                DiagnosticSection.NAVIGATION, DiagnosticHealth.ATTENTION,
+                DiagnosticReason.WAZE_WINDOW_UNREACHABLE)
+            snapshot.routeActive && recentUnreadable -> result(
+                DiagnosticSection.NAVIGATION, DiagnosticHealth.ERROR,
+                DiagnosticReason.WAZE_ROUTE_UNREADABLE)
+            snapshot.routeActive && recentWindowLoss -> result(
+                DiagnosticSection.NAVIGATION, DiagnosticHealth.ATTENTION,
+                DiagnosticReason.WAZE_WINDOW_UNREACHABLE)
+            snapshot.routeActive -> result(
+                DiagnosticSection.NAVIGATION, DiagnosticHealth.ATTENTION,
+                DiagnosticReason.WAZE_GUIDANCE_FALLBACK)
             recentWazeEvent && snapshot.wazeWindowState == WazeWindowState.NO_WINDOW -> result(
                 DiagnosticSection.NAVIGATION, DiagnosticHealth.ERROR,
                 DiagnosticReason.WAZE_WINDOW_UNREACHABLE)

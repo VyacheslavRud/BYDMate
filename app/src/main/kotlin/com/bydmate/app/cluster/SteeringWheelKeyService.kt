@@ -10,6 +10,8 @@ import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.bydmate.app.navdata.NavA11yFeed
+import com.bydmate.app.navdata.NavPackages
+import com.bydmate.app.navdata.WazeAccessibilityReader
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -46,6 +48,9 @@ class SteeringWheelKeyService : AccessibilityService() {
         serviceInfo = info
         instance = this
         isConnected = true
+        // HudController may have enabled the feed before Android finished binding this service.
+        // Bootstrap an already-running Waze route now; Android does not replay old window events.
+        NavA11yFeed.requestImmediateProbe()
         Log.d(TAG, "connected; filtering steering-wheel keys")
     }
 
@@ -98,50 +103,56 @@ class SteeringWheelKeyService : AccessibilityService() {
             .fromApplication(applicationContext, ClusterEntryPoint::class.java)
             .also { cachedEntryPoint = it }
 
-    /** Root of the Waze window wherever it lives: the active window, a minimized
-     *  mini-window, or the instrument cluster (display 2, projection mode). Caller must
-     *  recycle the returned node. Null when the Navigator has no window anywhere. */
+    /** Root of the most complete Waze route window wherever it lives: the active window, a
+     * minimized mini-window, or an instrument-cluster display. Waze can expose several roots
+     * during projection; choosing the first route anchor can select a stale/minimized surface and
+     * hide the current maneuver. All candidates are therefore scored by parseable HUD fields.
+     * Caller must recycle the returned node. Null when Waze has no window anywhere. */
     fun findNavigatorRoot(): AccessibilityNodeInfo? {
-        var fallback: AccessibilityNodeInfo? = null
+        data class Candidate(val root: AccessibilityNodeInfo, val score: Int)
+        var best: Candidate? = null
 
-        fun consider(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-            if (!com.bydmate.app.navdata.NavPackages.isNavigationPackage(
-                    root.packageName?.toString(),
-                )) {
+        fun consider(root: AccessibilityNodeInfo) {
+            if (best?.root === root) return
+            val packageName = runCatching { root.packageName?.toString() }.getOrNull()
+            if (!NavPackages.isNavigationPackage(packageName)) {
                 @Suppress("DEPRECATION") runCatching { root.recycle() }
-                return null
+                return
             }
-            // Waze can expose more than one window while projected/minimized. The window with
-            // the navigation bar is the route screen; keep a package-only root merely as fallback.
-            if (com.bydmate.app.navdata.WazeAccessibilityReader.hasRouteAnchor(root)) {
-                fallback?.let { old ->
-                    if (old !== root) {
+            val fields = runCatching { WazeAccessibilityReader.read(root) }.getOrNull()
+            val hasAnchor = fields != null || runCatching {
+                WazeAccessibilityReader.hasRouteAnchor(root)
+            }.getOrDefault(false)
+            val candidate = Candidate(
+                root = root,
+                score = WazeAccessibilityReader.guidanceScore(fields, hasAnchor),
+            )
+            val previous = best
+            if (previous == null || candidate.score > previous.score) {
+                if (previous?.root !== root) {
+                    previous?.root?.let { old ->
                         @Suppress("DEPRECATION") runCatching { old.recycle() }
                     }
                 }
-                fallback = null
-                return root
-            }
-            if (fallback == null) fallback = root
-            else if (fallback !== root) {
+                best = candidate
+            } else {
                 @Suppress("DEPRECATION") runCatching { root.recycle() }
             }
-            return null
         }
 
         val active = runCatching { rootInActiveWindow }.getOrNull()
-        if (active != null) consider(active)?.let { return it }
+        if (active != null) consider(active)
         val windowList = runCatching {
             if (android.os.Build.VERSION.SDK_INT >= 30) {
                 val byDisplay = windowsOnAllDisplays
                 (0 until byDisplay.size()).flatMap { byDisplay.valueAt(it) }
             } else windows
-        }.getOrNull() ?: return fallback
+        }.getOrNull() ?: return best?.root
         for (window in windowList) {
             val root = runCatching { window.root }.getOrNull() ?: continue
-            consider(root)?.let { return it }
+            consider(root)
         }
-        return fallback
+        return best?.root
     }
 
     // Single volatile read when the HUD feature is off - see NavA11yFeed.isEnabled.

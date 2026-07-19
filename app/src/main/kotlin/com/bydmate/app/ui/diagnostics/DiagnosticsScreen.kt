@@ -628,6 +628,7 @@ private fun reasonSummary(reason: DiagnosticReason, s: VehicleDiagnosticsSnapsho
     DiagnosticReason.BYD_DATA_WITHOUT_HELPER -> stringResource(R.string.diagnostics_byd_data_without_helper)
     DiagnosticReason.BYD_DISCONNECTED -> stringResource(R.string.diagnostics_byd_disconnected)
     DiagnosticReason.WAZE_GUIDANCE_VISIBLE -> stringResource(R.string.diagnostics_waze_guidance_visible)
+    DiagnosticReason.WAZE_GUIDANCE_FALLBACK -> stringResource(R.string.diagnostics_waze_guidance_fallback)
     DiagnosticReason.WAZE_READY_ROUTE_INACTIVE -> stringResource(R.string.diagnostics_waze_ready)
     DiagnosticReason.WAZE_ROUTE_UNREADABLE -> stringResource(R.string.diagnostics_waze_route_unreadable)
     DiagnosticReason.WAZE_WINDOW_UNREACHABLE -> stringResource(R.string.diagnostics_waze_window_unreachable)
@@ -691,8 +692,29 @@ private fun technicalRows(
         stringResource(R.string.diagnostics_tech_accessibility_connected) to yesNo(s.accessibilityConnected),
         stringResource(R.string.diagnostics_tech_waze_window) to wazeWindowText(s.wazeWindowState),
         stringResource(R.string.diagnostics_tech_feed) to yesNo(s.wazeFeedEnabled),
+        stringResource(R.string.diagnostics_tech_route_active) to yesNo(s.routeActive),
+        stringResource(R.string.diagnostics_tech_route_source) to (s.routeSource ?: "—"),
+        stringResource(R.string.diagnostics_tech_route_maneuver) to
+            if (s.routeManeuverGaode > 0) s.routeManeuverGaode.toString() else "—",
+        stringResource(R.string.diagnostics_tech_route_renderable) to yesNo(s.routeRenderable),
+        stringResource(R.string.diagnostics_tech_route_last_update) to
+            timeOrNever(s.routeLastUpdateAtMs),
+        stringResource(R.string.diagnostics_tech_route_last_observed) to
+            timeOrNever(s.routeLastObservedAtMs),
+        stringResource(R.string.diagnostics_tech_route_end) to buildString {
+            append(s.routeEndReason ?: "—")
+            s.routeEndedAtMs?.let { append(" @ ").append(timeText(it)) }
+        },
+        stringResource(R.string.diagnostics_tech_last_probe) to
+            (s.wazeLastProbeResult ?: "—"),
         stringResource(R.string.diagnostics_tech_last_event) to timeOrNever(s.wazeLastEventAtMs),
         stringResource(R.string.diagnostics_tech_last_readable) to timeOrNever(s.wazeLastReadableAtMs),
+        stringResource(R.string.diagnostics_tech_last_no_guidance) to
+            timeOrNever(s.wazeLastNoGuidanceAtMs),
+        stringResource(R.string.diagnostics_tech_last_window_loss) to
+            timeOrNever(s.wazeLastWindowUnreachableAtMs),
+        stringResource(R.string.diagnostics_tech_last_unreadable) to
+            timeOrNever(s.wazeLastUnreadableAtMs),
     )
     DiagnosticSection.CLUSTER -> listOf(
         stringResource(R.string.diagnostics_tech_enabled) to yesNo(s.clusterEnabled),
@@ -703,6 +725,12 @@ private fun technicalRows(
             s.clusterDisplaySearchElapsedMs?.let { "$it ms" }.orEmpty().ifBlank { "—" },
         stringResource(R.string.diagnostics_tech_selected_display) to
             (s.clusterSelectedDisplayId?.toString() ?: "—"),
+        stringResource(R.string.diagnostics_tech_monitored_display) to
+            (s.clusterMonitoredDisplayId?.toString() ?: "—"),
+        stringResource(R.string.diagnostics_tech_last_display_event) to buildString {
+            append(s.clusterLastDisplayEvent ?: "—")
+            s.clusterLastDisplayEventAtMs?.let { append(" @ ").append(timeText(it)) }
+        },
         stringResource(R.string.diagnostics_tech_last_success) to timeOrNever(s.clusterLastSuccessAtMs),
         stringResource(R.string.diagnostics_tech_last_failure) to (s.clusterFailure ?: "—"),
     )
@@ -714,6 +742,14 @@ private fun technicalRows(
             stringResource(R.string.diagnostics_tech_state) to s.hudState.name,
             stringResource(R.string.diagnostics_tech_last_attempt) to timeOrNever(s.hudLastAttemptAtMs),
             stringResource(R.string.diagnostics_tech_last_success) to timeOrNever(s.hudLastSuccessAtMs),
+            stringResource(R.string.diagnostics_tech_delivery_kind) to
+                (s.hudLastDeliveryKind ?: "—"),
+            stringResource(R.string.diagnostics_tech_guidance_success) to
+                timeOrNever(s.hudLastGuidanceSuccessAtMs),
+            stringResource(R.string.diagnostics_tech_clear_attempt) to
+                timeOrNever(s.hudLastClearAttemptAtMs),
+            stringResource(R.string.diagnostics_tech_clear_success) to
+                timeOrNever(s.hudLastClearSuccessAtMs),
             stringResource(R.string.diagnostics_tech_result_code) to (s.hudLastResultCode?.toString() ?: "—"),
             stringResource(R.string.diagnostics_tech_last_failure) to (s.hudFailure ?: "—"),
             stringResource(R.string.diagnostics_tech_reconnect_attempt) to s.hudReconnectAttempt.toString(),
@@ -758,11 +794,17 @@ private fun hudIncidentEvidence(incident: HudIncident): String =
     "status=${incident.hudStatus}; rc=${incident.resultCode ?: "—"}; " +
         "failure=${incident.failure ?: "—"}; route=${incident.routeSource ?: "—"}; " +
         "routeAge=${incident.routeAgeMs ?: "—"} ms; " +
+        "observedAge=${incident.routeObservedAgeMs ?: "—"} ms; " +
+        "maneuver=${incident.routeManeuverGaode}; renderable=${incident.routeRenderable}; " +
+        "routeEnd=${incident.routeEndReason ?: "—"}; " +
         "a11y=${incident.accessibilityConnected}; feed=${incident.feedEnabled}; " +
         "window=${incident.wazeWindowReachable ?: "—"}; " +
         "eventAge=${incident.wazeEventAgeMs ?: "—"} ms; " +
         "guidanceAge=${incident.wazeGuidanceAgeMs ?: "—"} ms; " +
-        "noGuidanceAge=${incident.wazeNoGuidanceAgeMs ?: "—"} ms"
+        "noGuidanceAge=${incident.wazeNoGuidanceAgeMs ?: "—"} ms; " +
+        "windowLossAge=${incident.wazeWindowUnreachableAgeMs ?: "—"} ms; " +
+        "unreadableAge=${incident.wazeUnreadableAgeMs ?: "—"} ms; " +
+        "probe=${incident.wazeProbeResult ?: "—"}"
 
 @Composable
 private fun healthText(health: DiagnosticHealth): String = stringResource(

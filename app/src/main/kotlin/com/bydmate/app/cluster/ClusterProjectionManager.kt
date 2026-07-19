@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Point
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.DisplayMetrics
@@ -45,8 +47,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  * in the shell-uid daemon (Phase 1), onto which Navi's task is pinned.
  *
  * Mirrors OpenBYD ClusterOverlayManager but uses our suspend HelperClient instead
- * of ICarControl shell strings. Single in-memory instance — mode resets to OFF on
- * process death (acceptable for v1; persistence is a later concern).
+ * of ICarControl shell strings. Single in-memory instance — mode resets to OFF on process death,
+ * while write-ahead ownership markers recover compositor, direct-task, density, and daemon
+ * VirtualDisplay side effects.
  *
  * Concurrency: every setMode call runs under [mutex], so two fast polls can't
  * build overlapping overlays or clobber [remoteDisplayId]. The whole transition —
@@ -73,6 +76,7 @@ object ClusterProjectionManager {
     private const val DISPLAY_WAIT_TIMEOUT_MS = 3000L         // DiLink may publish the container display asynchronously
     private const val DISPLAY_WAIT_INTERVAL_MS = 100L
     private const val SURFACE_DESTROYED_FAILURE = "surface_destroyed"
+    private const val DISPLAY_REMOVED_FAILURE = "display_removed"
 
     const val PREFS_NAME = "cluster_projection"
     // Master enable for star-controlled projection (settings switch). Read by SteeringWheelKeyService.
@@ -96,6 +100,10 @@ object ClusterProjectionManager {
     // Last VirtualDisplay id we created. Persisted so a fresh app process can release the display
     // a prior (dead) process left orphaned in the long-lived daemon, instead of leaking it.
     private const val KEY_LAST_VD_ID = "last_vd_id"
+    // Every daemon-side display that has not yet returned a confirmed release. The legacy single
+    // marker above remains for migration/backward compatibility; the set also covers a failed old
+    // display release during make-before-break resize.
+    private const val KEY_OWNED_VD_IDS = "owned_vd_ids"
     /** Wave P: optional automatic compositor power; default OFF until verified on the target car. */
     const val KEY_AUTO_CONTAINER = "auto_container_enabled"
     private const val KEY_SEA_LION_PROFILE_MIGRATION = "sea_lion_profile_v1_done"
@@ -151,6 +159,10 @@ object ClusterProjectionManager {
     private var clusterWidth: Int = 1280
     private var clusterHeight: Int = 480
     private var clusterDensityDpi: Int = 320
+    private var projectionDisplayId: Int = -1
+    private var monitoredDisplayId: Int = -1
+    private var displayManager: DisplayManager? = null
+    private var displayListener: DisplayManager.DisplayListener? = null
 
     /**
      * Drive the projection to [mode], serialized under [mutex]. Idempotent — a no-op when already
@@ -286,18 +298,31 @@ object ClusterProjectionManager {
             Log.e(TAG, "resize: createVirtualDisplay failed; keeping current size")
             discardNewOverlayKeepOld(oldOverlay); return true
         }
+        // Persist ownership before the task move. If launch/release fails, the next session still
+        // has enough evidence to reclaim this daemon-side display.
+        if (!saveLastVdId(context, newVdId)) {
+            Log.e(TAG, "resize: VirtualDisplay ownership marker not persisted; discarding replacement")
+            helper.releaseVirtualDisplay(newVdId)
+            discardNewOverlayKeepOld(oldOverlay)
+            return true
+        }
         val pkg = targetPackage(context)
         if (!helper.launchAndForce(pkg, newVdId, plan.bufferWidth, plan.bufferHeight)) {
             // Navi may already have been moved onto newVd; release it and let the caller rebuild.
             Log.e(TAG, "resize: launchAndForce failed")
-            helper.releaseVirtualDisplay(newVdId)
+            if (helper.releaseVirtualDisplay(newVdId)) clearReleasedVdId(context, newVdId)
             discardNewOverlayKeepOld(oldOverlay); return false
         }
         // New projection holds Navi. Commit the new id, then drop the old overlay + VirtualDisplay.
         remoteDisplayId = newVdId
-        saveLastVdId(context, newVdId)
         projectedPackage = pkg
-        if (oldVdId != -1) helper.releaseVirtualDisplay(oldVdId)
+        if (oldVdId != -1) {
+            if (helper.releaseVirtualDisplay(oldVdId)) {
+                clearReleasedVdId(context, oldVdId)
+            } else {
+                Log.w(TAG, "resize: old VirtualDisplay $oldVdId release not confirmed; marker kept")
+            }
+        }
         removeOverlayView(oldOverlay)
         Log.i(TAG, "resize: swapped to ${geo.width}x${geo.height} (vd $oldVdId -> $newVdId)")
         return true
@@ -429,22 +454,58 @@ object ClusterProjectionManager {
             .edit().putInt(KEY_TRIGGER_KEYCODE, keyCode).apply()
     }
 
-    /** Remember the last VirtualDisplay id so a future process can release it if we die holding it. */
-    private fun saveLastVdId(context: Context, id: Int) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit().putInt(KEY_LAST_VD_ID, id).apply()
+    /** Record every not-yet-confirmed daemon display. A set is required because resize can create
+     * the replacement before releasing the old display, and that old release can fail. */
+    private suspend fun saveLastVdId(context: Context, id: Int): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val owned = persistedVdIds(prefs).toMutableSet().apply { add(id) }
+        return withContext(Dispatchers.IO) {
+            prefs.edit()
+                .putInt(KEY_LAST_VD_ID, id)
+                .putStringSet(KEY_OWNED_VD_IDS, owned.map(Int::toString).toSet())
+                .commit()
+        }
+    }
+
+    private suspend fun clearReleasedVdId(context: Context, id: Int) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val remaining = persistedVdIds(prefs).toMutableSet().apply { remove(id) }
+        val cleared = withContext(Dispatchers.IO) {
+            prefs.edit()
+                .putInt(KEY_LAST_VD_ID, remaining.lastOrNull() ?: -1)
+                .putStringSet(KEY_OWNED_VD_IDS, remaining.map(Int::toString).toSet())
+                .commit()
+        }
+        if (!cleared) {
+            // The daemon release itself is idempotent, so a surviving marker is safe to retry.
+            Log.w(TAG, "confirmed VirtualDisplay release marker was not persisted for id=$id")
+        }
+    }
+
+    private fun persistedVdIds(prefs: android.content.SharedPreferences): Set<Int> = buildSet {
+        addAll(
+            persistedVirtualDisplayIds(
+                lastId = prefs.getInt(KEY_LAST_VD_ID, -1),
+                storedIds = prefs.getStringSet(KEY_OWNED_VD_IDS, emptySet()).orEmpty(),
+            ),
+        )
     }
 
     /**
      * Release a cluster display a prior process orphaned in the long-lived daemon. No-op when none
      * was recorded or the id is already gone (the daemon only releases displays in its own map).
      */
-    private suspend fun releaseOrphanedDisplay(context: Context, helper: HelperClient) {
-        val orphan = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getInt(KEY_LAST_VD_ID, -1)
-        if (orphan != -1) {
-            Log.i(TAG, "releasing orphaned VirtualDisplay id=$orphan from a prior session")
-            helper.releaseVirtualDisplay(orphan)
+    private suspend fun releaseOrphanedDisplays(context: Context, helper: HelperClient) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        persistedVdIds(prefs)
+            .filter { it != remoteDisplayId }
+            .forEach { orphan ->
+                Log.i(TAG, "releasing orphaned VirtualDisplay id=$orphan from a prior session")
+                if (helper.releaseVirtualDisplay(orphan)) {
+                    clearReleasedVdId(context, orphan)
+                } else {
+                    Log.w(TAG, "orphan releaseVirtualDisplay($orphan) not confirmed; marker kept")
+                }
         }
     }
 
@@ -454,9 +515,11 @@ object ClusterProjectionManager {
     ) {
         when (mode) {
             ClusterMode.OFF -> {
+                stopDisplayHealthMonitor()
                 pullBackToMain(context, helper, focus = true)
-                hideOverlay(helper)
+                hideOverlay(context, helper)
                 projectedPackage = null
+                projectionDisplayId = -1
                 currentMode = ClusterMode.OFF
                 lastFailure = null
                 _diagnosticState.update {
@@ -465,12 +528,13 @@ object ClusterProjectionManager {
                         attemptFinishedAtMs = System.currentTimeMillis(),
                     )
                 }
-                if (autoContainerEnabled(context)) powerDownCompositor(context, helper)
+                powerDownOwnedCompositor(context, helper)
             }
             ClusterMode.FULLSCREEN -> {
                 val failure = project(context, mode, helper, bootstrap)
                 if (failure == null) {
                     currentMode = mode
+                    startDisplayHealthMonitor(context, helper, projectionDisplayId)
                     lastFailure = null
                     val now = System.currentTimeMillis()
                     DiagnosticEvidenceStore.record(
@@ -490,8 +554,10 @@ object ClusterProjectionManager {
                     // projection failed: keep state honest. project() already tore down the
                     // overlay/VD on its failure paths; make sure Navi is back on the main screen.
                     Log.e(TAG, "projection failed; falling back to OFF")
+                    stopDisplayHealthMonitor()
                     pullBackToMain(context, helper, focus = true)
                     projectedPackage = null
+                    projectionDisplayId = -1
                     currentMode = ClusterMode.OFF
                     lastFailure = failure
                     _diagnosticState.update {
@@ -501,7 +567,7 @@ object ClusterProjectionManager {
                             lastFailure = failure,
                         )
                     }
-                    if (autoContainerEnabled(context)) powerDownCompositor(context, helper)
+                    powerDownOwnedCompositor(context, helper)
                 }
             }
         }
@@ -516,11 +582,23 @@ object ClusterProjectionManager {
     private suspend fun powerDownCompositor(context: Context, helper: HelperClient) {
         val off = runCatching { helper.setClusterContainerMode(false) }.getOrDefault(false)
         if (off) {
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit().putBoolean(KEY_COMPOSITOR_POWERED, false).apply()
+            // A stale true is safe but noisy; commit confirmed ownership release before returning.
+            val markerCleared = withContext(Dispatchers.IO) {
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit().putBoolean(KEY_COMPOSITOR_POWERED, false).commit()
+            }
+            if (!markerCleared) {
+                Log.w(TAG, "confirmed compositor power-down marker was not persisted")
+            }
         } else {
             Log.w(TAG, "compositor power-down not confirmed; keeping marker for recovery")
         }
+    }
+
+    private suspend fun powerDownOwnedCompositor(context: Context, helper: HelperClient) {
+        val marker = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_COMPOSITOR_POWERED, false)
+        if (shouldPowerDownCompositor(marker)) powerDownCompositor(context, helper)
     }
 
     /**
@@ -629,6 +707,7 @@ object ClusterProjectionManager {
     private suspend fun project(
         context: Context, mode: ClusterMode, helper: HelperClient, bootstrap: HelperBootstrap,
     ): String? {
+        projectionDisplayId = -1
         if (!bootstrap.ensureRunning()) {
             Log.e(TAG, "helper daemon not running; aborting projection"); return "daemon"
         }
@@ -639,18 +718,30 @@ object ClusterProjectionManager {
             // fails (the compositor may already be on). The marker is persisted even on failure —
             // compositor state is then unknown, and an extra recovery power-down against an
             // already-off compositor is harmless.
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit().putBoolean(KEY_COMPOSITOR_POWERED, true).apply()
-            runCatching { helper.setClusterContainerMode(true) }
+            val markerWritten = withContext(Dispatchers.IO) {
+                context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit().putBoolean(KEY_COMPOSITOR_POWERED, true).commit()
+            }
+            if (markerWritten) {
+                runCatching { helper.setClusterContainerMode(true) }
+            } else {
+                // Never power hardware into an app-owned mode without durable teardown evidence.
+                Log.e(TAG, "compositor ownership marker was not persisted; skipping auto power-on")
+            }
         }
-        if (overlayView != null) hideOverlay(helper)  // defensive: never stack overlays
+        if (overlayView != null) hideOverlay(context, helper)  // defensive: never stack overlays
         if (!ensureOverlayPermission(context, helper)) {
             Log.e(TAG, "overlay permission unavailable; aborting projection"); return "overlay_permission"
         }
         val display = awaitClusterDisplay(context) ?: run {
-            Log.e(TAG, "cluster display not found after ${DISPLAY_WAIT_TIMEOUT_MS}ms")
+            Log.e(
+                TAG,
+                "cluster display not found after ${DISPLAY_WAIT_TIMEOUT_MS}ms; " +
+                    "visible=${displayInventorySummary(_diagnosticState.value.visibleDisplays)}",
+            )
             return "display_not_found"
         }
+        projectionDisplayId = display.displayId
         val (widthPct, heightPct) = readSizePct(context)
         val (offsetXPct, offsetYPct) = readOffsetPct(context)
         val geo = geometryFor(
@@ -665,7 +756,7 @@ object ClusterProjectionManager {
         // below. Falls through to the VD pipeline when freeform is not active yet (flag needs
         // one reboot) or anything fails. Skip orphan release when a live member handle is
         // present — it is our own VD retry handle, not an orphan.
-        if (remoteDisplayId == -1) releaseOrphanedDisplay(context, helper)
+        if (remoteDisplayId == -1) releaseOrphanedDisplays(context, helper)
         if (tryDirectProjection(context, helper, display, geo, plan)) return null
 
         return try {
@@ -674,7 +765,7 @@ object ClusterProjectionManager {
             }
             if (surface == null) {
                 Log.e(TAG, "overlay Surface not ready within ${SURFACE_TIMEOUT_MS}ms")
-                hideOverlay(helper); return "surface_timeout"
+                hideOverlay(context, helper); return "surface_timeout"
             }
             // Release a stale VD (a prior release that failed) before overwriting the id. If it
             // fails AGAIN, abort rather than dropping the only handle — otherwise the daemon-side
@@ -683,26 +774,31 @@ object ClusterProjectionManager {
                 val staleId = remoteDisplayId
                 if (!helper.releaseVirtualDisplay(staleId)) {
                     Log.w(TAG, "stale releaseVirtualDisplay($staleId) failed; aborting to keep retry handle")
-                    hideOverlay(helper); return "stale_display_release"
+                    hideOverlay(context, helper); return "stale_display_release"
                 }
+                clearReleasedVdId(context, staleId)
                 remoteDisplayId = -1
             } else {
                 // Cold start (fresh process): release any display this app orphaned in the daemon
                 // before its last death, so cluster displays can't pile up across restarts. The
                 // daemon only releases ids in its own map, so a reused/stale id is a safe no-op.
-                releaseOrphanedDisplay(context, helper)
+                releaseOrphanedDisplays(context, helper)
             }
             val id = createClusterVd(helper, plan, surface)
             if (id == null) {
-                Log.e(TAG, "createVirtualDisplay failed"); hideOverlay(helper); return "virtual_display"
+                Log.e(TAG, "createVirtualDisplay failed"); hideOverlay(context, helper); return "virtual_display"
             }
             remoteDisplayId = id
-            saveLastVdId(context, id)
+            if (!saveLastVdId(context, id)) {
+                Log.e(TAG, "VirtualDisplay ownership marker not persisted; aborting projection")
+                hideOverlay(context, helper)
+                return "virtual_display_marker"
+            }
             val pkg = targetPackage(context)
             Log.i(TAG, "VirtualDisplay id=$id ${plan.bufferWidth}x${plan.bufferHeight}@${plan.densityDpi}; launchAndForce $pkg")
             val ok = helper.launchAndForce(pkg, id, plan.bufferWidth, plan.bufferHeight)
             if (!ok) {
-                Log.e(TAG, "launchAndForce failed"); hideOverlay(helper); return "task_launch"
+                Log.e(TAG, "launchAndForce failed"); hideOverlay(context, helper); return "task_launch"
             }
             projectedPackage = pkg
             null
@@ -711,7 +807,7 @@ object ClusterProjectionManager {
             // overlay down and report failure so applyModeLocked falls back to OFF + pull-back,
             // keeping currentMode honest.
             Log.e(TAG, "projection threw: ${e.message}", e)
-            hideOverlay(helper); "exception"
+            hideOverlay(context, helper); "exception"
         }
     }
 
@@ -850,7 +946,125 @@ object ClusterProjectionManager {
      * screen. It never creates a display or powers the cluster container. */
     fun inspectDisplays(context: Context): List<ClusterDisplayDiagnostic> {
         val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-        return dm.displays.map(::displayDiagnostic)
+        return dm.displays.mapNotNull { display ->
+            runCatching { displayDiagnostic(display) }
+                .onFailure {
+                    Log.w(TAG, "display ${display.displayId} inspection failed: ${it.message}")
+                }
+                .getOrNull()
+        }
+    }
+
+    private fun displayInventorySummary(displays: List<ClusterDisplayDiagnostic>): String =
+        displays.joinToString(prefix = "[", postfix = "]") {
+            "${it.id}:${it.name}:${it.widthPx}x${it.heightPx}:state=${it.state}"
+        }
+
+    /** Runtime health monitor for both direct and overlay projection. The direct path has no
+     * SurfaceHolder callback, so display removal otherwise leaves currentMode=FULLSCREEN while the
+     * navigator task is stranded on a display that no longer exists. */
+    private fun startDisplayHealthMonitor(
+        context: Context,
+        helper: HelperClient,
+        displayId: Int,
+    ) {
+        stopDisplayHealthMonitor()
+        if (displayId < 0) return
+        val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        val listener = object : DisplayManager.DisplayListener {
+            override fun onDisplayAdded(id: Int) = recordDisplayEvent(context, "added", id)
+
+            override fun onDisplayChanged(id: Int) {
+                if (id == monitoredDisplayId) recordDisplayEvent(context, "changed", id)
+            }
+
+            override fun onDisplayRemoved(id: Int) {
+                recordDisplayEvent(context, "removed", id)
+                scope.launch {
+                    mutex.withLock {
+                        if (!isActiveProjectionDisplayRemoved(currentMode, monitoredDisplayId, id)) {
+                            return@withLock
+                        }
+                        Log.e(
+                            TAG,
+                            "active cluster display removed id=$id; " +
+                                "visible=${displayInventorySummary(_diagnosticState.value.visibleDisplays)}",
+                        )
+                        stopDisplayHealthMonitor()
+                        pullBackToMain(context, helper, focus = false)
+                        hideOverlay(context, helper)
+                        powerDownOwnedCompositor(context, helper)
+                        projectedPackage = null
+                        projectionDisplayId = -1
+                        currentMode = ClusterMode.OFF
+                        lastFailure = DISPLAY_REMOVED_FAILURE
+                        _diagnosticState.update {
+                            it.copy(
+                                phase = ClusterProjectionPhase.FAILED,
+                                attemptFinishedAtMs = System.currentTimeMillis(),
+                                selectedDisplay = null,
+                                monitoredDisplayId = null,
+                                lastFailure = DISPLAY_REMOVED_FAILURE,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        displayManager = dm
+        displayListener = listener
+        monitoredDisplayId = displayId
+        val registered = runCatching {
+            dm.registerDisplayListener(listener, Handler(Looper.getMainLooper()))
+            true
+        }.onFailure {
+            Log.w(TAG, "display health monitor registration failed: ${it.message}")
+        }.getOrDefault(false)
+        if (!registered) {
+            displayListener = null
+            displayManager = null
+            monitoredDisplayId = -1
+            _diagnosticState.update {
+                it.copy(
+                    monitoredDisplayId = null,
+                    lastDisplayEvent = "monitor_registration_failed",
+                    lastDisplayEventAtMs = System.currentTimeMillis(),
+                )
+            }
+            return
+        }
+        _diagnosticState.update { it.copy(monitoredDisplayId = displayId) }
+        Log.i(TAG, "monitoring cluster display id=$displayId")
+        // Close the lookup -> registration race: a display removed just before listener
+        // registration may not generate a callback for this listener.
+        if (dm.getDisplay(displayId) == null) listener.onDisplayRemoved(displayId)
+    }
+
+    private fun stopDisplayHealthMonitor() {
+        val listener = displayListener
+        if (listener != null) {
+            runCatching { displayManager?.unregisterDisplayListener(listener) }
+                .onFailure { Log.w(TAG, "display listener unregister failed: ${it.message}") }
+        }
+        displayListener = null
+        displayManager = null
+        monitoredDisplayId = -1
+        _diagnosticState.update { it.copy(monitoredDisplayId = null) }
+    }
+
+    private fun recordDisplayEvent(context: Context, event: String, displayId: Int) {
+        val displays = runCatching { inspectDisplays(context) }.getOrDefault(emptyList())
+        val selected = displays.firstOrNull { it.id == monitoredDisplayId }
+        val now = System.currentTimeMillis()
+        _diagnosticState.update {
+            it.copy(
+                visibleDisplays = displays,
+                selectedDisplay = selected,
+                lastDisplayEvent = "$event:$displayId",
+                lastDisplayEventAtMs = now,
+            )
+        }
+        Log.i(TAG, "display $event id=$displayId; visible=${displayInventorySummary(displays)}")
     }
 
     private fun displayDiagnostic(display: Display): ClusterDisplayDiagnostic {
@@ -952,15 +1166,15 @@ object ClusterProjectionManager {
                         mutex.withLock {
                             if (overlayView === container) {
                                 Log.w(TAG, "active projection Surface was destroyed unexpectedly")
-                                hideOverlay(helper)
+                                stopDisplayHealthMonitor()
+                                hideOverlay(context, helper)
                                 runCatching { pullBackToMain(context, helper, focus = false) }
                                     .onFailure {
                                         Log.w(TAG, "surface loss pull-back failed: ${it.message}")
                                     }
-                                if (autoContainerEnabled(context)) {
-                                    powerDownCompositor(context, helper)
-                                }
+                                powerDownOwnedCompositor(context, helper)
                                 projectedPackage = null
+                                projectionDisplayId = -1
                                 currentMode = ClusterMode.OFF
                                 lastFailure = SURFACE_DESTROYED_FAILURE
                                 _diagnosticState.update {
@@ -1049,11 +1263,13 @@ object ClusterProjectionManager {
      * cleared ONLY after a confirmed release so a failed release can be retried instead of
      * leaking the daemon-side VirtualDisplay.
      */
-    private suspend fun hideOverlay(helper: HelperClient) {
+    private suspend fun hideOverlay(context: Context, helper: HelperClient) {
         val id = remoteDisplayId
         if (id != -1) {
-            if (helper.releaseVirtualDisplay(id)) remoteDisplayId = -1
-            else Log.w(TAG, "releaseVirtualDisplay($id) failed; keeping id for retry")
+            if (helper.releaseVirtualDisplay(id)) {
+                remoteDisplayId = -1
+                clearReleasedVdId(context, id)
+            } else Log.w(TAG, "releaseVirtualDisplay($id) failed; keeping id and marker for retry")
         }
         withContext(Dispatchers.Main) {
             overlayView?.let { v ->

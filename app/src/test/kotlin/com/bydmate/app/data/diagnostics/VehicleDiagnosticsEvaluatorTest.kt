@@ -206,6 +206,76 @@ class VehicleDiagnosticsEvaluatorTest {
         )
     }
 
+    @Test fun `active route without renderable maneuver is an error even when window is visible`() {
+        val evaluation = evaluate(
+            snapshot(
+                wazeWindowState = WazeWindowState.GUIDANCE_VISIBLE,
+                routeActive = true,
+                routeRenderable = false,
+            ),
+        )
+
+        assertSection(
+            evaluation,
+            DiagnosticSection.NAVIGATION,
+            DiagnosticHealth.ERROR,
+            DiagnosticReason.WAZE_ROUTE_UNREADABLE,
+        )
+    }
+
+    @Test fun `active notification fallback reports attention instead of inactive route`() {
+        val evaluation = evaluate(
+            snapshot(
+                wazeWindowState = WazeWindowState.WINDOW_VISIBLE,
+                routeActive = true,
+                routeRenderable = true,
+            ),
+        )
+
+        assertSection(
+            evaluation,
+            DiagnosticSection.NAVIGATION,
+            DiagnosticHealth.ATTENTION,
+            DiagnosticReason.WAZE_GUIDANCE_FALLBACK,
+        )
+    }
+
+    @Test fun `active route with recent Waze window loss reports attention`() {
+        val evaluation = evaluate(
+            snapshot(
+                routeActive = true,
+                routeRenderable = true,
+                wazeWindowState = WazeWindowState.NO_WINDOW,
+                wazeLastWindowUnreachableAtMs = nowMs - 500L,
+            ),
+        )
+
+        assertSection(
+            evaluation,
+            DiagnosticSection.NAVIGATION,
+            DiagnosticHealth.ATTENTION,
+            DiagnosticReason.WAZE_WINDOW_UNREACHABLE,
+        )
+    }
+
+    @Test fun `active route with recent unreadable probe reports an error`() {
+        val evaluation = evaluate(
+            snapshot(
+                routeActive = true,
+                routeRenderable = true,
+                wazeWindowState = WazeWindowState.WINDOW_VISIBLE,
+                wazeLastUnreadableAtMs = nowMs - 500L,
+            ),
+        )
+
+        assertSection(
+            evaluation,
+            DiagnosticSection.NAVIGATION,
+            DiagnosticHealth.ERROR,
+            DiagnosticReason.WAZE_ROUTE_UNREADABLE,
+        )
+    }
+
     @Test fun `active cluster is healthy while automatic evidence remains experimental`() {
         val successAt = nowMs - 2_000L
         val evaluation = evaluate(
@@ -529,6 +599,10 @@ class VehicleDiagnosticsEvaluatorTest {
         batterySignalCount: Int = 0,
         demoModeEnabled: Boolean = false,
         userConfirmedAtMs: Map<CapabilityId, Long> = emptyMap(),
+        routeActive: Boolean = false,
+        routeRenderable: Boolean = false,
+        wazeLastWindowUnreachableAtMs: Long? = null,
+        wazeLastUnreadableAtMs: Long? = null,
     ) = VehicleDiagnosticsSnapshot(
         capturedAtMs = nowMs,
         serviceRunning = serviceRunning,
@@ -579,5 +653,9 @@ class VehicleDiagnosticsEvaluatorTest {
         batterySignalCount = batterySignalCount,
         demoModeEnabled = demoModeEnabled,
         userConfirmedAtMs = userConfirmedAtMs,
+        routeActive = routeActive,
+        routeRenderable = routeRenderable,
+        wazeLastWindowUnreachableAtMs = wazeLastWindowUnreachableAtMs,
+        wazeLastUnreadableAtMs = wazeLastUnreadableAtMs,
     )
 }

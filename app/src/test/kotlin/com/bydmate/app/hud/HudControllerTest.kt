@@ -50,6 +50,7 @@ class HudControllerTest {
         val bridge = mockk<HudSomeIpBridge>(relaxed = true)
         coEvery { bridge.bind() } returns true
         every { bridge.startService(any()) } returns 0
+        every { bridge.isConnected() } returns true
         return bridge
     }
 
@@ -100,6 +101,75 @@ class HudControllerTest {
         c.setEnabled(true)
         assertEquals(HudController.Status.SEND_FAILED, c.status.value)
         c.setEnabled(false)
+        awaitTrue { c.status.value == HudController.Status.OFF }
+    }
+
+    @Test fun `unexpected local push exception is visible in delivery diagnostics`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        every { bridge.fireEvent(any(), any()) } throws IllegalStateException("synthetic")
+        NavGuidanceHub.update(
+            com.bydmate.app.navdata.NavGuidance(maneuverGaode = 2, distanceMeters = 250),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = System.currentTimeMillis(),
+        )
+        val c = controller(bridge)
+
+        c.setEnabled(true)
+
+        assertEquals(HudController.Status.SEND_FAILED, c.status.value)
+        assertEquals(
+            HudSomeIpBridge.RESULT_LOCAL_ERROR,
+            c.deliveryDiagnostics.value.lastResultCode,
+        )
+        assertEquals("push_loop:IllegalStateException", c.deliveryDiagnostics.value.lastFailure)
+        c.setEnabled(false)
+        awaitTrue { c.status.value == HudController.Status.OFF }
+    }
+
+    @Test fun `clear delivery does not replace last guidance success evidence`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        every { bridge.fireEvent(any(), any()) } returns 0
+        NavGuidanceHub.update(
+            com.bydmate.app.navdata.NavGuidance(maneuverGaode = 2, distanceMeters = 250),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = System.currentTimeMillis(),
+        )
+        val c = controller(bridge)
+        c.setEnabled(true)
+        val guidanceAt = c.deliveryDiagnostics.value.lastGuidanceFrameSuccessAtMs
+        assertTrue(guidanceAt != null)
+        assertEquals(HudFrameKind.GUIDANCE, c.deliveryDiagnostics.value.lastDeliveryKind)
+
+        c.setEnabled(false)
+
+        awaitTrue { c.status.value == HudController.Status.OFF }
+        assertEquals(guidanceAt, c.deliveryDiagnostics.value.lastGuidanceFrameSuccessAtMs)
+        assertEquals(HudFrameKind.CLEAR, c.deliveryDiagnostics.value.lastDeliveryKind)
+        assertTrue(c.deliveryDiagnostics.value.lastClearSuccessAtMs != null)
+    }
+
+    @Test fun `successful frame edge records recovery timestamp`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        every { bridge.fireEvent(any(), any()) } returnsMany listOf(-7, 0)
+        NavGuidanceHub.update(
+            com.bydmate.app.navdata.NavGuidance(maneuverGaode = 2, distanceMeters = 250),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = System.currentTimeMillis(),
+        )
+        val c = controller(bridge)
+        c.setEnabled(true)
+        assertEquals(HudController.Status.SEND_FAILED, c.status.value)
+
+        awaitTrue { c.status.value == HudController.Status.ON }
+
+        assertTrue(c.deliveryDiagnostics.value.lastRecoveredAtMs != null)
+        c.setEnabled(false)
     }
 
     @Test fun `stop sends clear frame before stopService and unbind`() {
@@ -149,7 +219,7 @@ class HudControllerTest {
         installSomeIp()
         coEvery { helperBootstrap.ensureRunning() } returns true
         val bridge = connectedBridge()
-        var onLost: () -> Unit = {}
+        var onLost: (String) -> Unit = {}
         val c = HudController(context, helperClient, helperBootstrap).apply {
             scope = CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined)
             reconnectDelayMs = { 0L }
@@ -157,7 +227,7 @@ class HudControllerTest {
         }
         c.setEnabled(true)
         assertEquals(HudController.Status.ON, c.status.value)
-        onLost()   // gateway binding died
+        onLost("binding_died")   // gateway binding died
         awaitTrue {
             runCatching {
                 verify(exactly = 2) { bridge.startService(HudSomeIpBridge.SERVICE_ID_NAVI) }
@@ -166,6 +236,68 @@ class HudControllerTest {
         assertEquals(HudController.Status.ON, c.status.value)
         assertTrue(NavA11yFeed.isEnabled)
         c.setEnabled(false)
+    }
+
+    @Test fun `watchdog rebuilds false ON state when bridge binder is unavailable`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        val c = controller(bridge)
+        c.setEnabled(true)
+        assertEquals(HudController.Status.ON, c.status.value)
+        every { bridge.isConnected() } returns false
+
+        c.ensureRunning("periodic")
+
+        awaitTrue {
+            runCatching {
+                verify(exactly = 2) { bridge.startService(HudSomeIpBridge.SERVICE_ID_NAVI) }
+            }.isSuccess
+        }
+        assertEquals(HudController.Status.ON, c.status.value)
+        c.setEnabled(false)
+    }
+
+    @Test fun `stop retries rejected clear frame before transport teardown`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        every { bridge.fireEvent(any(), any()) } returnsMany listOf(-7, -7, 0)
+        val c = controller(bridge)
+        c.setEnabled(true)
+
+        c.setEnabled(false)
+
+        awaitTrue {
+            runCatching {
+                verify(exactly = HudPushLoop.CLEAR_MAX_ATTEMPTS) {
+                    bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, any())
+                }
+            }.isSuccess
+        }
+        verifyOrder {
+            bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, any())
+            bridge.stopService(HudSomeIpBridge.SERVICE_ID_NAVI)
+            bridge.unbind()
+        }
+    }
+
+    @Test fun `failed teardown clear remains visible after controller reaches OFF`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        every { bridge.fireEvent(any(), any()) } returns -7
+        val c = controller(bridge)
+        c.setEnabled(true)
+
+        c.setEnabled(false)
+
+        awaitTrue { c.status.value == HudController.Status.OFF }
+        assertEquals("teardown_clear_rejected", c.deliveryDiagnostics.value.lastFailure)
+        assertEquals(-7, c.deliveryDiagnostics.value.lastResultCode)
+        verify(exactly = HudPushLoop.CLEAR_MAX_ATTEMPTS) {
+            bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, any())
+        }
     }
 
     @Test fun `initial bind timeout retries without restarting TrackingService`() {

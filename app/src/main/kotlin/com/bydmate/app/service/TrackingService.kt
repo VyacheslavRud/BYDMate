@@ -922,7 +922,7 @@ class TrackingService : Service(), LocationListener {
         com.bydmate.app.ui.widget.WidgetController.detach()
         ChainLog.append(this, "TrackingService onDestroy")
         pollingJob?.cancel()
-        hudIncidentRecorder.stop()
+        hudIncidentRecorder.stop(expectRestart = restartAllowed)
         hudController.stop()
         ConsumptionAggregator.reset()
         // NOTE: do NOT null out _sessionStartedAt or clear SessionPersistence here.

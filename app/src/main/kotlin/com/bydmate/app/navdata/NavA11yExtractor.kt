@@ -15,7 +15,8 @@ object NavA11yExtractor {
 
     fun read(root: AccessibilityNodeInfo?): ReadResult {
         if (root == null) return ReadResult.NotNavigator
-        val pkg = root.packageName?.toString() ?: return ReadResult.NotNavigator
+        val pkg = runCatching { root.packageName?.toString() }.getOrNull()
+            ?: return ReadResult.NotNavigator
         if (!NavPackages.isNavigationPackage(pkg)) return ReadResult.NotNavigator
         val fields = WazeAccessibilityReader.read(root) ?: return ReadResult.NoGuidance
         val raw = NavGuidanceParser.RawFields(
@@ -24,6 +25,7 @@ object NavA11yExtractor {
             distance = fields.maneuverDistance,
             nextStreet = fields.street,
             etaTime = fields.remainingTime,
+            arrivalTime = fields.arrivalTime,
             etaDistance = fields.remainingDistance,
             speedLimit = fields.speedLimit,
         )

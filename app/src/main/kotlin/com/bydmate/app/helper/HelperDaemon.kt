@@ -212,7 +212,10 @@ fun main(args: Array<String>) {
                     val displayId = data.readInt()
                     val vd = virtualDisplays.remove(displayId)
                     vd?.release()
-                    reply?.writeInt(if (vd != null) 0 else -1); reply?.writeInt(0)
+                    // Idempotent by contract: an absent id means there is no daemon-owned display
+                    // left to release (including after daemon restart). This lets the app safely
+                    // clear a crash-surviving ownership marker on a retry.
+                    reply?.writeInt(0); reply?.writeInt(0)
                     true
                 }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
 

@@ -26,6 +26,8 @@ class NaviNotificationParserTest {
         assertEquals("Main Street", parsed.street)
         assertEquals(2, parsed.guidance?.maneuverGaode)
         assertEquals(350, parsed.guidance?.distanceMeters)
+        assertEquals(12_000, parsed.guidance?.totalDistMeters)
+        assertEquals(18 * 60, parsed.guidance?.etaSeconds)
         assertEquals("12 km", parsed.remainingDistance)
         assertEquals("18 min", parsed.remainingTime)
         assertTrue(parsed.bigTexts.contains("18 min"))
@@ -42,6 +44,26 @@ class NaviNotificationParserTest {
         assertEquals("1,2 км", parsed.distance)
         assertEquals(1200, parsed.guidance?.distanceMeters)
         assertEquals("Ленина", parsed.street)
+    }
+
+    @Test fun `compound instruction does not leak following maneuver into street`() {
+        val english = NaviNotificationParser.fromText(
+            title = "350 m",
+            text = "Turn right onto Main Street, then turn left",
+            subText = null,
+            bigText = null,
+        )
+        assertEquals(2, english.guidance?.maneuverGaode)
+        assertEquals("Main Street", english.street)
+
+        val russian = NaviNotificationParser.fromText(
+            title = "350 м",
+            text = "Поверните направо на улицу Ленина, затем налево",
+            subText = null,
+            bigText = null,
+        )
+        assertEquals(2, russian.guidance?.maneuverGaode)
+        assertEquals("Ленина", russian.street)
     }
 
     @Test fun `generic running notification is not guidance`() {
@@ -119,6 +141,66 @@ class NaviNotificationParserTest {
         assertFalse(parsed.hasGuidance)
     }
 
+    @Test fun `notification wires split route summary into HUD guidance`() {
+        val parsed = NaviNotificationParser.fromText(
+            title = "250 m",
+            text = "Turn right onto Main Street",
+            subText = "1 h 5 min",
+            bigText = "12 km · ETA 3:40 PM",
+        )
+
+        assertEquals("12 km", parsed.remainingDistance)
+        assertEquals("1 h 5 min", parsed.remainingTime)
+        assertEquals("15:40", parsed.arrivalTime)
+        assertEquals(12_000, parsed.guidance?.totalDistMeters)
+        assertEquals(3900, parsed.guidance?.etaSeconds)
+        assertEquals("15:40", parsed.guidance?.arrivalTime)
+    }
+
+    @Test fun `Russian notification duration and distance reach HUD guidance`() {
+        val parsed = NaviNotificationParser.fromText(
+            title = "350 м",
+            text = "Поверните направо",
+            subText = "1 ч 5 мин",
+            bigText = "12 км · 1 ч 5 мин",
+        )
+
+        assertEquals("1 ч 5 мин", parsed.remainingTime)
+        assertEquals("12 км", parsed.remainingDistance)
+        assertEquals(3900, parsed.guidance?.etaSeconds)
+        assertEquals(12_000, parsed.guidance?.totalDistMeters)
+    }
+
+    @Test fun `next maneuver distance is not reused as remaining route distance`() {
+        val parsed = NaviNotificationParser.fromText(
+            title = "In 500 m",
+            text = "Turn left",
+            subText = "18 min",
+            bigText = null,
+        )
+
+        assertEquals(500, parsed.guidance?.distanceMeters)
+        assertEquals(18 * 60, parsed.guidance?.etaSeconds)
+        assertEquals(0, parsed.guidance?.totalDistMeters)
+        assertNull(parsed.remainingDistance)
+    }
+
+    @Test fun `diagnostic dump redacts notification text and street`() {
+        val notification = Notification().apply {
+            extras.putString(Notification.EXTRA_TITLE, "350 m")
+            extras.putString(Notification.EXTRA_TEXT, "Turn right onto Secret Street")
+            extras.putString(Notification.EXTRA_BIG_TEXT, "12 km · 18 min")
+        }
+
+        val dump = NaviNotificationParser.dump(notification)
+        assertTrue("source=notification" in dump)
+        assertTrue("recognized=RIGHT" in dump)
+        assertTrue("title=present(len=5)" in dump)
+        assertFalse("Secret Street" in dump)
+        assertFalse("Turn right" in dump)
+        assertFalse("12 km" in dump)
+    }
+
     @Test fun `remaining route summary is not next maneuver distance`() {
         val parsed = NaviNotificationParser.fromText(
             title = "12 km · 18 min",
@@ -131,5 +213,29 @@ class NaviNotificationParserTest {
         assertEquals("12 km", parsed.remainingDistance)
         assertEquals("18 min", parsed.remainingTime)
         assertFalse(parsed.hasGuidance)
+    }
+
+    @Test fun `newest notification mirror is selected by observation order`() {
+        val older = NavigationNotificationMirror(
+            packageName = NaviRouteHolder.NAVI_PACKAGE,
+            title = "older",
+            text = null,
+            subText = null,
+            parsed = null,
+            postTimeMs = 200,
+            observedSequence = 1,
+        )
+        val newer = older.copy(
+            title = "newer",
+            // Vendor postTime is not guaranteed to advance on an ongoing-notification update.
+            postTimeMs = 100,
+            observedSequence = 2,
+        )
+
+        assertEquals(newer, newestNavigationNotification(listOf(older, newer)))
+    }
+
+    @Test fun `notification mirror selection handles no remaining notification`() {
+        assertNull(newestNavigationNotification(emptyList()))
     }
 }

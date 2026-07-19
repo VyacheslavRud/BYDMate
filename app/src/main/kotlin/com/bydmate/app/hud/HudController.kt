@@ -8,6 +8,7 @@ import com.bydmate.app.data.diagnostics.DiagnosticEvidenceStore
 import com.bydmate.app.data.vehicle.HelperBootstrap
 import com.bydmate.app.data.vehicle.HelperClient
 import com.bydmate.app.navdata.NavA11yFeed
+import com.bydmate.app.navdata.NavGuidanceHub
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,7 +31,7 @@ import kotlinx.coroutines.sync.withLock
  *    current package probe, so a stale pre-OTA support cache cannot affect behaviour;
  *  - bind (up to ~71 s of retries) runs OUTSIDE the mutex in a cancellable job, so
  *    toggle-off never blocks on it;
- *  - teardown sends one clear frame, then stopService, then unbind;
+ *  - teardown sends a bounded clear sequence, then stopService, then unbind;
  *  - transient bind/gateway failures recover with bounded backoff while TrackingService owns the
  *    controller, instead of leaving the HUD dead until the next ignition cycle. */
 @Singleton
@@ -46,6 +47,10 @@ class HudController @Inject constructor(
         val bindDurationMs: Long? = null,
         val lastFrameAttemptAtMs: Long? = null,
         val lastFrameSuccessAtMs: Long? = null,
+        val lastGuidanceFrameSuccessAtMs: Long? = null,
+        val lastClearAttemptAtMs: Long? = null,
+        val lastClearSuccessAtMs: Long? = null,
+        val lastDeliveryKind: HudFrameKind? = null,
         val lastResultCode: Int? = null,
         val lastFailure: String? = null,
         val reconnectAttempt: Int = 0,
@@ -61,6 +66,7 @@ class HudController @Inject constructor(
         const val KEY_SPEED_SIGN = "hud_speed_sign"
         private const val KEY_LAST_FRAME_ATTEMPT_AT = "hud_last_frame_attempt_at"
         private const val KEY_LAST_FRAME_SUCCESS_AT = "hud_last_frame_success_at"
+        private const val KEY_LAST_GUIDANCE_FRAME_SUCCESS_AT = "hud_last_guidance_frame_success_at"
         private const val KEY_LAST_FRAME_RC = "hud_last_frame_rc"
         private const val DELIVERY_PERSIST_INTERVAL_MS = 60_000L
         internal const val SEND_FAILURES_BEFORE_RECONNECT = 20
@@ -83,7 +89,7 @@ class HudController @Inject constructor(
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     internal var scope: CoroutineScope =
         CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
-    internal var bridgeFactory: (Context, () -> Unit) -> HudSomeIpBridge =
+    internal var bridgeFactory: (Context, (String) -> Unit) -> HudSomeIpBridge =
         { ctx, onLost -> HudSomeIpBridge(ctx, onLost) }
     internal var reconnectDelayMs: (Int) -> Long = ::reconnectDelayForAttempt
 
@@ -92,6 +98,7 @@ class HudController @Inject constructor(
     private var reconnectJob: Job? = null
     private var reconnectAttempt: Int = 0
     private var consecutiveSendFailures: Int = 0
+    @Volatile private var pendingClearAfterReconnect: Boolean = false
     @Volatile private var lifecycleActive: Boolean = false
     @Volatile private var bridge: HudSomeIpBridge? = null
     @Volatile private var loop: HudPushLoop? = null
@@ -114,6 +121,10 @@ class HudController @Inject constructor(
             ).takeIf { it > 0L },
             lastFrameSuccessAtMs = prefs().getLong(
                 diagnosticPrefKey(KEY_LAST_FRAME_SUCCESS_AT),
+                0L,
+            ).takeIf { it > 0L },
+            lastGuidanceFrameSuccessAtMs = prefs().getLong(
+                diagnosticPrefKey(KEY_LAST_GUIDANCE_FRAME_SUCCESS_AT),
                 0L,
             ).takeIf { it > 0L },
             lastResultCode = prefs().getInt(
@@ -179,12 +190,15 @@ class HudController @Inject constructor(
                     )
                 }
             }
+            val currentBridge = bridge
             when {
-                _status.value == Status.ON && bridge != null -> {
+                _status.value == Status.ON && currentBridge?.isConnected() == true -> {
                     // A grant/wake race can disable the feed without killing the SOME/IP binder.
                     if (!NavA11yFeed.isEnabled) NavA11yFeed.enable()
                 }
-                _status.value == Status.SEND_FAILED && bridge != null ->
+                _status.value == Status.ON && currentBridge != null ->
+                    rebuildChannel("watchdog:$reason:transport_unavailable")
+                _status.value == Status.SEND_FAILED && currentBridge != null ->
                     rebuildChannel("watchdog:$reason")
                 else -> startSequence()
             }
@@ -219,14 +233,12 @@ class HudController @Inject constructor(
         _deliveryDiagnostics.value = _deliveryDiagnostics.value.copy(
             bindStartedAtMs = bindStartedAt,
             bindDurationMs = null,
-            lastResultCode = null,
-            lastFailure = null,
         )
         // Self-enable the a11y data source via the helper daemon (DiLink has no a11y UI).
         if (helperBootstrap.ensureRunning()) helperClient.enableAccessibilityService()
         // Bind OUTSIDE the mutex: up to ~71 s and must not block toggle-off (Codex fix 2).
         startJob = scope.launch {
-            val b = bridgeFactory(context) { onBindingLost() }
+            val b = bridgeFactory(context) { reason -> onBindingLost(reason) }
             try {
                 if (!b.bind()) {
                     b.unbind()
@@ -254,17 +266,26 @@ class HudController @Inject constructor(
                 bridge = b
                 NavA11yFeed.enable()
                 _status.value = Status.ON
-                val recovered = reconnectAttempt > 0 ||
+                // A successful bind/startService proves only control-channel availability. After
+                // a send/clear failure, keep exponential backoff state until an actual HUD frame
+                // is accepted; otherwise a gateway that rejects every clear loops at 5 s forever.
+                val deliveryProofRequired = pendingClearAfterReconnect ||
+                    hasRenderableHudGuidance(NavGuidanceHub.snapshot())
+                val channelRecovered = reconnectAttempt > 0 ||
                     _deliveryDiagnostics.value.lastFailure != null
-                reconnectAttempt = 0
+                if (!deliveryProofRequired) reconnectAttempt = 0
                 consecutiveSendFailures = 0
                 _deliveryDiagnostics.value = _deliveryDiagnostics.value.copy(
                     bindDurationMs = SystemClock.elapsedRealtime() - bindStartedElapsed,
                     lastResultCode = rc,
-                    lastFailure = null,
-                    reconnectAttempt = 0,
+                    lastFailure = if (deliveryProofRequired) {
+                        _deliveryDiagnostics.value.lastFailure
+                    } else {
+                        null
+                    },
+                    reconnectAttempt = reconnectAttempt,
                     nextReconnectAtMs = null,
-                    lastRecoveredAtMs = if (recovered) {
+                    lastRecoveredAtMs = if (channelRecovered && !deliveryProofRequired) {
                         System.currentTimeMillis()
                     } else {
                         _deliveryDiagnostics.value.lastRecoveredAtMs
@@ -273,10 +294,18 @@ class HudController @Inject constructor(
                 loop = HudPushLoop(
                     b,
                     speedSignEnabled = { isSpeedSignEnabled() },
-                    onDeliveryResult = { rc ->
+                    onDeliveryAttempt = { kind, rc ->
                         val now = System.currentTimeMillis()
                         val previous = _deliveryDiagnostics.value
                         val wasSendFailed = _status.value == Status.SEND_FAILED
+                        val wasReconnecting = reconnectAttempt > 0
+                        if (kind == HudFrameKind.CLEAR) {
+                            pendingClearAfterReconnect = rc < 0
+                        } else if (rc >= 0) {
+                            // A current guidance frame supersedes any stale HUD contents just as a
+                            // clear would, so no deferred clear is needed after channel recovery.
+                            pendingClearAfterReconnect = false
+                        }
                         if (rc < 0) {
                             consecutiveSendFailures++
                             if (!wasSendFailed) {
@@ -290,6 +319,7 @@ class HudController @Inject constructor(
                         } else {
                             consecutiveSendFailures = 0
                         }
+                        if (rc >= 0) reconnectAttempt = 0
 
                         // Keep every live result in memory, but persist only periodically or on a
                         // failure/recovery edge. HudPushLoop calls this roughly every 300 ms; writing
@@ -298,8 +328,9 @@ class HudController @Inject constructor(
                             rc < 0 -> !wasSendFailed || previous.lastResultCode != rc
                             else -> wasSendFailed
                         }
-                        val persisted = persistDeliveryResult(now, rc, forcePersist)
-                        if (rc >= 0 && persisted) {
+                        val persisted = kind == HudFrameKind.GUIDANCE &&
+                            persistDeliveryResult(now, rc, forcePersist)
+                        if (kind == HudFrameKind.GUIDANCE && rc >= 0 && persisted) {
                             DiagnosticEvidenceStore.record(
                                 context,
                                 DiagnosticEvidenceStore.Evidence.FACTORY_HUD_FRAME,
@@ -310,8 +341,30 @@ class HudController @Inject constructor(
                             lastFrameAttemptAtMs = now,
                             lastFrameSuccessAtMs = now.takeIf { rc >= 0 }
                                 ?: previous.lastFrameSuccessAtMs,
+                            lastGuidanceFrameSuccessAtMs = now.takeIf {
+                                kind == HudFrameKind.GUIDANCE && rc >= 0
+                            } ?: previous.lastGuidanceFrameSuccessAtMs,
+                            lastClearAttemptAtMs = now.takeIf { kind == HudFrameKind.CLEAR }
+                                ?: previous.lastClearAttemptAtMs,
+                            lastClearSuccessAtMs = now.takeIf {
+                                kind == HudFrameKind.CLEAR && rc >= 0
+                            } ?: previous.lastClearSuccessAtMs,
+                            lastDeliveryKind = kind,
                             lastResultCode = rc,
-                            lastFailure = if (rc < 0) "frame_rejected" else null,
+                            reconnectAttempt = reconnectAttempt,
+                            nextReconnectAtMs = null,
+                            lastFailure = when {
+                                rc < 0 && kind == HudFrameKind.CLEAR -> "clear_frame_rejected"
+                                rc < 0 -> "frame_rejected"
+                                kind == HudFrameKind.CLEAR &&
+                                    previous.lastFailure == "clear_frame_rejected" -> null
+                                kind == HudFrameKind.CLEAR -> previous.lastFailure
+                                else -> null
+                            },
+                            lastRecoveredAtMs = now.takeIf {
+                                rc >= 0 && (wasSendFailed || wasReconnecting)
+                            }
+                                ?: previous.lastRecoveredAtMs,
                         )
                         if (rc < 0 &&
                             shouldReconnectAfterSendFailures(consecutiveSendFailures)
@@ -319,6 +372,21 @@ class HudController @Inject constructor(
                             consecutiveSendFailures = 0
                             scope.launch { rebuildChannel("frame_rejected:$rc") }
                         }
+                    },
+                    onLoopFailure = { error ->
+                        val now = System.currentTimeMillis()
+                        val previous = _deliveryDiagnostics.value
+                        _status.value = Status.SEND_FAILED
+                        _deliveryDiagnostics.value = previous.copy(
+                            lastFrameAttemptAtMs = now,
+                            lastResultCode = HudSomeIpBridge.RESULT_LOCAL_ERROR,
+                            lastFailure = "push_loop:${error.javaClass.simpleName}",
+                        )
+                    },
+                    initialClearPending = pendingClearAfterReconnect,
+                    onClearExhausted = { rc ->
+                        pendingClearAfterReconnect = true
+                        scope.launch { rebuildChannel("transport:clear_rejected:$rc") }
                     },
                 )
                     .also { it.start(scope) }
@@ -332,9 +400,13 @@ class HudController @Inject constructor(
 
     /** Gateway binding died (crash/update). Clean up and reconnect automatically; waiting for the
      * next ignition left an otherwise healthy Waze route without HUD for the rest of the drive. */
-    private fun onBindingLost() {
+    private fun onBindingLost(reason: String) {
         NavA11yFeed.disable()
-        scope.launch { rebuildChannel("binding_lost") }
+        _status.value = Status.BIND_FAILED
+        _deliveryDiagnostics.value = _deliveryDiagnostics.value.copy(
+            lastFailure = "transport:$reason",
+        )
+        scope.launch { rebuildChannel("transport:$reason") }
     }
 
     private suspend fun rebuildChannel(reason: String) {
@@ -342,6 +414,10 @@ class HudController @Inject constructor(
         mutex.withLock {
             if (!lifecycleActive || !isEnabled()) return@withLock
             if (reconnectJob?.isActive == true) return@withLock
+            // Once a live channel is rebuilt, its last on-glass contents are unknown. Require an
+            // accepted clear on the replacement channel before declaring recovery; active
+            // guidance follows immediately on the next loop tick.
+            if (bridge != null) pendingClearAfterReconnect = true
             loop?.stop()
             loop = null
             bridge?.let { old ->
@@ -400,6 +476,7 @@ class HudController @Inject constructor(
                 .apply {
                     if (rc >= 0) {
                         putLong(diagnosticPrefKey(KEY_LAST_FRAME_SUCCESS_AT), atMs)
+                        putLong(diagnosticPrefKey(KEY_LAST_GUIDANCE_FRAME_SUCCESS_AT), atMs)
                     }
                 }
                 .apply()
@@ -424,14 +501,17 @@ class HudController @Inject constructor(
             loop?.stop()
             loop = null
             bridge?.let {
-                // Leave the HUD clean before tearing the channel down (Codex fix 4).
-                runCatching { it.fireEvent(HudSomeIpBridge.TOPIC_NAVI, HudProtobufBuilder.buildClearFrame(0)) }
+                // Leave the HUD clean before tearing the channel down. A gateway can reject the
+                // first transaction while waking up, so retry a bounded number of times; never
+                // keep stop() hostage to a broken remote service.
+                sendClearBeforeStop(it)
                 runCatching { it.stopService(HudSomeIpBridge.SERVICE_ID_NAVI) }
                 runCatching { it.unbind() }
             }
             bridge = null
             reconnectAttempt = 0
             consecutiveSendFailures = 0
+            pendingClearAfterReconnect = false
             _deliveryDiagnostics.value = _deliveryDiagnostics.value.copy(
                 reconnectAttempt = 0,
                 nextReconnectAtMs = null,
@@ -439,5 +519,42 @@ class HudController @Inject constructor(
             _status.value = Status.OFF
             // NavGuidanceHub is intentionally NOT reset: the voice agent keeps using it.
         }
+    }
+
+    private suspend fun sendClearBeforeStop(sink: HudEventSink) {
+        repeat(HudPushLoop.CLEAR_MAX_ATTEMPTS) { attempt ->
+            val rc = try {
+                sink.fireEvent(
+                    HudSomeIpBridge.TOPIC_NAVI,
+                    HudProtobufBuilder.buildClearFrame(attempt),
+                )
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (error: Exception) {
+                Log.w(TAG, "teardown clear threw: ${error.message}")
+                HudSomeIpBridge.RESULT_LOCAL_ERROR
+            }
+            recordTeardownClearResult(System.currentTimeMillis(), rc)
+            if (rc >= 0) return
+            if (attempt + 1 < HudPushLoop.CLEAR_MAX_ATTEMPTS) delay(100L)
+        }
+        Log.w(TAG, "HUD clear was not accepted before transport teardown")
+    }
+
+    private fun recordTeardownClearResult(atMs: Long, rc: Int) {
+        val previous = _deliveryDiagnostics.value
+        _deliveryDiagnostics.value = previous.copy(
+            lastFrameAttemptAtMs = atMs,
+            lastFrameSuccessAtMs = atMs.takeIf { rc >= 0 } ?: previous.lastFrameSuccessAtMs,
+            lastClearAttemptAtMs = atMs,
+            lastClearSuccessAtMs = atMs.takeIf { rc >= 0 } ?: previous.lastClearSuccessAtMs,
+            lastDeliveryKind = HudFrameKind.CLEAR,
+            lastResultCode = rc,
+            lastFailure = when {
+                rc < 0 -> "teardown_clear_rejected"
+                previous.lastFailure == "teardown_clear_rejected" -> null
+                else -> previous.lastFailure
+            },
+        )
     }
 }

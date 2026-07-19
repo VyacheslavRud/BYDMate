@@ -11,6 +11,8 @@ object HudProtobufBuilder {
 
     const val MAX_PAYLOAD_BYTES = 65536
     const val MAX_ROAD_CHARS = 200
+    const val MAX_ETA_CHARS = 16
+    const val MAX_SPEED_LIMIT = 250
 
     /** GAODE maneuver -> f28 reference arrow: 3=left, 2=right, 9=uturn, 1=straight/other. */
     fun gaodeToF28(gaode: Int): Int = when (gaode) {
@@ -47,8 +49,9 @@ object HudProtobufBuilder {
         return wrap(inner.toByteArray())
     }
 
-    /** buildFrame with the donor's size fallback: past MAX_PAYLOAD_BYTES the speed-sign PNG
-     *  (f7) is dropped first; the maneuver icon (f8) is never dropped. */
+    /** Bounded frame builder. The optional speed-sign PNG is dropped first. A corrupt/foreign
+     * maneuver asset larger than Binder's safe payload is dropped only as a final fallback; f28
+     * still carries the reference direction, which is safer than rejecting every HUD frame. */
     fun buildFrameSafe(
         maneuverGaode: Int,
         distanceMeters: Int,
@@ -59,14 +62,23 @@ object HudProtobufBuilder {
         maneuverIconPng: ByteArray?,
         speedSignPng: ByteArray?,
     ): ByteArray {
-        // The road string is the only unbounded input (a11y screen text); cap it so a
-        // corrupted read can never push the frame past MAX_PAYLOAD_BYTES (Codex audit fix 4).
-        val safeRoad = if (road.length > MAX_ROAD_CHARS) road.take(MAX_ROAD_CHARS) else road
-        val full = buildFrame(maneuverGaode, distanceMeters, safeRoad, etaString,
-            totalDistMeters, speedLimit, maneuverIconPng, speedSignPng)
-        if (full.size <= MAX_PAYLOAD_BYTES || speedSignPng == null) return full
-        return buildFrame(maneuverGaode, distanceMeters, safeRoad, etaString,
-            totalDistMeters, speedLimit, maneuverIconPng, speedSignPng = null)
+        val safeRoad = road.take(MAX_ROAD_CHARS)
+        val safeEta = etaString?.trim()?.take(MAX_ETA_CHARS)?.takeIf { it.isNotEmpty() }
+        val safeDistance = distanceMeters.coerceAtLeast(0)
+        val safeTotalDistance = totalDistMeters.coerceAtLeast(0)
+        val safeSpeedLimit = speedLimit.coerceIn(0, MAX_SPEED_LIMIT)
+        val full = buildFrame(maneuverGaode, safeDistance, safeRoad, safeEta,
+            safeTotalDistance, safeSpeedLimit, maneuverIconPng, speedSignPng)
+        if (full.size <= MAX_PAYLOAD_BYTES) return full
+        val withoutSign = if (speedSignPng != null) {
+            buildFrame(maneuverGaode, safeDistance, safeRoad, safeEta,
+                safeTotalDistance, safeSpeedLimit, maneuverIconPng, speedSignPng = null)
+        } else {
+            full
+        }
+        if (withoutSign.size <= MAX_PAYLOAD_BYTES) return withoutSign
+        return buildFrame(maneuverGaode, safeDistance, safeRoad, safeEta,
+            safeTotalDistance, safeSpeedLimit, maneuverIconPng = null, speedSignPng = null)
     }
 
     /** Clear frame: render class 255 + f16=1 wipes the HUD navigation area. */

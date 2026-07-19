@@ -993,7 +993,7 @@ private fun DisplaySection() {
     val hudController = remember { entryPoint.hudController() }
     var hudEnabled by remember { mutableStateOf(hudController.isEnabled()) }
     var hudSpeedSign by remember { mutableStateOf(hudController.isSpeedSignEnabled()) }
-    val hudStatus by hudController.status.collectAsState()
+    val hudStatus by hudController.status.collectAsStateWithLifecycle()
 
     SectionHeader(text = stringResource(R.string.settings_hud_header))
     Card(

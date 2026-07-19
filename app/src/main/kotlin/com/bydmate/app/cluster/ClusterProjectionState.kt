@@ -31,6 +31,9 @@ data class ClusterProjectionDiagnosticState(
     val displaySearchElapsedMs: Long? = null,
     val selectedDisplay: ClusterDisplayDiagnostic? = null,
     val visibleDisplays: List<ClusterDisplayDiagnostic> = emptyList(),
+    val monitoredDisplayId: Int? = null,
+    val lastDisplayEvent: String? = null,
+    val lastDisplayEventAtMs: Long? = null,
     val lastFailure: String? = null,
     val lastSuccessAtMs: Long? = null,
 )
@@ -202,6 +205,27 @@ fun nextMode(current: ClusterMode): ClusterMode =
  */
 fun shouldRecoverCompositor(markerSet: Boolean, mode: ClusterMode): Boolean =
     markerSet && mode == ClusterMode.OFF
+
+/** Teardown follows ownership evidence, not the current setting value. The user can disable the
+ * automatic compositor toggle while projection is already active; a surviving marker still means
+ * BYDMate must send the matching power-down. */
+fun shouldPowerDownCompositor(markerSet: Boolean): Boolean = markerSet
+
+/** Runtime display-loss guard used by DisplayListener. Unrelated display hotplug events must not
+ * tear down a healthy cluster projection. */
+fun isActiveProjectionDisplayRemoved(
+    mode: ClusterMode,
+    monitoredDisplayId: Int,
+    removedDisplayId: Int,
+): Boolean = mode == ClusterMode.FULLSCREEN &&
+    monitoredDisplayId >= 0 && monitoredDisplayId == removedDisplayId
+
+/** Merge the legacy single daemon-display marker with the crash-safe multi-display set. Invalid
+ * preference entries are ignored so one damaged value cannot block all orphan cleanup. */
+internal fun persistedVirtualDisplayIds(lastId: Int, storedIds: Set<String>): Set<Int> = buildSet {
+    storedIds.mapNotNullTo(this) { it.toIntOrNull()?.takeIf { id -> id >= 0 } }
+    lastId.takeIf { it >= 0 }?.let(::add)
+}
 
 /** Direct-task crash recovery fires only when a marker survives AND no projection is live. */
 fun shouldRecoverDirectTask(markerDisplayId: Int, mode: ClusterMode): Boolean =

@@ -1,12 +1,15 @@
 package com.bydmate.app.data.diagnostics
 
 import com.bydmate.app.hud.HudController
+import com.bydmate.app.navdata.NavA11yFeed
 import com.bydmate.app.navdata.NavGuidanceHub
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.json.JSONArray
+import org.json.JSONObject
 
 @RunWith(RobolectricTestRunner::class)
 class HudIncidentRecorderTest {
@@ -15,14 +18,14 @@ class HudIncidentRecorderTest {
         assertEquals(5_000L, HudIncidentClassifier.OUTAGE_CONFIRM_MS)
     }
 
-    @Test fun `recent service start is classified before downstream symptoms`() {
+    @Test fun `recent service start does not mask concrete transport failure`() {
         val sample = sample(
             serviceUptimeMs = 6_000L,
             hudStatus = HudController.Status.SEND_FAILED,
             resultCode = -1,
         )
 
-        assertEquals(HudIncidentCause.SERVICE_RESTART, HudIncidentClassifier.cause(sample))
+        assertEquals(HudIncidentCause.SOME_IP, HudIncidentClassifier.cause(sample))
     }
 
     @Test fun `rejected SOME IP frame is classified as transport failure`() {
@@ -42,7 +45,11 @@ class HudIncidentRecorderTest {
     }
 
     @Test fun `unreachable Waze window is distinguished from stale route data`() {
-        val sample = sample(wazeWindowReachable = false)
+        val sample = sample(
+            wazeWindowReachable = false,
+            wazeWindowUnreachableAgeMs = 500L,
+            wazeProbeResult = NavA11yFeed.ProbeResult.WINDOW_UNREACHABLE,
+        )
 
         assertEquals(HudIncidentCause.WAZE_WINDOW, HudIncidentClassifier.cause(sample))
     }
@@ -52,6 +59,44 @@ class HudIncidentRecorderTest {
         val sample = sample(routeAgeMs = staleAge, wazeGuidanceAgeMs = staleAge)
 
         assertEquals(HudIncidentCause.WAZE_DATA, HudIncidentClassifier.cause(sample))
+    }
+
+    @Test fun `parser blindness is Waze data rather than window loss`() {
+        val sample = sample(
+            wazeWindowReachable = true,
+            wazeUnreadableAgeMs = 500L,
+            wazeProbeResult = NavA11yFeed.ProbeResult.ROUTE_UNREADABLE,
+        )
+
+        assertEquals(HudIncidentCause.WAZE_DATA, HudIncidentClassifier.cause(sample))
+    }
+
+    @Test fun `active route without renderable maneuver is Waze data outage`() {
+        val sample = sample(routeManeuverGaode = 0, routeRenderable = false)
+
+        assertEquals(false, HudIncidentClassifier.deliveryHealthy(sample))
+        assertEquals(HudIncidentCause.WAZE_DATA, HudIncidentClassifier.cause(sample))
+    }
+
+    @Test fun `lease expiry after permanent window loss keeps Waze window cause`() {
+        val ended = sample(
+            routeActive = false,
+            routeSource = null,
+            routeEndReason = NavGuidanceHub.RouteEndReason.LEASE_EXPIRED,
+            routeEndAgeMs = 500L,
+            wazeWindowReachable = false,
+            wazeWindowUnreachableAgeMs = 500L,
+            wazeProbeResult = NavA11yFeed.ProbeResult.WINDOW_UNREACHABLE,
+        )
+
+        assertEquals(
+            HudIncidentCause.WAZE_WINDOW,
+            HudIncidentClassifier.routeLossCause(
+                ended,
+                NavGuidanceHub.Source.A11Y.name,
+                NavGuidanceHub.ROUTE_LEASE_TIMEOUT_MS + 1,
+            ),
+        )
     }
 
     @Test fun `fresh notification route does not require accessibility guidance`() {
@@ -80,22 +125,24 @@ class HudIncidentRecorderTest {
         assertEquals(HudIncidentCause.HUD_PIPELINE, HudIncidentClassifier.cause(stale))
     }
 
-    @Test fun `lost accessibility marks A11Y delivery unhealthy while frames repeat`() {
+    @Test fun `lost accessibility does not fabricate outage while guidance frames still succeed`() {
         val disconnected = sample(accessibilityConnected = false)
             .copy(lastFrameSuccessAgeMs = 100L)
 
-        assertEquals(false, HudIncidentClassifier.deliveryHealthy(disconnected))
+        assertEquals(true, HudIncidentClassifier.deliveryHealthy(disconnected))
         assertEquals(HudIncidentCause.ACCESSIBILITY, HudIncidentClassifier.cause(disconnected))
     }
 
-    @Test fun `unreachable A11Y window marks delivery unhealthy without event age heuristics`() {
+    @Test fun `unreachable A11Y window is evidence but not an outage while frames repeat`() {
         val unreachable = sample(
             wazeWindowReachable = false,
             routeAgeMs = 8_000L,
             wazeGuidanceAgeMs = 8_000L,
+            wazeWindowUnreachableAgeMs = 500L,
+            wazeProbeResult = NavA11yFeed.ProbeResult.WINDOW_UNREACHABLE,
         ).copy(lastFrameSuccessAgeMs = 100L)
 
-        assertEquals(false, HudIncidentClassifier.deliveryHealthy(unreachable))
+        assertEquals(true, HudIncidentClassifier.deliveryHealthy(unreachable))
         assertEquals(HudIncidentCause.WAZE_WINDOW, HudIncidentClassifier.cause(unreachable))
     }
 
@@ -122,6 +169,8 @@ class HudIncidentRecorderTest {
             wazeEventAgeMs = 10_000L,
             wazeGuidanceAgeMs = 12_000L,
             wazeNoGuidanceAgeMs = 10_000L,
+            routeEndReason = NavGuidanceHub.RouteEndReason.EXPLICIT_NO_ROUTE,
+            routeEndAgeMs = 10_000L,
         )
 
         assertEquals(HudIncidentCause.HUD_PIPELINE, HudIncidentClassifier.cause(ending))
@@ -140,6 +189,8 @@ class HudIncidentRecorderTest {
             routeSource = null,
             wazeWindowReachable = true,
             wazeEventAgeMs = 500L,
+            routeEndReason = NavGuidanceHub.RouteEndReason.EXPLICIT_NO_ROUTE,
+            routeEndAgeMs = 500L,
         )
 
         assertNull(
@@ -195,7 +246,10 @@ class HudIncidentRecorderTest {
         )
         assertNull(
             HudIncidentClassifier.routeLossCause(
-                ended,
+                ended.copy(
+                    routeEndReason = NavGuidanceHub.RouteEndReason.NOTIFICATION_REMOVED,
+                    routeEndAgeMs = 500L,
+                ),
                 NavGuidanceHub.Source.NOTIFICATION.name,
                 500L,
             ),
@@ -223,6 +277,60 @@ class HudIncidentRecorderTest {
         assertEquals(35L, all.last().detectedAtMs)
     }
 
+    @Test fun `intentional stop cannot be reported as service restart`() {
+        assertNull(
+            HudIncidentRecorder.restartReferenceAt(
+                nowMs = 100_000L,
+                previousRuntimeActive = false,
+                previousRouteActive = true,
+                previousHudEnabled = true,
+                previousReferenceAtMs = 99_000L,
+            ),
+        )
+    }
+
+    @Test fun `live restart preserves recent active HUD reference`() {
+        assertEquals(
+            99_000L,
+            HudIncidentRecorder.restartReferenceAt(
+                nowMs = 100_000L,
+                previousRuntimeActive = true,
+                previousRouteActive = true,
+                previousHudEnabled = true,
+                previousReferenceAtMs = 99_000L,
+            ),
+        )
+        assertNull(
+            HudIncidentRecorder.restartReferenceAt(
+                nowMs = 300_000L,
+                previousRuntimeActive = true,
+                previousRouteActive = true,
+                previousHudEnabled = true,
+                previousReferenceAtMs = 99_000L,
+            ),
+        )
+    }
+
+    @Test fun `stale monitor generation cannot own recorder state`() {
+        assertEquals(true, HudIncidentRecorder.ownsGeneration(expected = 4L, current = 4L))
+        assertEquals(false, HudIncidentRecorder.ownsGeneration(expected = 3L, current = 4L))
+    }
+
+    @Test fun `malformed JSON entry does not erase valid incidents around it`() {
+        val first = incident(detectedAtMs = 10L)
+        val second = incident(detectedAtMs = 20L, cause = HudIncidentCause.WAZE_DATA)
+        val encodedFirst = JSONArray(HudIncidentJson.encode(listOf(first))).getJSONObject(0)
+        val encodedSecond = JSONArray(HudIncidentJson.encode(listOf(second))).getJSONObject(0)
+        val raw = JSONArray()
+            .put(encodedFirst)
+            .put(JSONObject().put("cause", "SOME_IP"))
+            .put("not-an-object")
+            .put(encodedSecond)
+            .toString()
+
+        assertEquals(listOf(first, second), HudIncidentJson.decode(raw))
+    }
+
     private fun sample(
         serviceUptimeMs: Long = 60_000L,
         hudStatus: HudController.Status = HudController.Status.ON,
@@ -231,12 +339,20 @@ class HudIncidentRecorderTest {
         routeActive: Boolean = true,
         routeSource: String? = NavGuidanceHub.Source.A11Y.name,
         routeAgeMs: Long? = 500L,
+        routeObservedAgeMs: Long? = 500L,
+        routeManeuverGaode: Int = 2,
+        routeRenderable: Boolean = true,
+        routeEndReason: NavGuidanceHub.RouteEndReason? = null,
+        routeEndAgeMs: Long? = null,
         accessibilityConnected: Boolean = true,
         feedEnabled: Boolean = true,
         wazeWindowReachable: Boolean? = true,
         wazeEventAgeMs: Long? = 500L,
         wazeGuidanceAgeMs: Long? = 500L,
         wazeNoGuidanceAgeMs: Long? = null,
+        wazeWindowUnreachableAgeMs: Long? = null,
+        wazeUnreadableAgeMs: Long? = null,
+        wazeProbeResult: NavA11yFeed.ProbeResult? = NavA11yFeed.ProbeResult.GUIDANCE,
     ) = HudHealthSample(
         nowMs = 100_000L,
         serviceUptimeMs = serviceUptimeMs,
@@ -248,12 +364,20 @@ class HudIncidentRecorderTest {
         routeActive = routeActive,
         routeSource = routeSource,
         routeAgeMs = routeAgeMs,
+        routeObservedAgeMs = routeObservedAgeMs,
+        routeManeuverGaode = routeManeuverGaode,
+        routeRenderable = routeRenderable,
+        routeEndReason = routeEndReason,
+        routeEndAgeMs = routeEndAgeMs,
         accessibilityConnected = accessibilityConnected,
         feedEnabled = feedEnabled,
         wazeWindowReachable = wazeWindowReachable,
         wazeEventAgeMs = wazeEventAgeMs,
         wazeGuidanceAgeMs = wazeGuidanceAgeMs,
         wazeNoGuidanceAgeMs = wazeNoGuidanceAgeMs,
+        wazeWindowUnreachableAgeMs = wazeWindowUnreachableAgeMs,
+        wazeUnreadableAgeMs = wazeUnreadableAgeMs,
+        wazeProbeResult = wazeProbeResult,
     )
 
     private fun incident(
@@ -272,11 +396,18 @@ class HudIncidentRecorderTest {
         failure = failure,
         routeSource = NavGuidanceHub.Source.A11Y.name,
         routeAgeMs = 700L,
+        routeObservedAgeMs = 500L,
+        routeManeuverGaode = 2,
+        routeRenderable = true,
+        routeEndReason = null,
         accessibilityConnected = true,
         feedEnabled = true,
         wazeWindowReachable = false,
         wazeEventAgeMs = 600L,
         wazeGuidanceAgeMs = 700L,
         wazeNoGuidanceAgeMs = null,
+        wazeWindowUnreachableAgeMs = 600L,
+        wazeUnreadableAgeMs = null,
+        wazeProbeResult = NavA11yFeed.ProbeResult.WINDOW_UNREACHABLE.name,
     )
 }

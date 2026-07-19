@@ -4,6 +4,7 @@ package com.bydmate.app.navdata
  *  The numeric output contract comes from @rbgboost's YandexHUD work; only the navigation-data
  *  source and text recognizer are Waze-specific. */
 object NavManeuverCodes {
+    private val WHITESPACE = Regex("""\s+""")
     const val GAODE_LEFT = 1
     const val GAODE_RIGHT = 2
     const val GAODE_SLIGHT_LEFT = 3
@@ -20,53 +21,138 @@ object NavManeuverCodes {
     const val GAODE_ARRIVE = 48
     const val GAODE_TUNNEL = 49
 
-    private val ROUNDABOUT_EXIT_RE = Regex(
-        """(?:(\d+)[-‑]й\s+съезд|(\d+)(?:st|nd|rd|th)?\s+exit)""",
+    /** Privacy-safe parsing result used by diagnostics: it exposes only recognized directions,
+     *  never Waze's raw instruction or road names. [recognizedCodes] is in textual order. */
+    data class ParseResult(
+        val gaode: Int,
+        val recognizedCodes: List<Int>,
+    ) {
+        fun diagnosticSummary(): String {
+            val recognized = recognizedCodes.joinToString(">") { codeName(it) }.ifEmpty { "UNKNOWN" }
+            return "recognized=$recognized selected=${codeName(gaode)} gaode=$gaode"
+        }
+    }
+
+    private data class ManeuverPattern(val regex: Regex, val code: Int)
+    private data class Candidate(val code: Int, val start: Int, val endExclusive: Int, val rank: Int) {
+        val length: Int get() = endExclusive - start
+        fun overlaps(other: Candidate): Boolean = start < other.endExclusive && other.start < endExclusive
+    }
+
+    private val EN_NUMBERED_EXIT_RE = Regex(
+        """(?:(?:(?:at|on)\s+)?(?:the\s+)?roundabout\b.{0,48}?)?(?:take\s+)?(?:the\s+)?(\d+)(?:st|nd|rd|th)?\s+exit\b""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val RU_NUMBERED_EXIT_RE = Regex(
+        """(?:(?:кольц\p{L}*|кругов\p{L}*)(?!\p{L}).{0,48}?)?(\d+)[-‑ ]?(?:й|я|е)?\s+съезд(?!\p{L})""",
         RegexOption.IGNORE_CASE,
     )
 
-    fun fromInstructionText(text: String?): Int {
-        if (text == null || text.isBlank()) return 0
-        if (text == ">>>") return GAODE_STRAIGHT
-        // NBSP via explicit escape: a literal NBSP is invisible and gets lost in copy/transcription
-        val lower = text.lowercase().trim().replace('\u00A0', ' ')
+    private fun literalRegex(value: String): Regex = Regex(
+        """(?<!\p{L})${Regex.escape(value)}(?!\p{L})""",
+        RegexOption.IGNORE_CASE,
+    )
 
-        val match = ROUNDABOUT_EXIT_RE.find(lower)
-        val exitNum = match?.groupValues?.drop(1)?.firstOrNull { it.isNotEmpty() }?.toIntOrNull()
-        if (exitNum != null && exitNum in 1..10) return GAODE_ROUNDABOUT_EXIT
+    private val MANEUVER_PATTERNS: List<ManeuverPattern> = buildList {
+        fun add(code: Int, vararg phrases: String) {
+            phrases.forEach { add(ManeuverPattern(literalRegex(it), code)) }
+        }
+
+        add(GAODE_UTURN_RIGHT,
+            "развернитесь направо", "разворот направо",
+            "make a u-turn to the right", "make a u turn to the right", "u-turn right", "u turn right")
+        add(GAODE_UTURN,
+            "развернитесь налево", "разворот налево", "развернитесь", "разворот",
+            "make a u-turn", "make a u turn", "u-turn", "u turn")
+        add(GAODE_HARD_LEFT, "резкий поворот налево", "резко налево", "sharp left")
+        add(GAODE_HARD_RIGHT, "резкий поворот направо", "резко направо", "sharp right")
+        add(GAODE_SLIGHT_LEFT,
+            "плавный поворот налево", "плавно налево", "держитесь левее", "левее",
+            "slight left", "keep left", "bear left", "fork left")
+        add(GAODE_SLIGHT_RIGHT,
+            "плавный поворот направо", "плавно направо", "держитесь правее", "правее",
+            "slight right", "keep right", "bear right", "fork right")
+        add(GAODE_ROUNDABOUT_EXIT,
+            "выезд с кольца", "съезд с кольца", "съезжайте с кольца", "выезжайте из кольца",
+            "exit the roundabout", "leave the roundabout")
+        add(GAODE_ROUNDABOUT_ENTER,
+            "кольцевое", "круговое", "въезжайте на кольцо", "войдите в кольцо", "кольцо", "roundabout")
+        add(GAODE_FERRY, "въезд на паром", "board the ferry", "паром")
+        add(GAODE_STRAIGHT, "съезд с парома", "выезд с парома", "leave the ferry")
+        add(GAODE_WAYPOINT, "промежуточная точка")
+        add(GAODE_ARRIVE,
+            "you have arrived", "arrive at your destination", "destination reached", "reached your destination",
+            "вы прибыли", "прибытие", "маршрут окончен", "маршрут завершён", "до конца маршрута",
+            "конец маршрута", "конечная", "достигнут")
+        add(GAODE_TUNNEL, "тоннель", "туннель", "tunnel")
+        add(GAODE_LEFT,
+            "поверните налево", "поворот налево", "съезд налево", "налево",
+            "take the left", "turn left", "exit left")
+        add(GAODE_RIGHT,
+            "поверните направо", "поворот направо", "съезд направо", "направо",
+            "take the right", "turn right", "exit right")
+        add(GAODE_STRAIGHT,
+            "продолжайте прямо", "двигайтесь прямо", "продолжайте", "двигайтесь", "прямо",
+            "keep straight", "continue straight", "continue", "straight")
+    }
+
+    fun parseInstructionText(text: String?): ParseResult {
+        if (text.isNullOrBlank()) return ParseResult(0, emptyList())
+        if (text.trim() == ">>>") return ParseResult(GAODE_STRAIGHT, listOf(GAODE_STRAIGHT))
+        // Normalize invisible spacing and typographic hyphens before matching.
+        val normalized = text.lowercase().trim()
+            .replace('\u00A0', ' ')
+            .replace('\u202F', ' ')
+            .replace('\u2011', '-')
+            .replace(WHITESPACE, " ")
 
         // Waze 5.x sometimes exposes only a short accessibility description for the arrow.
         // Keep these exact so a road/street containing the word cannot become a false maneuver.
-        if (lower == "left") return GAODE_LEFT
-        if (lower == "right") return GAODE_RIGHT
+        if (normalized == "left") return ParseResult(GAODE_LEFT, listOf(GAODE_LEFT))
+        if (normalized == "right") return ParseResult(GAODE_RIGHT, listOf(GAODE_RIGHT))
 
-        return when {
-            "въезд на паром" in lower || "board the ferry" in lower -> GAODE_FERRY
-            "выезд с кольца" in lower || "съезд с кольца" in lower ||
-                "exit the roundabout" in lower || "leave the roundabout" in lower -> GAODE_ROUNDABOUT_EXIT
-            "кольцевое" in lower || "круговое" in lower || "roundabout" in lower -> GAODE_ROUNDABOUT_ENTER
-            "промежуточная точка" in lower -> GAODE_WAYPOINT
-            "съезд с парома" in lower || "выезд с парома" in lower || "leave the ferry" in lower -> GAODE_STRAIGHT
-            "прибытие" in lower || "маршрут окончен" in lower || "конечная" in lower ||
-                "достигнут" in lower || "destination" in lower || "you have arrived" in lower -> GAODE_ARRIVE
-            "тоннель" in lower || "туннель" in lower || "tunnel" in lower -> GAODE_TUNNEL
-            "плавный поворот налево" in lower || "плавно налево" in lower || "держитесь левее" in lower ||
-                "slight left" in lower || "keep left" in lower -> GAODE_SLIGHT_LEFT
-            "плавный поворот направо" in lower || "плавно направо" in lower || "держитесь правее" in lower ||
-                "slight right" in lower || "keep right" in lower -> GAODE_SLIGHT_RIGHT
-            "резкий поворот налево" in lower || "резко налево" in lower || "sharp left" in lower -> GAODE_HARD_LEFT
-            "резкий поворот направо" in lower || "резко направо" in lower || "sharp right" in lower -> GAODE_HARD_RIGHT
-            "разворот" in lower || "развернитесь" in lower || "u-turn" in lower || "u turn" in lower ->
-                if ("направо" in lower || "right" in lower) GAODE_UTURN_RIGHT else GAODE_UTURN
-            "поверните налево" in lower || "поворот налево" in lower || "налево" in lower ||
-                "turn left" in lower || "exit left" in lower -> GAODE_LEFT
-            "поверните направо" in lower || "поворот направо" in lower || "направо" in lower ||
-                "turn right" in lower || "exit right" in lower -> GAODE_RIGHT
-            "прямо" in lower || "продолжайте" in lower || "двигайтесь" in lower ||
-                "straight" in lower || "continue" in lower -> GAODE_STRAIGHT
-            else -> fromTextFallback(lower)
+        val candidates = mutableListOf<Candidate>()
+        fun collect(regex: Regex, code: Int, rank: Int) {
+            regex.findAll(normalized).forEach { match ->
+                candidates += Candidate(code, match.range.first, match.range.last + 1, rank)
+            }
         }
+        fun collectNumberedExit(regex: Regex, rank: Int) {
+            regex.findAll(normalized).forEach { match ->
+                val exit = match.groupValues.getOrNull(1)?.toIntOrNull()
+                if (exit in 1..10) {
+                    candidates += Candidate(
+                        GAODE_ROUNDABOUT_EXIT,
+                        match.range.first,
+                        match.range.last + 1,
+                        rank,
+                    )
+                }
+            }
+        }
+        collectNumberedExit(EN_NUMBERED_EXIT_RE, rank = -2)
+        collectNumberedExit(RU_NUMBERED_EXIT_RE, rank = -1)
+        MANEUVER_PATTERNS.forEachIndexed { index, pattern ->
+            collect(pattern.regex, pattern.code, rank = index)
+        }
+
+        // Specific overlapping phrases win ("slight right" over "right"). Non-overlapping
+        // matches remain in textual order, so compound Waze instructions select the maneuver
+        // the driver must perform first rather than whichever branch happened to run first.
+        val ordered = candidates.sortedWith(
+            compareBy<Candidate> { it.start }
+                .thenByDescending { it.length }
+                .thenBy { it.rank },
+        )
+        val semantic = mutableListOf<Candidate>()
+        ordered.forEach { candidate ->
+            if (semantic.none(candidate::overlaps)) semantic += candidate
+        }
+        val codes = semantic.sortedBy { it.start }.map { it.code }
+        return ParseResult(codes.firstOrNull() ?: 0, codes)
     }
+
+    fun fromInstructionText(text: String?): Int = parseInstructionText(text).gaode
 
     /** GAODE -> short Russian phrase; used by get_route_info when only hub numerics exist. */
     private val PHRASES = mapOf(
@@ -89,85 +175,22 @@ object NavManeuverCodes {
 
     fun gaodePhrase(gaode: Int): String? = PHRASES[gaode]
 
-    // -- fallback: donor's internal-enum phrase table, collapsed straight to GAODE --
-
-    private val RU_PHRASES = linkedMapOf(
-        "развернитесь направо" to GAODE_UTURN_RIGHT,
-        "разворот направо" to GAODE_UTURN_RIGHT,
-        "развернитесь налево" to GAODE_UTURN,
-        "развернитесь" to GAODE_UTURN,
-        "разворот" to GAODE_UTURN,
-        "u-turn" to GAODE_UTURN,
-        "резкий поворот налево" to GAODE_HARD_LEFT,
-        "резко налево" to GAODE_HARD_LEFT,
-        "резкий поворот направо" to GAODE_HARD_RIGHT,
-        "резко направо" to GAODE_HARD_RIGHT,
-        "плавный поворот налево" to GAODE_SLIGHT_LEFT,
-        "плавно налево" to GAODE_SLIGHT_LEFT,
-        "держитесь левее" to GAODE_SLIGHT_LEFT,
-        "плавный поворот направо" to GAODE_SLIGHT_RIGHT,
-        "плавно направо" to GAODE_SLIGHT_RIGHT,
-        "держитесь правее" to GAODE_SLIGHT_RIGHT,
-        "поверните налево" to GAODE_LEFT,
-        "поворот налево" to GAODE_LEFT,
-        "налево" to GAODE_LEFT,
-        "левее" to GAODE_SLIGHT_LEFT,
-        "правее" to GAODE_SLIGHT_RIGHT,
-        "поверните направо" to GAODE_RIGHT,
-        "поворот направо" to GAODE_RIGHT,
-        "направо" to GAODE_RIGHT,
-        "въезжайте на кольцо" to GAODE_ROUNDABOUT_ENTER,
-        "войдите в кольцо" to GAODE_ROUNDABOUT_ENTER,
-        "съезжайте с кольца" to GAODE_ROUNDABOUT_EXIT,
-        "выезжайте из кольца" to GAODE_ROUNDABOUT_EXIT,
-        "съезд с кольца" to GAODE_ROUNDABOUT_EXIT,
-        "выезд с кольца" to GAODE_ROUNDABOUT_EXIT,
-        "въезд на паром" to GAODE_FERRY,
-        "вы прибыли" to GAODE_ARRIVE,
-        "маршрут завершён" to GAODE_ARRIVE,
-        "до конца маршрута" to GAODE_ARRIVE,
-        "конец маршрута" to GAODE_ARRIVE,
-        "конечная" to GAODE_ARRIVE,
-        "достигнут" to GAODE_ARRIVE,
-        "прибытие" to GAODE_ARRIVE,
-        "прямо" to GAODE_STRAIGHT,
-        "продолжайте прямо" to GAODE_STRAIGHT,
-        "продолжить" to GAODE_STRAIGHT,
-        "двигайтесь прямо" to GAODE_STRAIGHT,
-    )
-
-    private val WORD_BOUNDARY_PHRASES = linkedMapOf(
-        "левый" to GAODE_LEFT,
-        "правый" to GAODE_RIGHT,
-        "паром" to GAODE_FERRY,
-        "кольцо" to GAODE_ROUNDABOUT_ENTER,
-        "круговое" to GAODE_ROUNDABOUT_ENTER,
-        "туннель" to GAODE_TUNNEL,
-        "тоннель" to GAODE_TUNNEL,
-    )
-
-    private val EN_PHRASES = linkedMapOf(
-        "make a u-turn" to GAODE_UTURN,
-        "make a u turn" to GAODE_UTURN,
-        "bear left" to GAODE_SLIGHT_LEFT,
-        "bear right" to GAODE_SLIGHT_RIGHT,
-        "take the left" to GAODE_LEFT,
-        "take the right" to GAODE_RIGHT,
-        "turn left" to GAODE_LEFT,
-        "turn right" to GAODE_RIGHT,
-        "keep straight" to GAODE_STRAIGHT,
-        "continue straight" to GAODE_STRAIGHT,
-        "you have arrived" to GAODE_ARRIVE,
-    )
-
-    private fun fromTextFallback(lower: String): Int {
-        // lower is already NBSP-normalized by fromInstructionText
-        val norm = lower.replace(Regex("\\s+"), " ")
-        for ((phrase, code) in RU_PHRASES) if (phrase in norm) return code
-        for ((phrase, code) in EN_PHRASES) if (phrase in norm) return code
-        for ((phrase, code) in WORD_BOUNDARY_PHRASES) {
-            if (Regex("""(?:^|\s|[\p{Punct}])${Regex.escape(phrase)}(?:$|\s|[\p{Punct}])""").containsMatchIn(norm)) return code
-        }
-        return 0
+    internal fun codeName(code: Int): String = when (code) {
+        GAODE_LEFT -> "LEFT"
+        GAODE_RIGHT -> "RIGHT"
+        GAODE_SLIGHT_LEFT -> "SLIGHT_LEFT"
+        GAODE_SLIGHT_RIGHT -> "SLIGHT_RIGHT"
+        GAODE_HARD_LEFT -> "HARD_LEFT"
+        GAODE_HARD_RIGHT -> "HARD_RIGHT"
+        GAODE_UTURN -> "UTURN_LEFT"
+        GAODE_UTURN_RIGHT -> "UTURN_RIGHT"
+        GAODE_STRAIGHT -> "STRAIGHT"
+        GAODE_ROUNDABOUT_ENTER -> "ROUNDABOUT_ENTER"
+        GAODE_ROUNDABOUT_EXIT -> "ROUNDABOUT_EXIT"
+        GAODE_WAYPOINT -> "WAYPOINT"
+        GAODE_FERRY -> "FERRY"
+        GAODE_ARRIVE -> "ARRIVE"
+        GAODE_TUNNEL -> "TUNNEL"
+        else -> "UNKNOWN"
     }
 }

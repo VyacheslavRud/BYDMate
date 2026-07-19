@@ -163,6 +163,47 @@ class HudProtobufBuilderTest {
         assertTrue(frame.size <= HudProtobufBuilder.MAX_PAYLOAD_BYTES)
     }
 
+    @Test fun `corrupt oversized maneuver icon is dropped as final payload fallback`() {
+        val frame = HudProtobufBuilder.buildFrameSafe(
+            maneuverGaode = 2, distanceMeters = 500, road = "A",
+            etaString = "12:34", totalDistMeters = 10_000, speedLimit = 60,
+            maneuverIconPng = ByteArray(HudProtobufBuilder.MAX_PAYLOAD_BYTES + 1),
+            speedSignPng = null,
+        )
+        assertTrue(frame.size <= HudProtobufBuilder.MAX_PAYLOAD_BYTES)
+        val f = unwrap(frame)
+        assertNull(f[8])
+        assertEquals(2L, f[28]!![0] as Long)
+    }
+
+    @Test fun `safe frame clamps negative numeric values and bounds eta`() {
+        val frame = HudProtobufBuilder.buildFrameSafe(
+            maneuverGaode = 2, distanceMeters = -1, road = "A",
+            etaString = " 12345678901234567890 ", totalDistMeters = -2, speedLimit = -3,
+            maneuverIconPng = null, speedSignPng = null,
+        )
+        val f = unwrap(frame)
+        assertEquals(0L, f[9]!![0] as Long)
+        assertNull(f[11])
+        assertEquals(
+            "1234567890123456",
+            String(f[26]!![0] as ByteArray, Charsets.UTF_8),
+        )
+    }
+
+    @Test fun `safe frame caps implausible speed limit`() {
+        val frame = HudProtobufBuilder.buildFrameSafe(
+            maneuverGaode = 2, distanceMeters = 100, road = "A",
+            etaString = null, totalDistMeters = 1_000, speedLimit = Int.MAX_VALUE,
+            maneuverIconPng = null, speedSignPng = null,
+        )
+
+        assertEquals(
+            HudProtobufBuilder.MAX_SPEED_LIMIT.toLong(),
+            unwrap(frame)[11]!![0] as Long,
+        )
+    }
+
     @Test fun `progress clamped to 0-1`() {
         val f = unwrap(HudProtobufBuilder.buildFrame(
             maneuverGaode = 2, distanceMeters = 9000, road = "",

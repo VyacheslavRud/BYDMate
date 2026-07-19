@@ -5,6 +5,7 @@ import io.mockk.every
 import io.mockk.mockk
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NaviScreenReaderTest {
@@ -117,5 +118,57 @@ class NaviScreenReaderTest {
             )
 
         assertEquals("LEFT", NaviScreenReader.read(root)?.maneuver)
+    }
+
+    @Test fun `detailed current instruction beats short stale arrow description`() {
+        val root = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { root.packageName } returns "com.waze"
+        every { root.findAccessibilityNodeInfosByViewId(any()) } returns emptyList()
+        every { root.findAccessibilityNodeInfosByViewId("com.waze:id/navBarDirectionText") } returns
+            listOf(node("LEFT"))
+        every { root.findAccessibilityNodeInfosByViewId("com.waze:id/navBarInstructionText") } returns
+            listOf(node("Turn right, then turn left"))
+
+        assertEquals("Turn right, then turn left", NaviScreenReader.read(root)?.maneuver)
+    }
+
+    @Test fun `recognized maneuver description survives unrelated node text`() {
+        val root = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { root.packageName } returns "com.waze"
+        every { root.findAccessibilityNodeInfosByViewId(any()) } returns emptyList()
+        every { root.findAccessibilityNodeInfosByViewId("com.waze:id/navBarDirectionText") } returns
+            listOf(node("D1", description = "RIGHT"))
+
+        assertEquals("RIGHT", NaviScreenReader.read(root)?.maneuver)
+    }
+
+    @Test fun `alternate Waze maneuver ids are also route anchors`() {
+        val root = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { root.packageName } returns "com.waze"
+        every { root.findAccessibilityNodeInfosByViewId(any()) } returns emptyList()
+        every { root.findAccessibilityNodeInfosByViewId("com.waze:id/navBarInstruction") } returns
+            listOf(node("Turn right"))
+
+        assertTrue(com.bydmate.app.navdata.WazeAccessibilityReader.hasRouteAnchor(root))
+        assertEquals("Turn right", NaviScreenReader.read(root)?.maneuver)
+    }
+
+    @Test fun `alternate ETA bar ids provide full route summary`() {
+        val root = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { root.packageName } returns "com.waze"
+        every { root.findAccessibilityNodeInfosByViewId(any()) } returns emptyList()
+        every { root.findAccessibilityNodeInfosByViewId("com.waze:id/navBarInstruction") } returns
+            listOf(node("Keep right"))
+        every { root.findAccessibilityNodeInfosByViewId("com.waze:id/etaBarDistanceToDestination") } returns
+            listOf(node("25 km"))
+        every { root.findAccessibilityNodeInfosByViewId("com.waze:id/etaBarTimeToDestination") } returns
+            listOf(node("31 min"))
+        every { root.findAccessibilityNodeInfosByViewId("com.waze:id/etaBarArrivalTime") } returns
+            listOf(node("3:40 PM"))
+
+        val info = NaviScreenReader.read(root)!!
+        assertEquals("25 km", info.remainingDistance)
+        assertEquals("31 min", info.remainingTime)
+        assertEquals("3:40 PM", info.arrivalTime)
     }
 }

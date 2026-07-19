@@ -7,6 +7,39 @@ import com.bydmate.app.navdata.NavManeuverCodes
 
 /** Parses Waze's standard navigation-notification extras without private RemoteViews reflection. */
 object NaviNotificationParser {
+    private val STREET_PATTERNS = listOf(
+        Regex(
+            """\b(?:onto|toward|towards)\s+(.+?)(?=\s*(?:[,;]|→)?\s*(?:and\s+then|then)\b|$)""",
+            RegexOption.IGNORE_CASE,
+        ),
+        Regex(
+            """(?:на улицу|в сторону|к)\s+(.+?)(?=\s*(?:[,;]|→)?\s*(?:затем|потом|далее)(?!\p{L})|$)""",
+            RegexOption.IGNORE_CASE,
+        ),
+    )
+    private val REMAINING_KEYWORDS = Regex(
+        """(?<!\p{L})(?:remaining|remain|left|осталось|осталось ехать)(?!\p{L})""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val STANDALONE_DISTANCE = Regex(
+        """^(?:in\s+|через\s+)?\d+(?:[.,]\d+)?\s*(?:км|km|м|m|mi|mile|miles|ft|foot|feet)(?!\p{L})$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val DURATION_LABELS = listOf(
+        Regex(
+            """(?<![-+\d])\d+\s*(?:ч|h|hr|hrs|hour|hours)\s*\d+\s*(?:мин|min|mins|minute|minutes)(?!\p{L})""",
+            RegexOption.IGNORE_CASE,
+        ),
+        Regex(
+            """(?<![-+\d])\d+\s*(?:ч|h|hr|hrs|hour|hours|мин|min|mins|minute|minutes)(?!\p{L})""",
+            RegexOption.IGNORE_CASE,
+        ),
+    )
+    private val DISTANCE_LABEL = Regex(
+        """(?<![-+\d.,])\d+(?:[.,]\d+)?\s*(?:км|km|м|m|mi|mile|miles|ft|foot|feet)(?!\p{L})""",
+        RegexOption.IGNORE_CASE,
+    )
+
     data class Parsed(
         val maneuver: String?,
         val distance: String?,
@@ -14,6 +47,7 @@ object NaviNotificationParser {
         val bigTexts: List<String>,
         val remainingDistance: String? = null,
         val remainingTime: String? = null,
+        val arrivalTime: String? = null,
         val guidance: NavGuidance? = null,
     ) {
         val hasGuidance: Boolean get() = guidance != null
@@ -58,10 +92,17 @@ object NaviNotificationParser {
             ?: maneuverLine?.let { lines.firstOrNull(::isStandaloneDistance) }
         val distanceLabel = extractDistanceLabel(distanceLine)
         val distanceMeters = NavGuidanceParser.parseDistanceText(distanceLine)
-        val routeSummary = lines.firstOrNull { looksLikeEta(it) && extractDistanceLabel(it) != null }
+        val routeLines = lines.filter { it != maneuverLine && it != distanceLine }
+        val remainingTime = routeLines.firstNotNullOfOrNull(::extractDurationLabel)
+        val arrivalTime = routeLines.firstNotNullOfOrNull(NavGuidanceParser::normalizeArrivalTime)
+        val remainingDistance = routeLines
+            .firstOrNull(::looksLikeRemainingDistance)
+            ?.let(::extractDistanceLabel)
+        val routeSummaryLines = routeLines.filter(::looksLikeRouteSummary)
         val street = extractStreet(maneuverLine)
             ?: lines.firstOrNull { candidate ->
                 candidate != maneuverLine && candidate != distanceLine &&
+                    candidate !in routeSummaryLines &&
                     !looksLikeEta(candidate) && !isStandaloneDistance(candidate) &&
                     NavManeuverCodes.fromInstructionText(candidate) == 0
             }
@@ -69,6 +110,9 @@ object NaviNotificationParser {
             maneuverGaode = maneuverCode,
             distanceMeters = distanceMeters,
             road = street.orEmpty(),
+            etaSeconds = NavGuidanceParser.parseDurationSeconds(remainingTime),
+            arrivalTime = arrivalTime.orEmpty(),
+            totalDistMeters = NavGuidanceParser.parseDistanceText(remainingDistance),
         // Distance-only and road-only notifications can be community alerts. A recognized
         // instruction is required before notification text can activate or overwrite the HUD.
         ).takeIf { it.maneuverGaode != 0 }
@@ -77,21 +121,35 @@ object NaviNotificationParser {
             distance = distanceLabel,
             street = street,
             bigTexts = lines,
-            remainingDistance = extractDistanceLabel(routeSummary),
-            remainingTime = routeSummary?.let(::extractDurationLabel),
+            remainingDistance = remainingDistance,
+            remainingTime = remainingTime,
+            arrivalTime = arrivalTime,
             guidance = guidance,
         )
     }
 
     fun dump(notification: Notification): String {
         val e = notification.extras
-        return "category=${notification.category} channel=${notification.channelId} " +
-            "title=${e.getCharSequence(Notification.EXTRA_TITLE)} " +
-            "text=${e.getCharSequence(Notification.EXTRA_TEXT)} " +
-            "sub=${e.getCharSequence(Notification.EXTRA_SUB_TEXT)} " +
-            "big=${e.getCharSequence(Notification.EXTRA_BIG_TEXT)} " +
-            "lines=${e.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.contentToString()}"
+        val title = e.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+        val text = e.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+        val sub = e.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()
+        val big = e.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
+        val lines = e.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.map(CharSequence::toString).orEmpty()
+        val parseResult = sequenceOf(title, text, sub, big)
+            .plus(lines.asSequence())
+            .filterNotNull()
+            .map(NavManeuverCodes::parseInstructionText)
+            .firstOrNull { it.recognizedCodes.isNotEmpty() }
+            ?: NavManeuverCodes.ParseResult(0, emptyList())
+        val parsed = runCatching { fromText(title, text, sub, big, lines) }.getOrNull()
+        return "source=notification category=${notification.category} channel=${notification.channelId} " +
+            "title=${fieldShape(title)} text=${fieldShape(text)} sub=${fieldShape(sub)} " +
+            "big=${fieldShape(big)} lines=${lines.size} guidance=${parsed?.hasGuidance == true} " +
+            "${parseResult.diagnosticSummary()}"
     }
+
+    private fun fieldShape(value: String?): String =
+        if (value == null) "absent" else "present(len=${value.length})"
 
     private fun isGenericWazeLine(value: String): Boolean {
         val lower = value.lowercase()
@@ -101,34 +159,30 @@ object NaviNotificationParser {
 
     private fun extractStreet(instruction: String?): String? {
         if (instruction == null) return null
-        val patterns = listOf(
-            Regex("""\b(?:onto|toward|towards)\s+(.+)$""", RegexOption.IGNORE_CASE),
-            Regex("""(?:на улицу|в сторону|к)\s+(.+)$""", RegexOption.IGNORE_CASE),
-        )
-        return patterns.firstNotNullOfOrNull { regex ->
+        return STREET_PATTERNS.firstNotNullOfOrNull { regex ->
             regex.find(instruction)?.groupValues?.get(1)?.trim()?.takeIf(String::isNotEmpty)
         }
     }
 
     private fun looksLikeEta(value: String): Boolean =
-        Regex("""\b\d{1,2}:\d{2}\b""").containsMatchIn(value) ||
-            Regex("""\b\d+\s*(?:мин|min|mins|minute|minutes|ч|h|hr|hours)\b""", RegexOption.IGNORE_CASE)
-                .containsMatchIn(value)
+        NavGuidanceParser.parseDurationSeconds(value) > 0 ||
+            NavGuidanceParser.normalizeArrivalTime(value) != null
 
-    private fun isStandaloneDistance(value: String): Boolean = Regex(
-        """^(?:in\s+|через\s+)?\d+(?:[.,]\d+)?\s*(?:км|km|м|m|mi|mile|miles|ft|foot|feet)(?!\p{L})$""",
-        setOf(RegexOption.IGNORE_CASE),
-    ).matches(value.trim())
+    private fun looksLikeRemainingDistance(value: String): Boolean =
+        extractDistanceLabel(value) != null &&
+            (looksLikeEta(value) || isStandaloneDistance(value) ||
+                REMAINING_KEYWORDS.containsMatchIn(value))
 
-    private fun extractDurationLabel(value: String): String? = Regex(
-        """\b\d+\s*(?:мин|min|mins|minute|minutes|ч|h|hr|hours)\b""",
-        RegexOption.IGNORE_CASE,
-    ).find(value)?.value?.trim()
+    private fun looksLikeRouteSummary(value: String): Boolean =
+        looksLikeEta(value) || looksLikeRemainingDistance(value)
 
-    private fun extractDistanceLabel(value: String?): String? = value?.let {
-        Regex(
-            """\d+(?:[.,]\d+)?\s*(?:км|km|м|m|mi|mile|miles|ft|foot|feet)(?!\p{L})""",
-            RegexOption.IGNORE_CASE,
-        ).find(it)?.value?.trim()
+    private fun isStandaloneDistance(value: String): Boolean =
+        STANDALONE_DISTANCE.matches(value.trim())
+
+    private fun extractDurationLabel(value: String): String? {
+        return DURATION_LABELS.firstNotNullOfOrNull { it.find(value)?.value?.trim() }
     }
+
+    private fun extractDistanceLabel(value: String?): String? =
+        value?.let { DISTANCE_LABEL.find(it)?.value?.trim() }
 }

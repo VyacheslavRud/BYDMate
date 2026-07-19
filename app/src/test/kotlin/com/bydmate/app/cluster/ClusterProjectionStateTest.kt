@@ -128,6 +128,49 @@ class ClusterProjectionStateTest {
         assertEquals(false, shouldRecoverCompositor(markerSet = false, mode = ClusterMode.OFF))
     }
 
+    @Test fun `teardown follows persisted compositor ownership even after setting is disabled`() {
+        assertEquals(true, shouldPowerDownCompositor(markerSet = true))
+        assertEquals(false, shouldPowerDownCompositor(markerSet = false))
+    }
+
+    @Test fun `only removal of monitored active display invalidates projection`() {
+        assertEquals(
+            true,
+            isActiveProjectionDisplayRemoved(
+                mode = ClusterMode.FULLSCREEN,
+                monitoredDisplayId = 4,
+                removedDisplayId = 4,
+            ),
+        )
+        assertEquals(
+            false,
+            isActiveProjectionDisplayRemoved(
+                mode = ClusterMode.FULLSCREEN,
+                monitoredDisplayId = 4,
+                removedDisplayId = 7,
+            ),
+        )
+        assertEquals(
+            false,
+            isActiveProjectionDisplayRemoved(
+                mode = ClusterMode.OFF,
+                monitoredDisplayId = 4,
+                removedDisplayId = 4,
+            ),
+        )
+    }
+
+    @Test fun `virtual display ownership merges legacy and multi markers safely`() {
+        assertEquals(
+            setOf(4, 7, 9),
+            persistedVirtualDisplayIds(
+                lastId = 4,
+                storedIds = setOf("7", "9", "bad", "-2"),
+            ),
+        )
+        assertEquals(emptySet<Int>(), persistedVirtualDisplayIds(-1, emptySet()))
+    }
+
     // --- shouldRecoverDirectTask (freeform task stranded on cluster display after crash) ---
 
     @Test fun `no marker means nothing to recover for direct task`() {
