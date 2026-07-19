@@ -103,4 +103,22 @@ class AutomationEngineVoiceFireTest {
         assertEquals(VoiceFireResult.SpeedUnknown, engine(ruleDao, dispatcher).fireVoiceRule(7, null))
         coVerify(exactly = 0) { dispatcher.dispatch(any(), any()) }
     }
+
+    @Test fun `dangerous action requires confirmation when persisted flag is false`() = runBlocking {
+        val unlock = ActionDef(command = "车门解锁", displayName = "Открыть двери", kind = "param")
+        val r = rule(actions = listOf(unlock), confirm = false)
+        val ruleDao = mockk<RuleDao> {
+            coEvery { getById(7) } returns r
+            coJustRun { updateLastTriggered(any(), any()) }
+        }
+        val dispatcher = mockk<ActionDispatcher>(relaxed = true)
+
+        assertEquals(VoiceFireResult.Confirming, engine(ruleDao, dispatcher).fireVoiceRule(7, diParsData(speed = 0)))
+        coVerify(exactly = 0) { dispatcher.dispatch(any(), any()) }
+    }
+
+    @Test fun `confirmation policy preserves explicit flag for ordinary action`() {
+        assertEquals(true, AutomationEngine.requiresConfirmation(true, listOf(appAction)))
+        assertEquals(false, AutomationEngine.requiresConfirmation(false, listOf(appAction)))
+    }
 }

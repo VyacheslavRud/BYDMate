@@ -1543,28 +1543,33 @@ private fun AppSection(state: SettingsUiState, viewModel: SettingsViewModel) {
         }
     }
 
-    SectionHeader(text = stringResource(R.string.settings_update_dialog_title))
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = CardSurfaceElevated),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+    // GitHub releases contain the stable package, while this development variant is installed
+    // alongside it under a different applicationId. An update card in Dev would always report a
+    // false "up to date" result and can never perform an in-place install.
+    if (!BuildConfig.DEBUG) {
+        SectionHeader(text = stringResource(R.string.settings_update_dialog_title))
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = CardSurfaceElevated),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            SettingToggleRow(
-                title = stringResource(R.string.settings_update_check_toggle_label),
-                description = stringResource(R.string.settings_update_check_toggle_description),
-                checked = state.autoCheckUpdates,
-                onCheckedChange = { viewModel.setAutoCheckUpdates(it) },
-            )
-            SettingActionRow(
-                title = stringResource(R.string.settings_update_check_button),
-                description = "BYDMate v${state.appVersion}",
-                buttonLabel = stringResource(R.string.settings_update_check_button),
-                onClick = { viewModel.showUpdateDialog() },
-            )
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SettingToggleRow(
+                    title = stringResource(R.string.settings_update_check_toggle_label),
+                    description = stringResource(R.string.settings_update_check_toggle_description),
+                    checked = state.autoCheckUpdates,
+                    onCheckedChange = { viewModel.setAutoCheckUpdates(it) },
+                )
+                SettingActionRow(
+                    title = stringResource(R.string.settings_update_check_button),
+                    description = "BYDMate v${state.appVersion}",
+                    buttonLabel = stringResource(R.string.settings_update_check_button),
+                    onClick = { viewModel.showUpdateDialog() },
+                )
+            }
         }
     }
 
@@ -2437,6 +2442,7 @@ private fun SettingsTextField(
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = true,
+        visualTransformation = settingsFieldVisualTransformation(keyboardType),
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),

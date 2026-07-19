@@ -61,7 +61,9 @@ object RuleDraftValidator {
                 }
                 "call" -> {
                     val phone = payloadJson(a.payload).optString("phone").trim()
-                    if (phone.length !in 5..20) return ActionValidationError.PhoneInvalid(n)
+                    if (!ExternalActionInputValidator.isValidPhone(phone)) {
+                        return ActionValidationError.PhoneInvalid(n)
+                    }
                 }
                 "navigate" -> {
                     val json = payloadJson(a.payload)
@@ -74,8 +76,7 @@ object RuleDraftValidator {
                 "url" -> {
                     val u = payloadJson(a.payload).optString("url").trim()
                     if (u.isEmpty()) return ActionValidationError.UrlEmpty(n)
-                    // Allow any scheme: http(s)://, yandexmusic://, tel:, intent://, geo:, etc.
-                    if (!u.matches(Regex("^[a-zA-Z][a-zA-Z0-9+.\\-]*:.+"))) {
+                    if (!ExternalActionInputValidator.isValidUrl(u)) {
                         return ActionValidationError.UrlNoScheme(n)
                     }
                 }

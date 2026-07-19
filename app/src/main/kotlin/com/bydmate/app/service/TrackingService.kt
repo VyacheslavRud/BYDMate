@@ -886,6 +886,9 @@ class TrackingService : Service(), LocationListener {
 
     override fun onDestroy() {
         Log.i(TAG, "onDestroy: stopping TrackingService")
+        // SharedAdaptiveLoop is process-scoped, so cancelling only this service's parent scope is
+        // insufficient: clear its replay and invalidate any vendor fetch that returns late.
+        sharedAdaptiveLoop.stop()
 
         if (demoServiceActive) {
             demoServiceActive = false
@@ -908,6 +911,14 @@ class TrackingService : Service(), LocationListener {
             return
         }
 
+        // Freeze the lifecycle decision once. The asynchronous trip flush and the WorkManager
+        // scheduling below must agree whether this is a live self-heal restart or a terminal stop.
+        val restartAllowed = shouldScheduleRestart(
+            BuildConfig.LIVE_BACKGROUND_MODE,
+            SystemClock.elapsedRealtime(),
+            suppressRestartUntilElapsedMs,
+        )
+
         com.bydmate.app.ui.widget.WidgetController.detach()
         ChainLog.append(this, "TrackingService onDestroy")
         pollingJob?.cancel()
@@ -927,7 +938,11 @@ class TrackingService : Service(), LocationListener {
                 withTimeout(4000L) {
                     val lastData = _lastData.value
                     val lastLoc = _lastLocation.value
-                    tripTracker.forceEnd(lastData, lastLoc)
+                    if (restartAllowed) {
+                        tripTracker.flushPending()
+                    } else {
+                        tripTracker.forceEnd(lastData, lastLoc)
+                    }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Graceful shutdown: ${e.message}")
@@ -964,11 +979,6 @@ class TrackingService : Service(), LocationListener {
         _isRunning.value = false
         _serviceStartedAt.value = null
 
-        val restartAllowed = shouldScheduleRestart(
-            BuildConfig.LIVE_BACKGROUND_MODE,
-            SystemClock.elapsedRealtime(),
-            suppressRestartUntilElapsedMs,
-        )
         if (restartAllowed) {
             try {
                 val request = OneTimeWorkRequestBuilder<ServiceStartWorker>().build()
@@ -1046,7 +1056,6 @@ class TrackingService : Service(), LocationListener {
                 try {
                     _lastData.value = data
                     _lastDataUpdatedAt.value = System.currentTimeMillis()
-                    alicePollingManager.latestData = data
                     // Cache for AutoserviceChargingDetector — avoids extra parsReader.fetch() inside runCatchUp.
                     autoserviceDetector.onSample(data)
                     // Roll the charge-start anchor forward while driving/parked so a

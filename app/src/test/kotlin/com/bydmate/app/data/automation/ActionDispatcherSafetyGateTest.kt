@@ -35,14 +35,23 @@ class ActionDispatcherSafetyGateTest {
         assertNotNull(ActionDispatcher.safetyBlockReason("前备箱打开", null))
     }
 
+    @Test fun `rear trunk open only when parked and fails closed`() {
+        assertNotNull(gate("开后备箱", 1))
+        assertNull(gate("开后备箱", 0))
+        assertNotNull(ActionDispatcher.safetyBlockReason("开后备箱", null))
+        assertNull(gate("关后备箱", 120))
+    }
+
     @Test fun `unlock blocked above 30 and fails closed`() {
         assertNotNull(gate("车门解锁", 31))
         assertNull(gate("车门解锁", 30))
         assertNotNull(ActionDispatcher.safetyBlockReason("车门解锁", null))
     }
 
-    @Test fun `window open allowed when whole snapshot missing - existing semantics`() {
-        assertNull(ActionDispatcher.safetyBlockReason("车窗全开", null))
+    @Test fun `windows and sunroof fail closed without telemetry`() {
+        assertNotNull(ActionDispatcher.safetyBlockReason("车窗全开", null))
+        assertNotNull(ActionDispatcher.safetyBlockReason("天窗全开", null))
+        assertNull(ActionDispatcher.safetyBlockReason("车窗关闭", null))
     }
 
     @Test fun `harmless command passes`() {

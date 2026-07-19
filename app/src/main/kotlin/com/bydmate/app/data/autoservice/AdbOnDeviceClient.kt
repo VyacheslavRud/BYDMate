@@ -4,7 +4,11 @@ import android.content.Context
 import android.util.Log
 import com.bydmate.app.helper.HelperBinderProtocol
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import javax.inject.Inject
@@ -89,23 +93,43 @@ class AdbOnDeviceClientImpl @Inject constructor(
     }
 
     @Volatile private var protocol: AdbProtocol? = null
+    private val protocolMutex = Mutex()
 
     // used for packageCodePath when spawning the helper daemon
     private val ctx = context
 
     override suspend fun connect(): Result<Unit> = withContext(Dispatchers.IO) {
+        protocolMutex.withLock { connectLocked() }
+    }
+
+    private suspend fun connectLocked(): Result<Unit> =
         try {
             val p = protocol ?: protocolFactory().also { protocol = it }
-            val ok = p.connect()
+            val ok = p.isConnected() || runInterruptible { p.connect() }
             if (ok) Result.success(Unit) else Result.failure(IOException("ADB connect refused"))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.w(TAG, "connect failed: ${e.message}")
             Result.failure(e)
         }
+
+    /** Caller owns [protocolMutex]. Returns only a protocol with a completed handshake. */
+    private suspend fun connectedProtocolLocked(): AdbProtocol? {
+        if (connectLocked().isFailure) return null
+        return protocol
     }
 
     override suspend fun isConnected(): Boolean = withContext(Dispatchers.IO) {
-        protocol?.isConnected() ?: false
+        protocolMutex.withLock {
+            try {
+                protocol?.isConnected() ?: false
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                false
+            }
+        }
     }
 
     override suspend fun exec(cmd: String): String? = withContext(Dispatchers.IO) {
@@ -113,19 +137,23 @@ class AdbOnDeviceClientImpl @Inject constructor(
         require(cmd.matches(WRITE_BARRIER_REGEX)) {
             "AdbOnDeviceClient: refused command (write barrier): $cmd"
         }
-        val p = protocol ?: return@withContext null
-        try {
-            // runInterruptible bridges coroutine cancellation to the blocking
-            // ADB socket read: a parent withTimeout/withTimeoutOrNull will
-            // post a Thread.interrupt(), which the socket implementation
-            // raises as InterruptedIOException and unwinds out of p.exec.
-            // Without this wrapper, withTimeoutOrNull(900ms) abandons the
-            // coroutine but the socket read keeps blocking up to 5 s
-            // (SOCKET_TIMEOUT_MS), pinning single-flight in TrackingService.
-            kotlinx.coroutines.runInterruptible { p.exec(cmd) }
-        } catch (e: Exception) {
-            Log.w(TAG, "exec failed: ${e.message}")
-            null
+        protocolMutex.withLock {
+            val p = protocol ?: return@withLock null
+            try {
+                // runInterruptible bridges coroutine cancellation to the blocking
+                // ADB socket read: a parent withTimeout/withTimeoutOrNull will
+                // post a Thread.interrupt(), which the socket implementation
+                // raises as InterruptedIOException and unwinds out of p.exec.
+                // Without this wrapper, withTimeoutOrNull(900ms) abandons the
+                // coroutine but the socket read keeps blocking up to 5 s
+                // (SOCKET_TIMEOUT_MS), pinning single-flight in TrackingService.
+                runInterruptible { p.exec(cmd) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                Log.w(TAG, "exec failed: ${e.message}")
+                null
+            }
         }
     }
 
@@ -135,90 +163,117 @@ class AdbOnDeviceClientImpl @Inject constructor(
             "grantUsageStatsAppop: refused package $packageName"
         }
         val cmd = "appops set $packageName GET_USAGE_STATS allow"
-        val p = protocol ?: return@withContext false
-        try {
-            // appops prints nothing on success; null means transport error.
-            // Treat any non-null output as failure (e.g. "Bad permission") too.
-            val out = p.exec(cmd) ?: return@withContext false
-            out.isBlank()
-        } catch (e: Exception) {
-            Log.w(TAG, "grantUsageStatsAppop failed: ${e.message}")
-            false
+        protocolMutex.withLock {
+            val p = protocol ?: return@withLock false
+            try {
+                // appops prints nothing on success; null means transport error.
+                // Treat any non-null output as failure (e.g. "Bad permission") too.
+                val out = runInterruptible { p.exec(cmd) } ?: return@withLock false
+                out.isBlank()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                Log.w(TAG, "grantUsageStatsAppop failed: ${e.message}")
+                false
+            }
         }
     }
 
     override suspend fun spawnHelper(): Boolean = withContext(Dispatchers.IO) {
-        val p = protocol ?: run {
-            val r = connect()
-            if (r.isFailure) return@withContext false
-            protocol ?: return@withContext false
-        }
-        try {
-            // Raw protocol exec — bypasses the public exec() write barrier by design
-            // (this is not an autoservice GET). Hardcoded, no caller input.
-            // CLASSPATH = the app's own signed base.apk; setsid detaches the daemon
-            // into its own session. The trailing poll-loop keeps THIS shell alive until
-            // the daemon registers (or 3s elapse): the on-device ADB closes the exec
-            // stream the instant `&` backgrounds the job, and adbd SIGHUPs the subprocess
-            // — without the loop the still-booting JVM dies before its first println
-            // (empty log, no registration). Mirrors the proven BYD EV Pro / aps_diplus
-            // spawn recipe; see reference_autoservice_write_channel.md.
-            val spawnCmd =
-                "CLASSPATH=${ctx.packageCodePath} setsid app_process /system/bin " +
-                "--nice-name=${HelperBinderProtocol.PROCESS_NAME} com.bydmate.app.helper.HelperDaemon " +
-                "${android.os.Process.myUid()} </dev/null >${HelperBinderProtocol.LOG_PATH} 2>&1 & " +
-                "for i in 1 2 3; do service list 2>/dev/null | grep -q ${HelperBinderProtocol.SERVICE_NAME} && break; sleep 1; done"
-            // exec() returns null only on a dead/disconnected socket (AdbProtocolClient.exec) — an
-            // honest false here matters: HelperBootstrap.ensureRunningLocked() persists the spawned
-            // versionCode ONLY after a dispatch that actually succeeded, and bails otherwise.
-            p.exec(spawnCmd) != null
-        } catch (e: Exception) {
-            Log.w(TAG, "spawnHelper failed: ${e.message}")
-            false
+        protocolMutex.withLock {
+            val p = connectedProtocolLocked() ?: return@withLock false
+            try {
+                // Raw protocol exec — bypasses the public exec() write barrier by design
+                // (this is not an autoservice GET). Hardcoded, no caller input.
+                // CLASSPATH = the app's own signed base.apk; setsid detaches the daemon
+                // into its own session. The trailing poll-loop keeps THIS shell alive until
+                // the daemon registers (or 3s elapse): the on-device ADB closes the exec
+                // stream the instant `&` backgrounds the job, and adbd SIGHUPs the subprocess
+                // — without the loop the still-booting JVM dies before its first println
+                // (empty log, no registration). Mirrors the proven BYD EV Pro / aps_diplus
+                // spawn recipe; see reference_autoservice_write_channel.md.
+                val spawnCmd =
+                    "CLASSPATH=${ctx.packageCodePath} setsid app_process /system/bin " +
+                    "--nice-name=${HelperBinderProtocol.PROCESS_NAME} com.bydmate.app.helper.HelperDaemon " +
+                    "${android.os.Process.myUid()} </dev/null >${HelperBinderProtocol.LOG_PATH} 2>&1 & " +
+                    "for i in 1 2 3; do service list 2>/dev/null | grep -q ${HelperBinderProtocol.SERVICE_NAME} && break; sleep 1; done"
+                // exec() returns null only on a dead/disconnected socket (AdbProtocolClient.exec) — an
+                // honest false here matters: HelperBootstrap.ensureRunningLocked() persists the spawned
+                // versionCode ONLY after a dispatch that actually succeeded, and bails otherwise.
+                runInterruptible { p.exec(spawnCmd) } != null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                Log.w(TAG, "spawnHelper failed: ${e.message}")
+                false
+            }
         }
     }
 
     override suspend fun killHelper(): Boolean = withContext(Dispatchers.IO) {
-        val p = protocol ?: run {
-            val r = connect()
-            if (r.isFailure) return@withContext false
-            protocol ?: return@withContext false
-        }
-        try {
-            // Raw protocol exec (hardcoded, no caller input). Kill by exact process NAME (comm)
-            // so a fresh daemon (newer app version) can re-take the binder service + file lock;
-            // the exclusive flock auto-releases on death. Selecting via `ps -A -o PID,NAME` +
-            // exact `==` match (same discipline as helperHeartbeat below) — NOT `pgrep -f`:
-            // `pgrep -f` matches the whole cmdline, and this kill shell's OWN argv contains
-            // "bydmate_helper", so it self-matched and could `kill -9` itself before reaching
-            // the daemon (pid-order dependent), leaving the stale daemon alive. The ps/awk/sh
-            // shells here have comm != "bydmate_helper" and cannot self-match. Empty match →
-            // `kill -9` runs for no pids → harmless.
-            // Honest false on a dead socket, same reasoning as spawnHelper above.
-            p.exec("for p in \$(ps -A -o PID,NAME | awk '\$2==\"${HelperBinderProtocol.PROCESS_NAME}\"{print \$1}'); do kill -9 \$p; done") != null
-        } catch (e: Exception) {
-            Log.w(TAG, "killHelper failed: ${e.message}")
-            false
+        protocolMutex.withLock {
+            val p = connectedProtocolLocked() ?: return@withLock false
+            try {
+                // Raw protocol exec (hardcoded, no caller input). Kill by exact process NAME (comm)
+                // so a fresh daemon (newer app version) can re-take the binder service + file lock;
+                // the exclusive flock auto-releases on death. Selecting via `ps -A -o PID,NAME` +
+                // exact `==` match (same discipline as helperHeartbeat below) — NOT `pgrep -f`:
+                // `pgrep -f` matches the whole cmdline, and this kill shell's OWN argv contains
+                // "bydmate_helper", so it self-matched and could `kill -9` itself before reaching
+                // the daemon (pid-order dependent), leaving the stale daemon alive. The ps/awk/sh
+                // shells here have comm != "bydmate_helper" and cannot self-match. Empty match →
+                // `kill -9` runs for no pids → harmless.
+                // Honest false on a dead socket, same reasoning as spawnHelper above.
+                runInterruptible {
+                    p.exec("for p in \$(ps -A -o PID,NAME | awk '\$2==\"${HelperBinderProtocol.PROCESS_NAME}\"{print \$1}'); do kill -9 \$p; done")
+                } != null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                Log.w(TAG, "killHelper failed: ${e.message}")
+                false
+            }
         }
     }
 
     override suspend fun readHelperLog(): String? = withContext(Dispatchers.IO) {
-        val p = protocol ?: return@withContext null
-        runCatching { p.exec("cat ${HelperBinderProtocol.LOG_PATH}") }.getOrNull()
+        protocolMutex.withLock {
+            val p = protocol ?: return@withLock null
+            try {
+                runInterruptible { p.exec("cat ${HelperBinderProtocol.LOG_PATH}") }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        }
     }
 
     override suspend fun helperHeartbeat(): Boolean = withContext(Dispatchers.IO) {
-        val p = protocol ?: return@withContext false
-        val out = runCatching { p.exec("ps -A -o NAME") }.getOrNull() ?: return@withContext false
-        out.lineSequence().any { it.trim() == HelperBinderProtocol.PROCESS_NAME }
+        protocolMutex.withLock {
+            val p = protocol ?: return@withLock false
+            val out = try {
+                runInterruptible { p.exec("ps -A -o NAME") }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            } ?: return@withLock false
+            out.lineSequence().any { it.trim() == HelperBinderProtocol.PROCESS_NAME }
+        }
     }
 
     override suspend fun shutdown() {
         withContext(Dispatchers.IO) {
-            try {
-                protocol?.disconnect()
-            } catch (_: Exception) { /* idempotent */ }
-            protocol = null
+            protocolMutex.withLock {
+                try {
+                    protocol?.disconnect()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) { /* idempotent */ } finally {
+                    protocol = null
+                }
+            }
         }
     }
 

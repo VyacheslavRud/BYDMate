@@ -2,9 +2,13 @@ package com.bydmate.app.voice
 
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.os.Handler
+import android.os.Looper
 
 /** Short non-spoken confirmation/failure beeps. TTS responses are Spec 2. */
 class VoiceEarcon(private val volume: Int = 70) {
+    private val releaseHandler = Handler(Looper.getMainLooper())
+
     fun ok() = beep(ToneGenerator.TONE_PROP_ACK, 150)
     fun fail() = beep(ToneGenerator.TONE_PROP_NACK, 250)
     /** Session-stop cue: distinct from ok() so switching the agent on and off are
@@ -14,7 +18,10 @@ class VoiceEarcon(private val volume: Int = 70) {
         runCatching {
             val tg = toneGenerator()
             tg.startTone(tone, ms)
-            Thread { Thread.sleep((ms + 50).toLong()); tg.release() }.start()
+            releaseHandler.postDelayed(
+                { runCatching { tg.release() } },
+                (ms + 50).toLong(),
+            )
         }
     }
 

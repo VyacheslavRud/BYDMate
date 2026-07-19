@@ -110,6 +110,46 @@ class TtsRouterTest {
         assertTrue(delegate.speakCalls.isEmpty()) // no offline fallback needed
     }
 
+    @Test
+    fun `a new online speak supersedes synthesis from the previous request`() {
+        val backend = object : OnlineTtsBackend {
+            override val id = "gemini"
+            override suspend fun synthesize(text: String, gender: TtsGender): TtsPcm {
+                if (text == "old") delay(500)
+                return TtsPcm(floatArrayOf(if (text == "old") 1f else 2f), 16_000)
+            }
+            override suspend fun configured() = true
+        }
+        val delegate = FakeTtsEngine()
+        val router = TtsRouter(delegate = delegate, backends = listOf(backend), selectedSource = { "gemini" })
+
+        router.speak("old")
+        Thread.sleep(50)
+        router.speak("new")
+
+        awaitTrue { delegate.playPcmCalls.isNotEmpty() }
+        Thread.sleep(600)
+        assertEquals(1, delegate.playPcmCalls.size)
+        assertEquals(2f, delegate.playPcmCalls.single().first.single())
+    }
+
+    @Test
+    fun `offline speak cancels an earlier online synthesis`() {
+        var source = "gemini"
+        val backend = FakeBackend(delayMs = 500)
+        val delegate = FakeTtsEngine()
+        val router = TtsRouter(delegate = delegate, backends = listOf(backend), selectedSource = { source })
+
+        router.speak("online")
+        Thread.sleep(50)
+        source = TtsRouter.OFFLINE
+        router.speak("offline")
+
+        Thread.sleep(700)
+        assertEquals(listOf("offline"), delegate.speakCalls)
+        assertTrue(delegate.playPcmCalls.isEmpty())
+    }
+
     // --- speak(): online failure => reply stays silent, no fallback ---
 
     @Test

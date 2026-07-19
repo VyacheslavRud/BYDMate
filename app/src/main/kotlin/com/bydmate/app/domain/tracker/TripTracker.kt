@@ -5,8 +5,11 @@ import android.util.Log
 import com.bydmate.app.data.local.entity.TripPointEntity
 import com.bydmate.app.data.remote.DiParsData
 import com.bydmate.app.data.local.dao.TripPointDao
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.Collections
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -37,6 +40,7 @@ class TripTracker @Inject constructor(
     private var speedAboveThresholdSince: Long? = null
     private var speedZeroSince: Long? = null
     private val pendingPoints = Collections.synchronizedList(mutableListOf<TripPointEntity>())
+    private val stateMutex = Mutex()
 
     companion object {
         private const val TAG = "TripTracker"
@@ -46,7 +50,7 @@ class TripTracker @Inject constructor(
         private const val POINT_BATCH_SIZE = 30
     }
 
-    suspend fun onData(data: DiParsData, location: Location?) {
+    suspend fun onData(data: DiParsData, location: Location?) = stateMutex.withLock {
         // DiLink 4 has no readable autoservice speed fid (returns a sentinel →
         // data.speed == null), which would freeze GPS collection in IDLE. Fall
         // back to the GPS fix's own speed (m/s → km/h) so point collection is
@@ -126,14 +130,22 @@ class TripTracker @Inject constructor(
     /**
      * Force-end on service shutdown. Just flush remaining GPS points.
      */
-    suspend fun forceEnd(lastData: DiParsData?, lastLocation: Location?) {
-        if (_state.value != TripState.DRIVING) return
+    suspend fun forceEnd(lastData: DiParsData?, lastLocation: Location?) = stateMutex.withLock {
+        if (_state.value != TripState.DRIVING) return@withLock
         Log.w(TAG, "forceEnd: flushing GPS points on shutdown")
         flushPoints()
         _state.value = TripState.IDLE
         _tripStartedAt.value = null
         speedZeroSince = null
         speedAboveThresholdSince = null
+    }
+
+    /**
+     * Persists the current point batch without ending the driving state. Used by a live-service
+     * self-heal restart: the replacement service continues the same singleton tracker generation.
+     */
+    suspend fun flushPending() = stateMutex.withLock {
+        flushPoints()
     }
 
     private suspend fun flushPoints() {
@@ -146,8 +158,18 @@ class TripTracker @Inject constructor(
         try {
             tripPointDao.insertAll(snapshot)
             Log.i(TAG, "flushPoints: saved ${snapshot.size} GPS points to DB")
+        } catch (cancelled: CancellationException) {
+            restorePending(snapshot)
+            throw cancelled
         } catch (e: Exception) {
+            restorePending(snapshot)
             Log.e(TAG, "flushPoints FAILED: ${e.message}", e)
+        }
+    }
+
+    private fun restorePending(snapshot: List<TripPointEntity>) {
+        synchronized(pendingPoints) {
+            pendingPoints.addAll(0, snapshot)
         }
     }
 }

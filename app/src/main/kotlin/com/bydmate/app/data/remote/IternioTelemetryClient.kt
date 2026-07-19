@@ -184,10 +184,8 @@ class IternioTelemetryClient @Inject constructor(
                     val status = json.optString("status")
                     if (status.isNotBlank() && !status.equals("ok", ignoreCase = true)) {
                         // Iternio response may echo back token/api_key in error
-                        // body — never propagate the raw body. Only surface the
-                        // sanitized status code; full body stays in private logs.
-                        val reason = json.optString("reason").ifBlank { status }
-                        Log.w(TAG, "API status=$status reason=$reason")
+                        // body — never propagate or log the server-provided reason.
+                        Log.w(TAG, "API status=$status")
                         return@withContext Result.failure(IllegalStateException("Iternio status=$status"))
                     }
                 } catch (_: Exception) { /* пустой или не-JSON ответ считаем успехом при HTTP 2xx */ }

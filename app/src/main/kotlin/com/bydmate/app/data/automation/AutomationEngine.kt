@@ -59,6 +59,16 @@ class AutomationEngine @Inject constructor(
         // How long after the first evaluate() the service_start trigger stays
         // armed, giving cold-start params a few polls to warm up.
         const val SERVICE_START_WINDOW_MS = 30_000L
+
+        /**
+         * Persisted rules are untrusted at runtime: they may predate the current policy or come
+         * from a restored database. A dangerous action therefore always requires confirmation,
+         * even when the stored flag is false.
+         */
+        internal fun requiresConfirmation(
+            persistedFlag: Boolean,
+            actions: List<ActionDef>,
+        ): Boolean = persistedFlag || actions.any(ActionDispatcher::isDangerousAction)
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -217,14 +227,14 @@ class AutomationEngine @Inject constructor(
 
                 val snapshot = buildSnapshot(triggers, data)
 
-                if (rule.confirmBeforeExecute) {
+                if (requiresConfirmation(rule.confirmBeforeExecute, actions)) {
                     val shown = ConfirmOverlayManager.show(
                         context = context,
                         ruleName = rule.name,
                         actionsSummary = actions.joinToString(", ") { it.displayName },
                         onConfirm = {
                             scope.launch {
-                                executeAndLog(rule, actions, snapshot, TrackingService.lastData.value)
+                                executeAndLog(rule, actions, snapshot, VehicleSafetySnapshot.current())
                             }
                         },
                         onCancel = {
@@ -267,7 +277,7 @@ class AutomationEngine @Inject constructor(
      *    action),
      *  - requirePark and confirmBeforeExecute are honored, and every per-action
      *    ActionDispatcher safety gate stays in force (it reads the same snapshot).
-     * Safety snapshot is the latest TrackingService.lastData.value.
+     * Safety snapshot must belong to the running service and be no more than five seconds old.
      *
      * Returns the number of rules matched by button number (0 ⇒ caller shows the
      * "no rules for button N" toast). A matched-but-park-gated rule still counts,
@@ -282,7 +292,7 @@ class AutomationEngine @Inject constructor(
         if (matching.isEmpty()) return 0
 
         val now = System.currentTimeMillis()
-        val data = TrackingService.lastData.value
+        val data = VehicleSafetySnapshot.current()
         for (rule in matching) {
             try {
                 // Honor requirePark even on the manual path. Reuse the engine's
@@ -299,14 +309,14 @@ class AutomationEngine @Inject constructor(
                 // Mark triggered before execution (same ordering as evaluate path).
                 ruleDao.updateLastTriggered(rule.id, now)
 
-                if (rule.confirmBeforeExecute) {
+                if (requiresConfirmation(rule.confirmBeforeExecute, actions)) {
                     val shown = ConfirmOverlayManager.show(
                         context = context,
                         ruleName = rule.name,
                         actionsSummary = actions.joinToString(", ") { it.displayName },
                         onConfirm = {
                             scope.launch {
-                                executeAndLog(rule, actions, snapshot, TrackingService.lastData.value)
+                                executeAndLog(rule, actions, snapshot, VehicleSafetySnapshot.current())
                             }
                         },
                         onCancel = {
@@ -550,9 +560,7 @@ class AutomationEngine @Inject constructor(
         // requirePark: gear 1 = P.
         if (rule.requirePark && data?.gear != 1) return VoiceFireResult.ParkRequired
 
-        // Fail-closed: getBlockReason() allows window/sunroof-open when the whole snapshot
-        // is missing. Guard here so voice automations can't open either at unknown speed
-        // (both are speed-gated predicates after the T12 split; sunshade is not held).
+        // Return a typed outcome before dispatch so voice UI can explain the fail-closed gate.
         if (data == null && actions.any {
                 ActionDispatcher.isWindowOpenCommand(it.command) ||
                     ActionDispatcher.isSunroofOpenCommand(it.command)
@@ -563,7 +571,7 @@ class AutomationEngine @Inject constructor(
         ruleDao.updateLastTriggered(rule.id, System.currentTimeMillis())
         val snapshot = JSONObject().put("voice", true).toString()
 
-        if (rule.confirmBeforeExecute) {
+        if (requiresConfirmation(rule.confirmBeforeExecute, actions)) {
             val shown = ConfirmOverlayManager.show(
                 context = context,
                 ruleName = rule.name,
@@ -571,7 +579,11 @@ class AutomationEngine @Inject constructor(
                 // Re-read live vehicle data at confirm time (the overlay can sit
                 // open while the car accelerates); mirrors the polling confirm path
                 // so the >80km/h window gate runs against current speed, not speak-time.
-                onConfirm = { scope.launch { executeAndLog(rule, actions, snapshot, TrackingService.lastData.value) } },
+                onConfirm = {
+                    scope.launch {
+                        executeAndLog(rule, actions, snapshot, VehicleSafetySnapshot.current())
+                    }
+                },
                 onCancel = {
                     scope.launch {
                         ruleLogDao.insert(
@@ -691,7 +703,7 @@ class AutomationEngine @Inject constructor(
 
                 when (intent.action) {
                     ACTION_CONFIRM -> scope.launch {
-                        val currentData = TrackingService.lastData.value
+                        val currentData = VehicleSafetySnapshot.current()
                         executeAndLog(pending.rule, pending.actions, pending.snapshot, currentData)
                     }
                     ACTION_CANCEL -> {

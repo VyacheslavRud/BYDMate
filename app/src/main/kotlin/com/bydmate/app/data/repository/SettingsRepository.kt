@@ -16,7 +16,16 @@ import javax.inject.Singleton
 // on the comma and we fall back to the default. That made ABRP / Charges /
 // SoH read the default 72.9 instead of the user's setting (issue #19).
 internal fun String.parseNumericSetting(): Double? =
-    replace(',', '.').trim().toDoubleOrNull()
+    replace(',', '.').trim().toDoubleOrNull()?.takeIf { it.isFinite() }
+
+internal fun String.normalizedNumericSetting(): String? =
+    parseNumericSetting()?.toString()
+
+internal fun String.isValidBatteryCapacitySetting(): Boolean =
+    parseNumericSetting()?.let { it in 1.0..250.0 } == true
+
+internal fun String.isValidTariffSetting(): Boolean =
+    parseNumericSetting()?.let { it >= 0.0 } == true
 
 private const val LEGACY_BATTERY_CAPACITY = "72.9"
 private const val LEGACY_CONSUMPTION_GOOD = "20"
@@ -204,13 +213,16 @@ open class SettingsRepository @Inject constructor(
 
     suspend fun getBatteryCapacity(): Double =
         getString(KEY_BATTERY_CAPACITY, DEFAULT_BATTERY_CAPACITY).parseNumericSetting()
+            ?.takeIf { it in 1.0..250.0 }
             ?: VehicleProfile.CURRENT.nominalBatteryKwh
 
     suspend fun getHomeTariff(): Double =
-        getString(KEY_HOME_TARIFF, DEFAULT_HOME_TARIFF).parseNumericSetting() ?: 0.20
+        getString(KEY_HOME_TARIFF, DEFAULT_HOME_TARIFF).parseNumericSetting()
+            ?.takeIf { it >= 0.0 } ?: 0.20
 
     suspend fun getDcTariff(): Double =
-        getString(KEY_DC_TARIFF, DEFAULT_DC_TARIFF).parseNumericSetting() ?: 0.73
+        getString(KEY_DC_TARIFF, DEFAULT_DC_TARIFF).parseNumericSetting()
+            ?.takeIf { it >= 0.0 } ?: 0.73
 
     suspend fun getCurrency(): Currency {
         val code = getString(KEY_CURRENCY, DEFAULT_CURRENCY)
@@ -224,7 +236,7 @@ open class SettingsRepository @Inject constructor(
         return when (raw) {
             "home" -> getHomeTariff()
             "dc" -> getDcTariff()
-            else -> raw.parseNumericSetting() ?: getHomeTariff()
+            else -> raw.parseNumericSetting()?.takeIf { it >= 0.0 } ?: getHomeTariff()
         }
     }
 

@@ -42,30 +42,28 @@ class CameraStateMonitor @Inject constructor(
     private var scope: CoroutineScope? = null
     private var job: Job? = null
 
-    // Tail-the-event-stream state: remember the most recent ACTIVITY_RESUMED
-    // we have already consumed so each poll queries only the delta since then.
-    // Survives polling ticks; reset by start(). On the very first poll
-    // (lastEventTs == 0) we use a wider initial window so we catch a foreground
-    // event that fired before TrackingService started — e.g. camera engaged
-    // before BYDMate boot finishes.
-    @Volatile private var lastForegroundPkg: String? = null
-    @Volatile private var lastEventTs: Long = 0L
+    private data class PollState(
+        val foregroundPackage: String? = null,
+        val lastEventTs: Long = 0L,
+    )
 
     fun start() {
         if (job?.isActive == true) return
-        lastForegroundPkg = null
-        lastEventTs = 0L
         val s = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope = s
         job = s.launch {
+            // Keep the query cursor local to this generation. A cancelled queryEvents() call can
+            // return after stop() and a subsequent start(); local state prevents that old poller
+            // from corrupting the restarted monitor's cursor or foreground package.
+            var state = PollState()
             while (true) {
-                refreshForegroundPackage()
+                state = refreshForegroundPackage(state)
                 // queryEvents is blocking; check we weren't cancelled mid-IO
                 // before publishing. Stops a stale value from clobbering the
                 // false set in stop().
                 ensureActive()
-                _active.value = lastForegroundPkg == CAMERA_PACKAGE
-                _youtubeForeground.value = isYoutubePackage(lastForegroundPkg)
+                _active.value = state.foregroundPackage == CAMERA_PACKAGE
+                _youtubeForeground.value = isYoutubePackage(state.foregroundPackage)
                 delay(POLL_INTERVAL_MS)
             }
         }
@@ -78,27 +76,26 @@ class CameraStateMonitor @Inject constructor(
         scope = null
         _active.value = false
         _youtubeForeground.value = false
-        lastForegroundPkg = null
-        lastEventTs = 0L
     }
 
-    private fun refreshForegroundPackage() {
+    private fun refreshForegroundPackage(previous: PollState): PollState {
         val now = System.currentTimeMillis()
-        val beginTs = if (lastEventTs == 0L) now - INITIAL_LOOKBACK_MS else lastEventTs + 1
-        try {
+        val beginTs = queryBeginTimestamp(previous.lastEventTs, now)
+        return try {
             val latest = latestResumed(usm, beginTs, now + 1)
-            if (latest != null) {
-                lastForegroundPkg = latest.first
-                if (latest.second > lastEventTs) lastEventTs = latest.second
+            when {
+                latest != null -> PollState(
+                    foregroundPackage = latest.first,
+                    lastEventTs = maxOf(previous.lastEventTs, latest.second),
+                )
+                previous.lastEventTs == 0L -> previous.copy(lastEventTs = now)
+                else -> previous
             }
-            // No new events => keep prior foreground (camera still on, etc.).
-            // Forward through start() ensures the very first call has lastEventTs=0,
-            // forcing the wider window above.
-            if (lastEventTs == 0L) lastEventTs = now
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "queryEvents failed: ${e.message}")
+            previous
         }
     }
 
@@ -123,6 +120,9 @@ class CameraStateMonitor @Inject constructor(
         )
 
         fun isYoutubePackage(pkg: String?): Boolean = pkg != null && pkg in YOUTUBE_PACKAGES
+
+        internal fun queryBeginTimestamp(lastEventTs: Long, now: Long): Long =
+            if (lastEventTs == 0L) now - INITIAL_LOOKBACK_MS else lastEventTs + 1
 
         /** Latest ACTIVITY_RESUMED (package, timestamp) in [beginTs, endTs], or null when there
          *  are no such events. Shared by the continuous poller and one-shot foreground checks

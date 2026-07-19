@@ -51,6 +51,7 @@ import com.bydmate.app.ui.theme.AccentGreen
 import com.bydmate.app.ui.theme.CardBorder
 import com.bydmate.app.ui.theme.CardSurface
 import com.bydmate.app.ui.theme.NavyDark
+import com.bydmate.app.ui.theme.SocRed
 import com.bydmate.app.ui.theme.TextMuted
 import com.bydmate.app.ui.theme.TextPrimary
 import com.bydmate.app.ui.theme.TextSecondary
@@ -59,6 +60,32 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+
+internal data class ChargeSocValidation(
+    val start: Int?,
+    val end: Int?,
+    val startHasError: Boolean,
+    val endHasError: Boolean,
+    val orderHasError: Boolean,
+) {
+    val hasError: Boolean get() = startHasError || endHasError || orderHasError
+    val canCalculateKwh: Boolean get() = !hasError && start != null && end != null
+}
+
+/**
+ * Validates optional SOC inputs without changing the manual-kWh fallback: either SOC field may
+ * remain blank, but every provided value must be in 0..100 and a complete pair must increase.
+ */
+internal fun validateChargeSoc(startText: String, endText: String): ChargeSocValidation {
+    val normalizedStart = startText.trim()
+    val normalizedEnd = endText.trim()
+    val start = normalizedStart.takeIf { it.isNotEmpty() }?.toIntOrNull()
+    val end = normalizedEnd.takeIf { it.isNotEmpty() }?.toIntOrNull()
+    val startHasError = normalizedStart.isNotEmpty() && (start == null || start !in 0..100)
+    val endHasError = normalizedEnd.isNotEmpty() && (end == null || end !in 0..100)
+    val orderHasError = !startHasError && !endHasError && start != null && end != null && end <= start
+    return ChargeSocValidation(start, end, startHasError, endHasError, orderHasError)
+}
 
 /**
  * Edit dialog for a charge row (long-press → bottom sheet → "Изменить").
@@ -180,10 +207,11 @@ fun ChargeEditDialog(
                     }
 
                     // Derived values — SOC drives kWh, kWh × tariff drives cost
-                    val socStart = socStartText.toIntOrNull()
-                    val socEnd = socEndText.toIntOrNull()
-                    val computedKwh = if (socStart != null && socEnd != null && socEnd > socStart)
-                        (socEnd - socStart) / 100.0 * batteryCapacityKwh else null
+                    val socValidation = validateChargeSoc(socStartText, socEndText)
+                    val socStart = socValidation.start
+                    val socEnd = socValidation.end
+                    val computedKwh = if (socValidation.canCalculateKwh)
+                        (socEnd!! - socStart!!) / 100.0 * batteryCapacityKwh else null
                     val kwhEditable = computedKwh == null
                     val kwhDisplay = computedKwh?.let { "%.2f".format(it) } ?: kwhText
                     val tariff = tariffText.replace(',', '.').toDoubleOrNull()
@@ -204,6 +232,7 @@ fun ChargeEditDialog(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.width(80.dp),
                             colors = darkFieldColors(),
+                            isError = socValidation.hasError,
                             singleLine = true,
                         )
                         Text(
@@ -218,7 +247,16 @@ fun ChargeEditDialog(
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.width(80.dp),
                             colors = darkFieldColors(),
+                            isError = socValidation.hasError,
                             singleLine = true,
+                        )
+                    }
+                    if (socValidation.hasError) {
+                        Text(
+                            text = stringResource(R.string.charges_edit_soc_error),
+                            color = SocRed,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(start = 80.dp),
                         )
                     }
 
@@ -317,6 +355,7 @@ fun ChargeEditDialog(
                                     )
                                 )
                             },
+                            enabled = !socValidation.hasError,
                             shape = RoundedCornerShape(8.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = AccentGreen)
                         ) {

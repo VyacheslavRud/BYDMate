@@ -97,6 +97,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.bydmate.app.R
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bydmate.app.data.automation.ScheduleSpec
+import com.bydmate.app.data.automation.ExternalActionInputValidator
 import com.bydmate.app.data.automation.minuteToHHmm
 import com.bydmate.app.data.local.entity.ActionDef
 import com.bydmate.app.data.local.entity.PlaceEntity
@@ -2306,7 +2307,7 @@ private fun CallEditDialog(
     var nameText by rememberSaveable { mutableStateOf(initialName) }
     var autoDial by remember { mutableStateOf(initialAutoDial) }
     val trimmedPhone = phoneText.trim()
-    val canSave = trimmedPhone.isNotBlank() && trimmedPhone.length in 5..20
+    val canSave = ExternalActionInputValidator.isValidPhone(trimmedPhone)
 
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = TextPrimary,
@@ -2589,7 +2590,7 @@ private fun UrlEditDialog(
     var urlText by remember { mutableStateOf(initialUrl) }
     var minimize by remember { mutableStateOf(initialMinimize) }
     val trimmed = urlText.trim()
-    val urlValid = trimmed.matches(Regex("^[a-zA-Z][a-zA-Z0-9+.\\-]*:.+"))
+    val urlValid = ExternalActionInputValidator.isValidUrl(trimmed)
     val canSave = trimmed.isNotBlank() && urlValid
 
     val fieldColors = OutlinedTextFieldDefaults.colors(

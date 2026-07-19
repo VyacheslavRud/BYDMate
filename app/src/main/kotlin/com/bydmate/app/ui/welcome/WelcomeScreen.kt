@@ -49,6 +49,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bydmate.app.data.repository.SettingsRepository
+import com.bydmate.app.data.repository.isValidBatteryCapacitySetting
+import com.bydmate.app.data.repository.isValidTariffSetting
 import com.bydmate.app.ui.theme.*
 
 @Composable
@@ -70,7 +72,7 @@ fun WelcomeScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
-            "Welcome to ${stringResource(R.string.app_name)}!",
+            stringResource(R.string.welcome_title, stringResource(R.string.app_name)),
             color = AccentGreen,
             fontSize = 28.sp,
             fontWeight = FontWeight.Bold
@@ -105,7 +107,9 @@ private fun TariffStep(state: WelcomeUiState, viewModel: WelcomeViewModel) {
                 WelcomeTextField(
                     label = stringResource(R.string.settings_battery_capacity_label),
                     value = state.batteryCapacity,
-                    onValueChange = { viewModel.setBatteryCapacity(it) }
+                    onValueChange = { viewModel.setBatteryCapacity(it) },
+                    isError = !state.batteryCapacity.isValidBatteryCapacitySetting(),
+                    errorText = stringResource(R.string.welcome_battery_capacity_error),
                 )
                 Text(
                     stringResource(R.string.welcome_battery_capacity_hint),
@@ -139,12 +143,16 @@ private fun TariffStep(state: WelcomeUiState, viewModel: WelcomeViewModel) {
                 WelcomeTextField(
                     label = stringResource(R.string.welcome_tariff_home_label, state.currencySymbol),
                     value = state.homeTariff,
-                    onValueChange = { viewModel.setHomeTariff(it) }
+                    onValueChange = { viewModel.setHomeTariff(it) },
+                    isError = !state.homeTariff.isValidTariffSetting(),
+                    errorText = stringResource(R.string.welcome_tariff_error),
                 )
                 WelcomeTextField(
                     label = stringResource(R.string.welcome_tariff_dc_label, state.currencySymbol),
                     value = state.dcTariff,
-                    onValueChange = { viewModel.setDcTariff(it) }
+                    onValueChange = { viewModel.setDcTariff(it) },
+                    isError = !state.dcTariff.isValidTariffSetting(),
+                    errorText = stringResource(R.string.welcome_tariff_error),
                 )
             }
 
@@ -158,7 +166,9 @@ private fun TariffStep(state: WelcomeUiState, viewModel: WelcomeViewModel) {
                     WelcomeTextField(
                         label = stringResource(R.string.settings_tariff_custom_label, state.currencySymbol),
                         value = state.customTariff,
-                        onValueChange = { viewModel.setCustomTariff(it) }
+                        onValueChange = { viewModel.setCustomTariff(it) },
+                        isError = !state.customTariff.isValidTariffSetting(),
+                        errorText = stringResource(R.string.welcome_tariff_error),
                     )
                 }
                 Text(
@@ -172,6 +182,7 @@ private fun TariffStep(state: WelcomeUiState, viewModel: WelcomeViewModel) {
 
             Button(
                 onClick = { viewModel.nextStep() },
+                enabled = state.hasValidNumericSettings(),
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = AccentGreen)
@@ -342,12 +353,22 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun WelcomeTextField(label: String, value: String, onValueChange: (String) -> Unit) {
+private fun WelcomeTextField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    isError: Boolean = false,
+    errorText: String? = null,
+) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = true,
+        isError = isError,
+        supportingText = if (isError && errorText != null) {
+            { Text(errorText) }
+        } else null,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),

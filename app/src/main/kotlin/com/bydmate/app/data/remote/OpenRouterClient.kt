@@ -124,7 +124,7 @@ class OpenRouterClient @Inject constructor(
             val body = response.body?.string()
 
             if (!response.isSuccessful) {
-                Log.w(TAG, "chat HTTP ${response.code}: $body")
+                Log.w(TAG, "chat HTTP ${response.code}: bodyLength=${body?.length ?: 0}")
                 return@withContext null
             }
 

@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.bydmate.app.ui.overlay.OverlayLifecycleOwner
+import com.bydmate.app.ui.overlay.rollbackOverlayAttach
 import com.bydmate.app.ui.theme.AccentGreen
 import com.bydmate.app.ui.theme.CardBorder
 import com.bydmate.app.ui.theme.CardSurface
@@ -115,10 +116,13 @@ object ConfirmOverlayManager {
 
         var handled = false
         val handler = Handler(Looper.getMainLooper())
+        var timeoutRunnable: Runnable? = null
 
         val dismiss: (String) -> Unit = { outcome ->
             if (!handled) {
                 handled = true
+                timeoutRunnable?.let(handler::removeCallbacks)
+                timeoutRunnable = null
                 try {
                     lifecycleOwner.onDestroy()
                     wm.removeView(composeView)
@@ -186,9 +190,19 @@ object ConfirmOverlayManager {
             }
         }
 
-        wm.addView(composeView, params)
+        try {
+            wm.addView(composeView, params)
+        } catch (error: Throwable) {
+            rollbackOverlayAttach(
+                removeView = { wm.removeView(composeView) },
+                destroyLifecycle = lifecycleOwner::onDestroy,
+            )
+            throw error
+        }
         playSound(context)
-        handler.postDelayed({ dismiss("timeout") }, timeoutMs)
+        timeoutRunnable = Runnable { dismiss("timeout") }.also {
+            handler.postDelayed(it, timeoutMs)
+        }
     }
 
     private fun playSound(context: Context) {

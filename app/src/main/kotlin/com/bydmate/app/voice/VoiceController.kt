@@ -329,7 +329,7 @@ class VoiceController @Inject constructor(
                                     } ?: Log.i(TAG, "Barge-in by name ignored: no cancellable ask")
                                     return@collect
                                 }
-                                Log.i(TAG, "Utterance dropped while busy: ${ev.text}")
+                                Log.i(TAG, "Utterance dropped while busy: length=${ev.text.length}")
                                 droppedWhileBusy++
                                 return@collect
                             }

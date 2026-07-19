@@ -61,6 +61,20 @@ class RuleDraftValidatorTest {
             ActionDef(command = "", displayName = "x", kind = "call", payload = """{"phone":"+79161234567"}"""))))
     }
 
+    @Test fun call_action_formatted_phone_is_valid() {
+        assertNull(RuleDraftValidator.validateActions(listOf(
+            ActionDef(command = "", displayName = "x", kind = "call", payload = """{"phone":"+7 (916) 123-45-67"}"""))))
+    }
+
+    @Test fun call_action_ussd_or_pause_number_is_invalid() {
+        listOf("*100#", "+7916,1234567", "+7916;1234567").forEach { phone ->
+            val err = RuleDraftValidator.validateActions(listOf(
+                ActionDef(command = "", displayName = "x", kind = "call",
+                    payload = JSONObject().put("phone", phone).toString())))
+            assertTrue("must reject $phone", err is ActionValidationError.PhoneInvalid)
+        }
+    }
+
     @Test fun navigate_action_both_zero_is_invalid() {
         val err = RuleDraftValidator.validateActions(listOf(
             ActionDef(command = "", displayName = "x", kind = "navigate", payload = """{"lat":0,"lon":0}""")))
@@ -87,6 +101,43 @@ class RuleDraftValidatorTest {
     @Test fun url_action_with_scheme_is_valid() {
         assertNull(RuleDraftValidator.validateActions(listOf(
             ActionDef(command = "", displayName = "x", kind = "url", payload = """{"url":"https://example.com"}"""))))
+    }
+
+    @Test fun url_action_http_with_host_is_valid() {
+        assertNull(RuleDraftValidator.validateActions(listOf(
+            ActionDef(command = "", displayName = "x", kind = "url", payload = """{"url":"http://localhost/path"}"""))))
+    }
+
+    @Test fun url_action_safe_app_and_navigation_schemes_are_valid() {
+        listOf(
+            "yandexmusic://artist/123",
+            "geo:55.7,37.6?q=destination",
+            "waze://?q=destination",
+        ).forEach { url ->
+            assertNull(
+                RuleDraftValidator.validateActions(
+                    listOf(
+                        ActionDef(
+                            command = "",
+                            displayName = "x",
+                            kind = "url",
+                            payload = JSONObject().put("url", url).toString(),
+                        )
+                    )
+                )
+            )
+        }
+    }
+
+    @Test fun url_action_rejects_unsafe_schemes_and_missing_host() {
+        listOf("intent://settings", "file:///data/local/tmp/x", "content://contacts/1",
+            "javascript:alert(1)", "data:text/plain,test", "tel:+79161234567",
+            "https:///missing-host").forEach { url ->
+            val err = RuleDraftValidator.validateActions(listOf(
+                ActionDef(command = "", displayName = "x", kind = "url",
+                    payload = JSONObject().put("url", url).toString())))
+            assertTrue("must reject $url", err is ActionValidationError.UrlNoScheme)
+        }
     }
 
     @Test fun yandex_music_action_blank_mode_is_invalid() {

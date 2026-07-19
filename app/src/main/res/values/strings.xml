@@ -260,6 +260,7 @@
     <string name="charges_edit_cost_label">Стоимость:</string>
     <string name="charges_edit_tariff_label">%1$s/кВт·ч:</string>
     <string name="charges_edit_save_button">Сохранить</string>
+    <string name="charges_edit_soc_error">SOC должен быть от 0 до 100, а конечный SOC — больше начального</string>
 
     <!-- Automation screen -->
     <string name="automation_tab_title">Автоматизация</string>
@@ -467,6 +468,9 @@
     <string name="welcome_model_song_label">Song / другая</string>
     <string name="welcome_model_change_later">Можно поменять позже в настройках.</string>
     <string name="welcome_next_button">Далее</string>
+    <string name="welcome_title">Добро пожаловать в %1$s!</string>
+    <string name="welcome_battery_capacity_error">Введите ёмкость от 1 до 250 кВт·ч</string>
+    <string name="welcome_tariff_error">Введите неотрицательное число</string>
     <string name="welcome_battery_section_title">Батарея</string>
     <string name="welcome_battery_capacity_hint">Sea Lion 07 EV 2025 (610 Zhijia RWD): 80,64 кВт·ч</string>
     <string name="welcome_tariff_section_title">Тарифы</string>
@@ -994,7 +998,7 @@
     <string name="auto_msg_phone_invalid">Действие #%1$d: номер телефона некорректен</string>
     <string name="auto_msg_nav_dest_missing">Действие #%1$d: место для маршрута не выбрано</string>
     <string name="auto_msg_url_empty">Действие #%1$d: URL пустой</string>
-    <string name="auto_msg_url_no_scheme">Действие #%1$d: URL должен содержать схему (http://, yandexmusic://, tel:, ...)</string>
+    <string name="auto_msg_url_no_scheme">Действие #%1$d: разрешена только корректная web-, Waze-, geo- или Яндекс Музыка-ссылка</string>
     <string name="auto_msg_ymusic_mode_missing">Действие #%1$d: режим Я.Музыки не выбран</string>
     <string name="auto_msg_sentry_invalid">Действие #%1$d: некорректное состояние охранного режима</string>
     <string name="auto_msg_speak_text_empty">Действие #%1$d: не задан текст для озвучки</string>

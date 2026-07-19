@@ -20,8 +20,8 @@ import com.bydmate.app.data.local.entity.RuleLogEntity
 import com.bydmate.app.data.local.entity.TriggerDef
 import com.bydmate.app.data.repository.PlaceRepository
 import com.bydmate.app.data.automation.ActionDispatcher
+import com.bydmate.app.data.automation.VehicleSafetySnapshot
 import com.bydmate.app.data.vehicle.VehicleApi
-import com.bydmate.app.service.TrackingService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -294,7 +294,7 @@ class AutomationViewModel @Inject constructor(
         viewModelScope.launch {
             // Manual test button bypasses ActionDispatcher.dispatch, so apply the
             // same safety gates explicitly (frunk/unlock fail closed on unknown speed).
-            val block = ActionDispatcher.safetyBlockReason(command, TrackingService.lastData.value)
+            val block = ActionDispatcher.safetyBlockReason(command, VehicleSafetySnapshot.current())
             if (block != null) {
                 Toast.makeText(context, block, Toast.LENGTH_SHORT).show()
                 return@launch

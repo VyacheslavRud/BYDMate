@@ -14,6 +14,7 @@ import com.bydmate.app.data.automation.RuleDraftValidator
 import com.bydmate.app.data.automation.TriggerValidationError
 import com.bydmate.app.data.automation.ScheduleSpec
 import com.bydmate.app.data.automation.VoiceFireResult
+import com.bydmate.app.data.automation.VehicleSafetySnapshot
 import com.bydmate.app.data.automation.hhmmToMinute
 import com.bydmate.app.data.charging.ChargeGunState
 import com.bydmate.app.data.local.dao.ChargeDao
@@ -1076,7 +1077,7 @@ class AgentTools @Inject constructor(
             // Re-read live vehicle data at confirm time (mirrors AutomationEngine ~line 573):
             // the overlay can sit open while the car accelerates, so the >30 km/h unlock
             // gate must see current speed, not the stale snapshot captured at tool-call time.
-            { confirmScope.launch { actionDispatcher.dispatch(action, TrackingService.lastData.value) } },
+            { confirmScope.launch { actionDispatcher.dispatch(action, VehicleSafetySnapshot.current()) } },
             { },
         )
         return if (shown) {

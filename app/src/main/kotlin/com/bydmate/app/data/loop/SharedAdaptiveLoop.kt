@@ -9,9 +9,12 @@ import com.bydmate.app.data.remote.DiParsData
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -45,6 +48,7 @@ class SharedAdaptiveLoop constructor(
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
 
     private var job: Job? = null
+    @Volatile private var generation: Long = 0L
 
     companion object {
         /** Max staleness of last_state.ts between writes; 5× inside TripRecorder's 5-min cold-start gap. */
@@ -52,39 +56,94 @@ class SharedAdaptiveLoop constructor(
         private const val TAG = "SharedAdaptiveLoop"
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Synchronized
     fun start(scope: CoroutineScope): Job {
         job?.takeIf { it.isActive }?.let { return it }
-        job = scope.launch(dispatcher) { runLoop() }
+        val myGeneration = ++generation
+        // A service restart must wait for a genuinely new vehicle read. Replaying the previous
+        // service instance's last value would make stale speed/SOC look freshly sampled.
+        _flow.resetReplayCache()
+        _connected.value = false
+        job = scope.launch(dispatcher) { runLoop(myGeneration) }
         return job!!
     }
 
-    fun stop() { job?.cancel(); job = null }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Synchronized
+    fun stop() {
+        // Invalidate before cancelling: a vendor fetch can ignore cancellation and return later.
+        // Its generation check then prevents it from publishing into a newer service lifecycle.
+        generation++
+        job?.cancel()
+        job = null
+        _flow.resetReplayCache()
+        _connected.value = false
+    }
 
-    private suspend fun runLoop() {
+    private suspend fun runLoop(myGeneration: Long) {
         var consecutiveNull = 0
-        while (true) {
-            val data = runCatching { parsReader.fetch() }.getOrNull()
+        while (isCurrent(myGeneration)) {
+            val data = try {
+                parsReader.fetch()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w(TAG, "fetch failed, loop continues", error)
+                null
+            }
+            currentCoroutineContext().ensureActive()
+            if (!isCurrent(myGeneration)) return
             if (data == null) {
                 consecutiveNull++
-                _connected.value = false
+                if (!markDisconnectedIfCurrent(myGeneration)) return
                 val backoff = (cadence.intervalFor(LoopState.IDLE) * pow15(consecutiveNull))
                     .coerceAtMost(CadenceConfig.MAX_POLL_INTERVAL_MS)
                 delay(backoff)
                 continue
             }
             consecutiveNull = 0
-            _connected.value = true
-            _flow.emit(data)
-            runCatching { persistSnapshot(data) }
-                .onFailure { Log.w(TAG, "persistSnapshot failed, loop continues", it) }
+            if (!publishIfCurrent(myGeneration, data)) return
+            currentCoroutineContext().ensureActive()
+            if (!isCurrent(myGeneration)) return
+            try {
+                persistSnapshot(data, myGeneration)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w(TAG, "persistSnapshot failed, loop continues", error)
+            }
+            currentCoroutineContext().ensureActive()
+            if (!isCurrent(myGeneration)) return
             delay(cadence.intervalFor(LoopFsm.classify(data)))
         }
     }
 
-    private suspend fun persistSnapshot(data: DiParsData) {
+    private fun isCurrent(candidate: Long): Boolean = candidate == generation
+
+    /** Atomic with start/stop so an old loop cannot repopulate replay after it was cleared. */
+    @Synchronized
+    private fun publishIfCurrent(candidate: Long, data: DiParsData): Boolean {
+        if (!isCurrent(candidate)) return false
+        _connected.value = true
+        _flow.tryEmit(data)
+        return true
+    }
+
+    @Synchronized
+    private fun markDisconnectedIfCurrent(candidate: Long): Boolean {
+        if (!isCurrent(candidate)) return false
+        _connected.value = false
+        return true
+    }
+
+    private suspend fun persistSnapshot(data: DiParsData, myGeneration: Long) {
+        currentCoroutineContext().ensureActive()
+        if (!isCurrent(myGeneration)) return
         val now = System.currentTimeMillis()
         val prev = lastStateDao.getCurrent()
+        currentCoroutineContext().ensureActive()
+        if (!isCurrent(myGeneration)) return
         val ignition = data.powerState
         // Skip the fsync write when nothing changed and the heartbeat is fresh.
         // (Spelled as one positive condition so the compiler smart-casts prev.)
@@ -95,6 +154,8 @@ class SharedAdaptiveLoop constructor(
             prev.ignition == ignition &&
             now - prev.ts < HEARTBEAT_MS
         ) return
+        currentCoroutineContext().ensureActive()
+        if (!isCurrent(myGeneration)) return
         lastStateDao.upsert(
             LastStateEntity(
                 id = 1,

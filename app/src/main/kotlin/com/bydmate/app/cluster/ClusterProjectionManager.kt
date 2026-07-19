@@ -72,6 +72,7 @@ object ClusterProjectionManager {
     private const val SURFACE_TIMEOUT_MS = 3000L              // give up if the overlay Surface never gets created
     private const val DISPLAY_WAIT_TIMEOUT_MS = 3000L         // DiLink may publish the container display asynchronously
     private const val DISPLAY_WAIT_INTERVAL_MS = 100L
+    private const val SURFACE_DESTROYED_FAILURE = "surface_destroyed"
 
     const val PREFS_NAME = "cluster_projection"
     // Master enable for star-controlled projection (settings switch). Read by SteeringWheelKeyService.
@@ -942,12 +943,34 @@ object ClusterProjectionManager {
                 override fun surfaceDestroyed(holder: SurfaceHolder) {
                     Log.d(TAG, "surfaceDestroyed")
                     // Safety net: if the system tore the Surface down outside hideOverlay(), the
-                    // VirtualDisplay would render into a dead Surface — release it (mirrors OpenBYD).
+                    // VirtualDisplay would render into a dead Surface. Release it and make the
+                    // public state honest so the next FULLSCREEN request rebuilds the projection
+                    // instead of being discarded as an idempotent no-op.
                     // Identity guard: during an OFF->FULLSCREEN re-projection this OLD overlay's
                     // callback must not release the NEW VirtualDisplay created for the next overlay.
                     scope.launch {
                         mutex.withLock {
-                            if (overlayView === container) releaseRemoteDisplayIfAlive(helper)
+                            if (overlayView === container) {
+                                Log.w(TAG, "active projection Surface was destroyed unexpectedly")
+                                hideOverlay(helper)
+                                runCatching { pullBackToMain(context, helper, focus = false) }
+                                    .onFailure {
+                                        Log.w(TAG, "surface loss pull-back failed: ${it.message}")
+                                    }
+                                if (autoContainerEnabled(context)) {
+                                    powerDownCompositor(context, helper)
+                                }
+                                projectedPackage = null
+                                currentMode = ClusterMode.OFF
+                                lastFailure = SURFACE_DESTROYED_FAILURE
+                                _diagnosticState.update {
+                                    it.copy(
+                                        phase = ClusterProjectionPhase.FAILED,
+                                        attemptFinishedAtMs = System.currentTimeMillis(),
+                                        lastFailure = SURFACE_DESTROYED_FAILURE,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1042,15 +1065,6 @@ object ClusterProjectionManager {
                 }
             }
             overlayView = null
-        }
-    }
-
-    /** surfaceDestroyed safety net; caller holds [mutex]. No-op once the id is already cleared. */
-    private suspend fun releaseRemoteDisplayIfAlive(helper: HelperClient) {
-        val id = remoteDisplayId
-        if (id != -1) {
-            Log.d(TAG, "surfaceDestroyed: releasing leaked VirtualDisplay $id")
-            if (helper.releaseVirtualDisplay(id)) remoteDisplayId = -1
         }
     }
 

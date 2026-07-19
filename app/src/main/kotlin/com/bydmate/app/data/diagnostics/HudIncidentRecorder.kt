@@ -70,7 +70,24 @@ internal object HudIncidentClassifier {
     const val OUTAGE_CONFIRM_MS = 5_000L
     const val RECENT_SERVICE_START_MS = 15_000L
     const val RECENT_WAZE_EVENT_MS = 15_000L
-    const val WAZE_DATA_STALE_MS = 5_000L
+    const val WAZE_DATA_STALE_MS = NavGuidanceHub.ACTIVE_TIMEOUT_MS
+
+    /**
+     * The HUD controller deliberately repeats the current maneuver between event-driven Waze
+     * updates. A successful recent SOME/IP frame therefore proves delivery health even when the
+     * source event itself is older than five seconds. Source loss is classified only after an
+     * actual frame outage or when the guidance hub transitions inactive at its own TTL.
+     */
+    fun deliveryHealthy(sample: HudHealthSample): Boolean {
+        val frameHealthy = sample.hudStatus == HudController.Status.ON &&
+            (sample.lastFrameSuccessAgeMs ?: Long.MAX_VALUE) < 1_500L
+        if (!frameHealthy) return false
+        if (sample.routeSource == NavGuidanceHub.Source.A11Y.name) {
+            if (!sample.accessibilityConnected || !sample.feedEnabled) return false
+            if (sample.wazeWindowReachable == false) return false
+        }
+        return true
+    }
 
     fun cause(sample: HudHealthSample): HudIncidentCause {
         val recentExplicitRouteEnd = sample.wazeNoGuidanceAgeMs != null &&
@@ -167,7 +184,7 @@ class HudIncidentRecorder @Inject constructor(
     private var activeIncidentAtMs: Long? = null
     private var lastRouteActive: Boolean = false
     private var lastRouteSource: String? = null
-    private var lastRouteAgeMs: Long? = null
+    private var lastRouteUpdatedAtMs: Long? = null
     private var suspectedRouteLoss: Boolean = false
     private var pendingRestartReferenceAtMs: Long? = null
     private var lastMarkerPersistElapsedMs: Long = 0L
@@ -182,7 +199,7 @@ class HudIncidentRecorder @Inject constructor(
         activeIncidentAtMs = null
         lastRouteActive = false
         lastRouteSource = null
-        lastRouteAgeMs = null
+        lastRouteUpdatedAtMs = null
         suspectedRouteLoss = false
 
         val now = System.currentTimeMillis()
@@ -243,7 +260,7 @@ class HudIncidentRecorder @Inject constructor(
             resetRuntimeOutage(nowElapsed)
             lastRouteActive = false
             lastRouteSource = null
-            lastRouteAgeMs = null
+            lastRouteUpdatedAtMs = null
             pendingRestartReferenceAtMs = null
             return
         }
@@ -266,11 +283,11 @@ class HudIncidentRecorder @Inject constructor(
         if (sample.routeActive) {
             lastRouteActive = true
             lastRouteSource = sample.routeSource
-            lastRouteAgeMs = sample.routeAgeMs
+            lastRouteUpdatedAtMs = sample.routeAgeMs?.let { ageMs ->
+                sample.nowMs - ageMs.coerceAtLeast(0L)
+            }
             suspectedRouteLoss = false
-            val frameHealthy = sample.hudStatus == HudController.Status.ON &&
-                (sample.lastFrameSuccessAgeMs ?: Long.MAX_VALUE) < 1_500L
-            if (frameHealthy) {
+            if (HudIncidentClassifier.deliveryHealthy(sample)) {
                 markRuntimeRecovered(sample.nowMs, nowElapsed)
                 return
             }
@@ -297,13 +314,15 @@ class HudIncidentRecorder @Inject constructor(
             val cause = HudIncidentClassifier.routeLossCause(
                 sample,
                 lastRouteSource,
-                lastRouteAgeMs,
+                lastRouteUpdatedAtMs?.let { updatedAtMs ->
+                    (sample.nowMs - updatedAtMs).coerceAtLeast(0L)
+                },
             )
             if (cause == null) {
                 // Recent readable Waze evidence says the route ended normally.
                 suspectedRouteLoss = false
                 lastRouteSource = null
-                lastRouteAgeMs = null
+                lastRouteUpdatedAtMs = null
                 resetRuntimeOutage(nowElapsed)
                 return
             }
@@ -315,7 +334,7 @@ class HudIncidentRecorder @Inject constructor(
                 record(sample, cause, outageMs)
                 suspectedRouteLoss = false
                 lastRouteSource = null
-                lastRouteAgeMs = null
+                lastRouteUpdatedAtMs = null
             }
         }
     }

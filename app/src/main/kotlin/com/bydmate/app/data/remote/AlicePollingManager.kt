@@ -5,6 +5,7 @@ import com.bydmate.app.data.automation.ActionDispatcher
 import com.bydmate.app.data.repository.SettingsRepository
 import com.bydmate.app.data.vehicle.VehicleApi
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -12,14 +13,54 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/** Keeps a value scoped to one lifecycle generation and rejects stale publications. */
+internal class LatestDataGeneration<T>(
+    private val maxAgeMs: Long,
+) {
+    private var generation = 0L
+    private var value: T? = null
+    private var updatedAtMs: Long? = null
+
+    @Synchronized
+    fun begin(): Long {
+        generation++
+        value = null
+        updatedAtMs = null
+        return generation
+    }
+
+    @Synchronized
+    fun publish(candidateGeneration: Long, newValue: T, nowMs: Long = System.currentTimeMillis()) {
+        if (candidateGeneration != generation) return
+        value = newValue
+        updatedAtMs = nowMs
+    }
+
+    @Synchronized
+    fun current(nowMs: Long = System.currentTimeMillis()): T? {
+        val timestamp = updatedAtMs ?: return null
+        val ageMs = nowMs - timestamp
+        return value?.takeIf { ageMs in 0L..maxAgeMs }
+    }
+
+    @Synchronized
+    fun clear() {
+        generation++
+        value = null
+        updatedAtMs = null
+    }
+}
 
 @Singleton
 class AlicePollingManager @Inject constructor(
@@ -28,39 +69,73 @@ class AlicePollingManager @Inject constructor(
     private val sharedAdaptiveLoop: com.bydmate.app.data.loop.SharedAdaptiveLoop,
     private val vehicleApi: VehicleApi,
 ) {
+    internal data class RemoteCommand(val id: String, val command: String)
+
     // Fast client with short timeouts for polling (main httpClient has 15s)
-    private val pollClient = OkHttpClient.Builder()
+    private val pollClient = httpClient.newBuilder()
         .connectTimeout(3, TimeUnit.SECONDS)
         .readTimeout(3, TimeUnit.SECONDS)
         .writeTimeout(3, TimeUnit.SECONDS)
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
     companion object {
         private const val TAG = "AlicePolling"
         private const val POLL_INTERVAL_MS = 2500L
         private const val STATE_REPORT_EVERY = 10 // every 10th poll (~25s)
+        internal const val MAX_COMMANDS_PER_POLL = 20
+        private const val MAX_COMMAND_ENTRIES_SCANNED = MAX_COMMANDS_PER_POLL * 4
+
+        /** Selects at most [MAX_COMMANDS_PER_POLL] commands and executes each response ID once. */
+        internal fun selectUniqueCommands(
+            commands: Sequence<RemoteCommand>,
+            limit: Int = MAX_COMMANDS_PER_POLL,
+        ): List<RemoteCommand> {
+            require(limit > 0)
+            val selected = ArrayList<RemoteCommand>(limit)
+            val seenIds = HashSet<String>()
+            var scanned = 0
+            for (candidate in commands) {
+                if (++scanned > MAX_COMMAND_ENTRIES_SCANNED) break
+                val id = candidate.id.trim()
+                val command = candidate.command.trim()
+                if (id.isEmpty() || command.isEmpty() || !seenIds.add(id)) continue
+                selected += RemoteCommand(id, command)
+                if (selected.size == limit) break
+            }
+            return selected
+        }
     }
 
     private var scope: CoroutineScope? = null
     private var pollingJob: Job? = null
     private var pollCount = 0
+    private val callLock = Any()
+    private var activeCall: Call? = null
+    @Volatile private var stopped = true
 
-    // Set by TrackingService from DiPlus data — no extra DiPlus calls
-    @Volatile var latestData: DiParsData? = null
+    private val latestDataState = LatestDataGeneration<DiParsData>(maxAgeMs = 5_000L)
+    val latestData: DiParsData? get() = latestDataState.current()
 
+    @Synchronized
     fun start() {
         if (pollingJob?.isActive == true) return
+        val dataGeneration = latestDataState.begin()
+        synchronized(callLock) { stopped = false }
         val s = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope = s
-        // Flow collector: Alice's own subscription to the shared loop so it
-        // doesn't depend on TrackingService writing latestData on every tick.
+        // Flow collector: Alice owns a generation-scoped subscription to the shared loop.
+        // A late emission from a cancelled collector can never repopulate a restarted manager.
         s.launch {
-            sharedAdaptiveLoop.flow.collect { data -> latestData = data }
+            sharedAdaptiveLoop.flow.collect { data -> latestDataState.publish(dataGeneration, data) }
         }
         pollingJob = s.launch {
             Log.i(TAG, "Polling started")
             while (true) {
                 try {
                     poll()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "Poll error: ${e.message}")
                 }
@@ -69,9 +144,17 @@ class AlicePollingManager @Inject constructor(
         }
     }
 
+    @Synchronized
     fun stop() {
+        // Invalidate data before cancellation: a vendor-backed producer may return after stop().
+        latestDataState.clear()
         pollingJob?.cancel()
         pollingJob = null
+        synchronized(callLock) {
+            stopped = true
+            activeCall?.cancel()
+            activeCall = null
+        }
         scope?.cancel()
         scope = null
         Log.i(TAG, "Polling stopped")
@@ -90,16 +173,17 @@ class AlicePollingManager @Inject constructor(
             .build()
 
         val t0 = System.currentTimeMillis()
-        val (elapsed, commands) = pollClient.newCall(request).execute().use { response ->
+        val responseData = executeRequest(request) { response ->
             val ms = System.currentTimeMillis() - t0
             if (!response.isSuccessful) {
                 Log.w(TAG, "Poll HTTP ${response.code} (${ms}ms)")
-                return
+                return@executeRequest null
             }
-            val body = response.body?.string() ?: return
+            val body = response.body?.string() ?: return@executeRequest null
             val json = JSONObject(body)
-            ms to (json.optJSONArray("commands") ?: return)
-        }
+            ms to (json.optJSONArray("commands") ?: return@executeRequest null)
+        } ?: return
+        val (elapsed, commands) = responseData
 
         if (commands.length() == 0) {
             Log.d(TAG, "Poll OK (${elapsed}ms) - empty")
@@ -111,19 +195,29 @@ class AlicePollingManager @Inject constructor(
             }
             return
         }
-        Log.i(TAG, "Received ${commands.length()} command(s) (${elapsed}ms)")
+        val selected = selectUniqueCommands(
+            (0 until commands.length()).asSequence().mapNotNull { index ->
+                commands.optJSONObject(index)?.let { command ->
+                    RemoteCommand(
+                        id = command.optString("id"),
+                        command = command.optString("command"),
+                    )
+                }
+            }
+        )
+        Log.i(TAG, "Received ${commands.length()} command(s), selected ${selected.size} (${elapsed}ms)")
 
         val ackIds = mutableListOf<String>()
-        for (i in 0 until commands.length()) {
-            val cmd = commands.getJSONObject(i)
-            val id = cmd.getString("id")
-            val command = cmd.getString("command")
+        for ((id, command) in selected) {
             Log.i(TAG, "Executing: '$command' (id=$id)")
-            // Alice bypasses ActionDispatcher (raw vehicleApi), so the door-unlock
-            // speed gate is applied here explicitly. Ack anyway so VPS won't retry.
-            val unlockBlock = ActionDispatcher.unlockGateBlockReason(command, latestData?.speed)
-            if (unlockBlock != null) {
-                Log.w(TAG, "Blocked: '$command' → $unlockBlock")
+            // Alice still uses the raw VehicleApi transport, but every command must pass the
+            // same complete safety policy as voice, manual actions and automations.
+            val blockReason = ActionDispatcher.safetyBlockReason(
+                command = command,
+                data = latestData,
+            )
+            if (blockReason != null) {
+                Log.w(TAG, "Blocked: '$command' → $blockReason")
                 ackIds.add(id)
                 continue
             }
@@ -162,8 +256,10 @@ class AlicePollingManager @Inject constructor(
                 .header("X-Api-Key", apiKey)
                 .post(json.toString().toRequestBody("application/json".toMediaType()))
                 .build()
-            pollClient.newCall(request).execute().close()
+            executeRequest(request) { Unit }
             Log.d(TAG, "State reported")
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "State report failed: ${e.message}")
         }
@@ -179,10 +275,31 @@ class AlicePollingManager @Inject constructor(
                 .header("X-Api-Key", apiKey)
                 .post(json.toString().toRequestBody("application/json".toMediaType()))
                 .build()
-            pollClient.newCall(request).execute().close()
+            executeRequest(request) { Unit }
             Log.i(TAG, "Acked ${ids.size} command(s)")
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Ack failed: ${e.message}")
+        }
+    }
+
+    /** Owns the whole response lifetime so stop() can cancel body reads as well as connect(). */
+    private fun <T> executeRequest(request: Request, block: (Response) -> T): T {
+        val call = pollClient.newCall(request)
+        synchronized(callLock) {
+            if (stopped) {
+                call.cancel()
+                throw CancellationException("Alice polling stopped")
+            }
+            activeCall = call
+        }
+        return try {
+            call.execute().use(block)
+        } finally {
+            synchronized(callLock) {
+                if (activeCall === call) activeCall = null
+            }
         }
     }
 }

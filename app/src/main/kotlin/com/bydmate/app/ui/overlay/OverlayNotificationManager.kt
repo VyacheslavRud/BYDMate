@@ -67,6 +67,8 @@ object OverlayNotificationManager {
         composeView.setViewTreeSavedStateRegistryOwner(lifecycleOwner)
 
         var dismissed = false
+        val handler = Handler(Looper.getMainLooper())
+        var timeoutRunnable: Runnable? = null
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -86,6 +88,8 @@ object OverlayNotificationManager {
         val dismiss: () -> Unit = {
             if (!dismissed) {
                 dismissed = true
+                timeoutRunnable?.let(handler::removeCallbacks)
+                timeoutRunnable = null
                 try {
                     lifecycleOwner.onDestroy()
                     wm.removeView(composeView)
@@ -129,8 +133,18 @@ object OverlayNotificationManager {
             }
         }
 
-        wm.addView(composeView, params)
-        Handler(Looper.getMainLooper()).postDelayed(dismiss, AUTO_DISMISS_MS)
+        try {
+            wm.addView(composeView, params)
+        } catch (error: Throwable) {
+            rollbackOverlayAttach(
+                removeView = { wm.removeView(composeView) },
+                destroyLifecycle = lifecycleOwner::onDestroy,
+            )
+            throw error
+        }
+        timeoutRunnable = Runnable { dismiss() }.also {
+            handler.postDelayed(it, AUTO_DISMISS_MS)
+        }
     }
 
     /** Rule-level chime: played once per rule firing by AutomationEngine when rule.playSound. */

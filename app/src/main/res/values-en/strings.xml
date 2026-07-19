@@ -229,6 +229,7 @@
     <string name="charges_edit_cost_label">Cost:</string>
     <string name="charges_edit_tariff_label">%1$s/kWh:</string>
     <string name="charges_edit_save_button">Save</string>
+    <string name="charges_edit_soc_error">SOC must be from 0 to 100, and ending SOC must be greater than starting SOC</string>
     <string name="automation_tab_title">Automation</string>
     <string name="automation_filter_all">All</string>
     <string name="automation_filter_active">Active</string>
@@ -386,6 +387,9 @@
     <string name="welcome_model_song_label">Song / other</string>
     <string name="welcome_model_change_later">You can change this later in settings.</string>
     <string name="welcome_next_button">Next</string>
+    <string name="welcome_title">Welcome to %1$s!</string>
+    <string name="welcome_battery_capacity_error">Enter a capacity from 1 to 250 kWh</string>
+    <string name="welcome_tariff_error">Enter a non-negative number</string>
     <string name="welcome_battery_section_title">Battery</string>
     <string name="welcome_battery_capacity_hint">Sea Lion 07 EV 2025 (610 Zhijia RWD): 80.64 kWh</string>
     <string name="welcome_tariff_section_title">Tariffs</string>
@@ -840,7 +844,7 @@
     <string name="auto_msg_phone_invalid">Action #%1$d: phone number is invalid</string>
     <string name="auto_msg_nav_dest_missing">Action #%1$d: navigation destination not selected</string>
     <string name="auto_msg_url_empty">Action #%1$d: URL is empty</string>
-    <string name="auto_msg_url_no_scheme">Action #%1$d: URL must contain a scheme (http://, yandexmusic://, tel:, ...)</string>
+    <string name="auto_msg_url_no_scheme">Action #%1$d: only a valid web, Waze, geo, or Yandex Music URL is allowed</string>
     <string name="auto_msg_ymusic_mode_missing">Action #%1$d: Yandex Music mode not selected</string>
     <string name="auto_msg_sentry_invalid">Action #%1$d: invalid sentry mode state</string>
     <string name="auto_msg_speak_text_empty">Action #%1$d: speak text is not set</string>

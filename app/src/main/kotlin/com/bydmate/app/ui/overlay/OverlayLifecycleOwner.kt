@@ -28,3 +28,16 @@ internal class OverlayLifecycleOwner : LifecycleOwner, SavedStateRegistryOwner {
         lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
     }
 }
+
+/**
+ * Best-effort rollback for WindowManager implementations that throw after partially attaching a
+ * view. Both steps are attempted independently so a failed remove cannot leak the Compose
+ * lifecycle, and lifecycle cleanup cannot prevent removal of an attached window.
+ */
+internal fun rollbackOverlayAttach(
+    removeView: () -> Unit,
+    destroyLifecycle: () -> Unit,
+) {
+    runCatching(removeView)
+    runCatching(destroyLifecycle)
+}

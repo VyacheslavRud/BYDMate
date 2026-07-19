@@ -190,14 +190,16 @@ class ActionDispatcher @Inject constructor(
         private val POSITION_OPEN = Regex("打开(\\d+)")
 
         /**
-         * Full safety gate for a raw vehicle command: blocked patterns, frunk
+         * Full safety gate for a raw vehicle command: blocked patterns, front/rear trunk
          * parked-only, door unlock above 30 km/h, window/sunroof speed limits.
-         * Frunk and unlock fail closed on missing telemetry; window/sunroof
-         * checks are skipped when [data] is null (existing semantics -- callers
-         * that need fail-closed window behavior check the snapshot themselves).
+         * Every opening/unlock operation fails closed on missing telemetry. Closing an
+         * aperture and commands unrelated to vehicle motion remain available without data.
          * Pure function -- unit-testable and reusable by manual dispatch paths.
          */
-        internal fun safetyBlockReason(command: String, data: DiParsData?): String? {
+        internal fun safetyBlockReason(
+            command: String,
+            data: DiParsData?,
+        ): String? {
             if (BLOCKED_PATTERNS.any { command.contains(it) }) return "Запрещённая команда"
             // Frunk is a powered external panel — fail SAFE. Checked BEFORE the data==null
             // guard so missing telemetry (or unknown speed) blocks the open rather than
@@ -206,10 +208,17 @@ class ActionDispatcher @Inject constructor(
                 val speed = data?.speed ?: return "Скорость неизвестна, передний багажник не открыть"
                 if (speed > 0) return "Передний багажник открывается только на стоянке (скорость $speed км/ч)"
             }
+            // Alice has no on-screen confirmation step. The rear tailgate therefore shares the
+            // same fail-closed standstill policy as the front trunk in the reusable raw-command
+            // gate. This also protects restored/legacy rules and every other dispatch origin.
+            if (isRearTrunkOpenCommand(command)) {
+                val speed = data?.speed ?: return "Скорость неизвестна, задний багажник не открыть"
+                if (speed > 0) return "Задний багажник открывается только на стоянке (скорость $speed км/ч)"
+            }
             // Door unlock is a safety gate like the frunk: checked BEFORE the
             // data==null guard so unknown speed blocks the unlock.
             unlockGateBlockReason(command, data?.speed)?.let { return it }
-            if (data == null) return null
+            if (data == null) return speedGateBlockReason(command, speed = null)
             return speedGateBlockReason(command, data.speed)
         }
 
@@ -463,8 +472,11 @@ class ActionDispatcher @Inject constructor(
 
     private suspend fun dial(action: ActionDef): DispatchResult {
         val payload = parsePayload(action.payload)
-        val phone = payload?.optString("phone")?.takeIf(String::isNotBlank)
+        val phone = payload?.optString("phone")?.trim()?.takeIf(String::isNotBlank)
             ?: return DispatchResult(false, "phone не задан")
+        if (!ExternalActionInputValidator.isValidPhone(phone)) {
+            return DispatchResult(false, "Некорректный номер телефона")
+        }
         val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         val result = tryStartActivity(intent, "dial:$phone")
@@ -541,8 +553,11 @@ class ActionDispatcher @Inject constructor(
 
     private suspend fun openUrl(action: ActionDef): DispatchResult {
         val payload = parsePayload(action.payload)
-        val url = payload?.optString("url")?.takeIf(String::isNotBlank)
+        val url = payload?.optString("url")?.trim()?.takeIf(String::isNotBlank)
             ?: return DispatchResult(false, "url не задан")
+        if (!ExternalActionInputValidator.isValidUrl(url)) {
+            return DispatchResult(false, "Недопустимая или некорректная ссылка")
+        }
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         val result = tryStartActivity(intent, "url:$url")

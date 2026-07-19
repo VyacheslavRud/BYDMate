@@ -235,6 +235,7 @@
     <string name="charges_edit_cost_label">费用：</string>
     <string name="charges_edit_tariff_label">%1$s/kWh：</string>
     <string name="charges_edit_save_button">保存</string>
+    <string name="charges_edit_soc_error">SOC 必须在 0 到 100 之间，且结束 SOC 必须大于开始 SOC</string>
 
     <!-- Automation screen -->
     <string name="automation_tab_title">自动化</string>
@@ -428,6 +429,9 @@
     <string name="welcome_model_song_label">宋 / 其他</string>
     <string name="welcome_model_change_later">稍后可在设置中更改。</string>
     <string name="welcome_next_button">下一步</string>
+    <string name="welcome_title">欢迎使用 %1$s！</string>
+    <string name="welcome_battery_capacity_error">请输入 1 到 250 kWh 的容量</string>
+    <string name="welcome_tariff_error">请输入非负数</string>
     <string name="welcome_battery_section_title">电池</string>
     <string name="welcome_battery_capacity_hint">海狮 07 EV 2025（610 智驾版后驱）：80.64 kWh</string>
     <string name="welcome_tariff_section_title">电价</string>
@@ -945,7 +949,7 @@
     <string name="auto_msg_phone_invalid">动作 #%1$d：电话号码不正确</string>
     <string name="auto_msg_nav_dest_missing">动作 #%1$d：未选择导航目的地</string>
     <string name="auto_msg_url_empty">动作 #%1$d：URL 为空</string>
-    <string name="auto_msg_url_no_scheme">动作 #%1$d：URL 必须包含协议头（http://, yandexmusic://, tel:, ...）</string>
+    <string name="auto_msg_url_no_scheme">动作 #%1$d：仅允许有效的网页、Waze、geo 或 Yandex Music 链接</string>
     <string name="auto_msg_ymusic_mode_missing">动作 #%1$d：未选择 Yandex 音乐模式</string>
     <string name="auto_msg_sentry_invalid">动作 #%1$d：哨兵模式状态无效</string>
     <string name="auto_msg_speak_text_empty">动作 #%1$d：未设置朗读文本</string>

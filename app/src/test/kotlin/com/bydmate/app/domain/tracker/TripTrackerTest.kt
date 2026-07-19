@@ -3,13 +3,17 @@ package com.bydmate.app.domain.tracker
 import android.location.Location
 import com.bydmate.app.data.local.dao.TripPointDao
 import com.bydmate.app.data.remote.diParsData
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.unmockkAll
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.fail
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -100,6 +104,68 @@ class TripTrackerTest {
         nowMs = 7_000L
         tracker.onData(data, null) // DRIVING
 
+        assertEquals(TripState.DRIVING, tracker.state.value)
+    }
+
+    @Test
+    fun `flushPending persists points without ending a driving session`() = runTest {
+        val tracker = tracker()
+        val data = diParsData(speed = 54)
+        val loc = movingLocation(15f)
+
+        nowMs = 1_000L
+        tracker.onData(data, loc)
+        nowMs = 7_000L
+        tracker.onData(data, loc)
+        val startedAt = tracker.tripStartedAt.value
+
+        tracker.flushPending()
+
+        coVerify(exactly = 1) { dao.insertAll(match { it.size == 1 }) }
+        assertEquals(TripState.DRIVING, tracker.state.value)
+        assertEquals(startedAt, tracker.tripStartedAt.value)
+    }
+
+    @Test
+    fun `forceEnd remains terminal and moves the tracker to idle`() = runTest {
+        val tracker = tracker()
+        val data = diParsData(speed = 54)
+        val loc = movingLocation(15f)
+
+        nowMs = 1_000L
+        tracker.onData(data, loc)
+        nowMs = 7_000L
+        tracker.onData(data, loc)
+
+        tracker.forceEnd(data, loc)
+
+        coVerify(exactly = 1) { dao.insertAll(match { it.size == 1 }) }
+        assertEquals(TripState.IDLE, tracker.state.value)
+        assertEquals(null, tracker.tripStartedAt.value)
+    }
+
+    @Test
+    fun `cancelled flush propagates and restores its pending batch`() = runTest {
+        val tracker = tracker()
+        val data = diParsData(speed = 54)
+        val loc = movingLocation(15f)
+        nowMs = 1_000L
+        tracker.onData(data, loc)
+        nowMs = 7_000L
+        tracker.onData(data, loc)
+        coEvery { dao.insertAll(any()) } throws CancellationException("timeout")
+
+        try {
+            tracker.flushPending()
+            fail("Expected cancellation to propagate")
+        } catch (cancelled: CancellationException) {
+            assertEquals("timeout", cancelled.message)
+        }
+
+        coEvery { dao.insertAll(any()) } returns Unit
+        tracker.flushPending()
+
+        coVerify(exactly = 2) { dao.insertAll(match { it.size == 1 }) }
         assertEquals(TripState.DRIVING, tracker.state.value)
     }
 }

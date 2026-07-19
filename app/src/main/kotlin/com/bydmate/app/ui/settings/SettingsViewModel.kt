@@ -49,6 +49,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -76,6 +77,7 @@ import java.io.FileWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 /**
@@ -601,7 +603,7 @@ class SettingsViewModel @Inject constructor(
      * Creates two files: bydmate_trips_<timestamp>.csv and bydmate_charges_<timestamp>.csv.
      */
     fun exportCsv() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _uiState.update { it.copy(exportStatus = appContext.getString(R.string.settings_export_in_progress)) }
 
             try {
@@ -1401,9 +1403,13 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    private var logProcess: Process? = null
-    private var logFile: File? = null
-    private var logAutoStopJob: Job? = null
+    private data class LogRecordingSession(
+        val file: File,
+        val process: Process,
+        val pipeThread: Thread,
+    )
+
+    private val logRecordingLifecycle = LogRecordingLifecycle<LogRecordingSession>()
 
     companion object {
         private const val TAG = "SettingsViewModel"
@@ -1582,7 +1588,9 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun startLogRecording() {
-        viewModelScope.launch(Dispatchers.IO) {
+        val token = logRecordingLifecycle.beginStart() ?: return
+        val startJob = viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            var localSession: LogRecordingSession? = null
             try {
                 val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
                 val fileName = "bydmate_logs_$timestamp.txt"
@@ -1596,21 +1604,38 @@ class SettingsViewModel @Inject constructor(
                 }
 
                 if (saveDir == null) {
-                    _uiState.update { it.copy(logSaveStatus = appContext.getString(R.string.settings_log_error_no_fs_access)) }
+                    failLogRecordingStart(
+                        token,
+                        appContext.getString(R.string.settings_log_error_no_fs_access),
+                    )
                     return@launch
                 }
 
-                logFile = File(saveDir, fileName)
+                val targetFile = File(saveDir, fileName)
 
                 // Diagnostic header — written directly to the file before the
                 // logcat pipe so issue #19-style reports include device / setting
                 // context up front instead of being buried in logcat noise.
-                writeDiagnosticHeader(logFile!!)
+                writeDiagnosticHeader(targetFile)
+
+                if (!logRecordingLifecycle.isStarting(token)) return@launch
 
                 // Clear logcat buffer and start continuous recording
-                Runtime.getRuntime().exec(arrayOf("logcat", "-c")).waitFor()
+                val clearProcess = Runtime.getRuntime().exec(arrayOf("logcat", "-c"))
+                try {
+                    while (
+                        logRecordingLifecycle.isStarting(token) &&
+                        !clearProcess.waitFor(100, TimeUnit.MILLISECONDS)
+                    ) {
+                        // Polling makes this blocking process responsive to stop/onCleared.
+                    }
+                } finally {
+                    terminateProcess(clearProcess)
+                }
 
-                logProcess = Runtime.getRuntime().exec(arrayOf(
+                if (!logRecordingLifecycle.isStarting(token)) return@launch
+
+                val logProcess = Runtime.getRuntime().exec(arrayOf(
                     "logcat", "-v", "time",
                     "-s", "BootReceiver:*",
                     "TrackingService:*", "TripTracker:*",
@@ -1639,16 +1664,15 @@ class SettingsViewModel @Inject constructor(
                 // Background thread to pipe logcat to file with size limit.
                 // Open in append mode so the diagnostic header written by
                 // writeDiagnosticHeader() is preserved instead of overwritten.
-                Thread {
+                val pipeThread = Thread({
                     try {
-                        logProcess?.inputStream?.bufferedReader()?.use { reader ->
-                            val target = logFile ?: return@Thread
-                            java.io.FileOutputStream(target, /* append = */ true)
+                        logProcess.inputStream.bufferedReader().use { reader ->
+                            java.io.FileOutputStream(targetFile, /* append = */ true)
                                 .bufferedWriter().use { writer ->
                                 var line = reader.readLine()
                                 while (line != null) {
                                     // Stop if file exceeds size limit
-                                    if (target.length() > LOG_MAX_SIZE_BYTES) {
+                                    if (targetFile.length() > LOG_MAX_SIZE_BYTES) {
                                         writer.write("--- LOG STOPPED: file size limit reached (50 MB) ---")
                                         writer.newLine()
                                         break
@@ -1660,47 +1684,152 @@ class SettingsViewModel @Inject constructor(
                                 }
                             }
                         }
-                    } catch (_: Exception) {}
-                }.start()
+                    } catch (_: Exception) {
+                        // Process teardown and stream closure are expected to end readLine().
+                    } finally {
+                        // A stale pipe can only stop the recorder that owns its token.
+                        stopLogRecording(token)
+                    }
+                }, "BYDMate-logcat-${token.value}").apply {
+                    isDaemon = true
+                }
+                localSession = LogRecordingSession(targetFile, logProcess, pipeThread)
+
+                if (!logRecordingLifecycle.activate(token, localSession)) {
+                    terminateLogRecordingSession(localSession)
+                    return@launch
+                }
+                if (!logRecordingLifecycle.runIfActive(token) { pipeThread.start() }) {
+                    terminateLogRecordingSession(localSession)
+                    return@launch
+                }
 
                 // Auto-stop after 2 hours
-                logAutoStopJob = viewModelScope.launch {
+                val autoStopJob = viewModelScope.launch(start = CoroutineStart.LAZY) {
                     delay(LOG_MAX_DURATION_MS)
-                    stopLogRecording()
+                    stopLogRecording(token)
+                }
+                if (logRecordingLifecycle.attachAutoStopJob(token, autoStopJob)) {
+                    autoStopJob.start()
+                } else {
+                    autoStopJob.cancel()
                 }
 
-                _uiState.update {
-                    it.copy(isRecordingLogs = true, logSaveStatus = appContext.getString(R.string.settings_log_recording_started, logFile?.absolutePath ?: "?"))
+                logRecordingLifecycle.runIfActive(token) {
+                    _uiState.update {
+                        it.copy(
+                            isRecordingLogs = true,
+                            logSaveStatus = appContext.getString(
+                                R.string.settings_log_recording_started,
+                                targetFile.absolutePath,
+                            ),
+                        )
+                    }
                 }
+            } catch (e: CancellationException) {
+                localSession?.let(::terminateLogRecordingSession)
+                throw e
             } catch (e: Exception) {
-                _uiState.update { it.copy(logSaveStatus = appContext.getString(R.string.settings_error_with_message, e.message ?: "?")) }
+                localSession?.let(::terminateLogRecordingSession)
+                failLogRecordingStart(
+                    token,
+                    appContext.getString(R.string.settings_error_with_message, e.message ?: "?"),
+                )
+            } finally {
+                logRecordingLifecycle.completeStart(token)
             }
+        }
+
+        if (logRecordingLifecycle.attachStartJob(token, startJob)) {
+            startJob.start()
+        } else {
+            startJob.cancel()
         }
     }
 
     fun stopLogRecording() {
-        logAutoStopJob?.cancel()
-        logAutoStopJob = null
+        stopLogRecording(expectedToken = null)
+    }
+
+    private fun stopLogRecording(expectedToken: LogRecordingLifecycle.Token?) {
+        val resources = logRecordingLifecycle.requestStop(expectedToken) ?: return
+        resources.autoStopJob?.cancel()
+        resources.startJob?.cancel()
+
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                logProcess?.destroy()
-                logProcess = null
+                // A stop can race with the narrow window after Runtime.exec() but before the
+                // session is published to LogRecordingLifecycle. Wait for the cancelled starter
+                // to run its local cleanup before allowing another recording to begin.
+                resources.startJob?.join()
+                resources.session?.let(::terminateLogRecordingSession)
 
-                val file = logFile
+                val file = resources.session?.file
                 val sizeKb = (file?.length() ?: 0) / 1024
 
-                _uiState.update {
-                    it.copy(
-                        isRecordingLogs = false,
-                        logSaveStatus = appContext.getString(R.string.settings_log_saved, file?.absolutePath ?: "?", sizeKb)
-                    )
+                logRecordingLifecycle.finishStop(resources.token) {
+                    _uiState.update {
+                        it.copy(
+                            isRecordingLogs = false,
+                            logSaveStatus = appContext.getString(
+                                R.string.settings_log_saved,
+                                file?.absolutePath ?: "?",
+                                sizeKb,
+                            ),
+                        )
+                    }
                 }
             } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(isRecordingLogs = false, logSaveStatus = appContext.getString(R.string.settings_error_with_message, e.message ?: "?"))
+                logRecordingLifecycle.finishStop(resources.token) {
+                    _uiState.update {
+                        it.copy(
+                            isRecordingLogs = false,
+                            logSaveStatus = appContext.getString(
+                                R.string.settings_error_with_message,
+                                e.message ?: "?",
+                            ),
+                        )
+                    }
                 }
             }
         }
+    }
+
+    private fun failLogRecordingStart(
+        token: LogRecordingLifecycle.Token,
+        message: String,
+    ) {
+        val resources = logRecordingLifecycle.requestStop(token) ?: return
+        resources.autoStopJob?.cancel()
+        resources.session?.let(::terminateLogRecordingSession)
+        logRecordingLifecycle.finishStop(token) {
+            _uiState.update {
+                it.copy(isRecordingLogs = false, logSaveStatus = message)
+            }
+        }
+    }
+
+    private fun terminateLogRecordingSession(session: LogRecordingSession) {
+        terminateProcess(session.process)
+        session.pipeThread.interrupt()
+    }
+
+    private fun terminateProcess(process: Process) {
+        runCatching { process.destroy() }
+        runCatching { process.inputStream.close() }
+        runCatching { process.errorStream.close() }
+        runCatching { process.outputStream.close() }
+        if (runCatching { process.isAlive }.getOrDefault(false)) {
+            runCatching { process.destroyForcibly() }
+        }
+    }
+
+    override fun onCleared() {
+        val resources = logRecordingLifecycle.clear()
+        resources?.autoStopJob?.cancel()
+        resources?.startJob?.cancel()
+        resources?.session?.let(::terminateLogRecordingSession)
+        super.onCleared()
     }
 
     fun showUpdateDialog() {

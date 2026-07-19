@@ -136,6 +136,29 @@ object ListeningOverlay {
         }
     }
 
+    /** Adds the two physical windows as one transaction. The second add can fail after the first
+     * one is already visible, so rollback is best-effort for both views and always destroys both
+     * lifecycle owners before the original error is rethrown. */
+    internal fun attachPairTransaction(
+        addFirst: () -> Unit,
+        addSecond: () -> Unit,
+        rollbackFirst: () -> Unit,
+        rollbackSecond: () -> Unit,
+        destroyOwners: () -> Unit,
+    ) {
+        try {
+            addFirst()
+            addSecond()
+        } catch (error: Throwable) {
+            // Try both rollbacks even when either add threw: vendor WindowManager can fail after
+            // partially attaching a view. removeView on a non-attached view is harmless here.
+            runCatching(rollbackSecond)
+            runCatching(rollbackFirst)
+            runCatching(destroyOwners)
+            throw error
+        }
+    }
+
     // The currently shown window, or null if none. Volatile: show() commits this on the main
     // thread (see show()'s withContext(Dispatchers.Main)) while hide() may run on any thread (the
     // continuous voice session's own coroutine dispatcher) -- a plain var would not guarantee hide()'s
@@ -321,8 +344,16 @@ object ListeningOverlay {
             setContent { DialogContent(youLabel, agentLabel) }
         }
 
-        wm.addView(pillView, pillParams)
-        wm.addView(dialogView, dialogParams)
+        attachPairTransaction(
+            addFirst = { wm.addView(pillView, pillParams) },
+            addSecond = { wm.addView(dialogView, dialogParams) },
+            rollbackFirst = { wm.removeView(pillView) },
+            rollbackSecond = { wm.removeView(dialogView) },
+            destroyOwners = {
+                pillOwner.onDestroy()
+                dialogOwner.onDestroy()
+            },
+        )
 
         return CompositeOverlayHandle(
             listOf(

@@ -4,6 +4,7 @@ import android.util.Log
 import com.bydmate.app.voice.TtsEngine
 import com.bydmate.app.voice.TtsGender
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,24 @@ class TtsRouter(
     // out after the caller already considers speech stopped.
     @Volatile private var cancelActive: (() -> Unit)? = null
 
+    private fun replaceActive(cancel: () -> Unit) {
+        val previous = synchronized(this) {
+            val current = cancelActive
+            cancelActive = cancel
+            current
+        }
+        previous?.invoke()
+    }
+
+    private fun cancelOnlineWork() {
+        val active = synchronized(this) {
+            val current = cancelActive
+            cancelActive = null
+            current
+        }
+        active?.invoke()
+    }
+
     /** Online source is ready when its backend is configured. There is no offline fallback
      *  any more (user contract: it either works or it does not), so the local model's
      *  presence is irrelevant; source "offline" still follows the delegate. */
@@ -50,15 +69,22 @@ class TtsRouter(
         if (text.isBlank()) return false
         val backend = onlineBackend()
         Log.i(TAG, "route: source=${backend?.id ?: OFFLINE}")
-        if (backend == null) return delegate.speak(text)
-        val job = scope.launch { speakOnline(backend, text) }
-        cancelActive = { job.cancel() }
+        if (backend == null) {
+            cancelOnlineWork()
+            return delegate.speak(text)
+        }
+        val job = scope.launch(start = CoroutineStart.LAZY) { speakOnline(backend, text) }
+        replaceActive { job.cancel() }
+        job.start()
         return true
     }
 
     /** Preview of a LOCAL voice row must bypass the online source and always speak through
      *  the offline delegate, regardless of which source is currently selected. */
-    override fun speakOffline(text: String): Boolean = delegate.speak(text)
+    override fun speakOffline(text: String): Boolean {
+        cancelOnlineWork()
+        return delegate.speak(text)
+    }
 
     private suspend fun speakOnline(backend: OnlineTtsBackend, text: String) {
         val pcm = synthesizeOrNull(backend, text)
@@ -68,8 +94,7 @@ class TtsRouter(
     }
 
     override fun stop() {
-        cancelActive?.invoke()
-        cancelActive = null
+        cancelOnlineWork()
         delegate.stop()
     }
 
@@ -86,9 +111,13 @@ class TtsRouter(
     override fun startQueue(): TtsEngine.SpeechQueue? {
         val backend = onlineBackend()
         Log.i(TAG, "route: source=${backend?.id ?: OFFLINE}")
-        if (backend == null) return delegate.startQueue()
+        if (backend == null) {
+            cancelOnlineWork()
+            return delegate.startQueue()
+        }
         val queue = OnlineSpeechQueue(backend)
-        cancelActive = { queue.cancel() }
+        replaceActive { queue.cancel() }
+        queue.start()
         return queue
     }
 
@@ -125,12 +154,12 @@ class TtsRouter(
         private val synthesized = Channel<Deferred<TtsPcm?>>(capacity = 1)
         @Volatile private var superseded = false
 
-        private val synthJob: Job = scope.launch {
+        private val synthJob: Job = scope.launch(start = CoroutineStart.LAZY) {
             for (text in pending) synthesized.send(async { synthesizeOrNull(backend, text) })
             synthesized.close()
         }
 
-        private val playJob: Job = scope.launch {
+        private val playJob: Job = scope.launch(start = CoroutineStart.LAZY) {
             var failed = false
             for (d in synthesized) {
                 val pcm = d.await()
@@ -144,6 +173,11 @@ class TtsRouter(
                 Log.i(TAG, "online pcm: samples=${pcm.samples.size} rate=${pcm.sampleRate} played=$played")
                 if (!played) failed = true
             }
+        }
+
+        fun start() {
+            synthJob.start()
+            playJob.start()
         }
 
         override fun enqueue(text: String): Boolean {

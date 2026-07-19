@@ -3,6 +3,11 @@ package com.bydmate.app.data.autoservice
 import androidx.test.core.app.ApplicationProvider
 import com.bydmate.app.BuildConfig
 import com.bydmate.app.helper.HelperBinderProtocol
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -15,6 +20,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
@@ -113,6 +120,52 @@ class AdbOnDeviceClientTest {
 
         assertTrue(result.isFailure)
         assertEquals("kaboom", result.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `connect never converts coroutine cancellation into an ordinary failure`() = runTest {
+        val client = newClient(FakeProtocol(connectThrows = CancellationException("stop")))
+
+        try {
+            client.connect()
+            fail("Expected cancellation to propagate")
+        } catch (cancelled: CancellationException) {
+            assertEquals("stop", cancelled.message)
+        }
+    }
+
+    @Test
+    fun `concurrent connect creates and handshakes exactly one protocol`() = runTest {
+        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val client = AdbOnDeviceClientImpl(ctx, AdbKeyStore(ctx))
+        val factoryCalls = AtomicInteger()
+        val connectCalls = AtomicInteger()
+        val connected = AtomicBoolean(false)
+        client.protocolFactory = {
+            factoryCalls.incrementAndGet()
+            // Widen the old check-then-create race: without the lifecycle mutex several callers
+            // enter the factory before any of them publishes a protocol.
+            Thread.sleep(30)
+            object : AdbProtocol {
+                override fun connect(): Boolean {
+                    connectCalls.incrementAndGet()
+                    connected.set(true)
+                    return true
+                }
+
+                override fun exec(cmd: String): String = ""
+                override fun isConnected(): Boolean = connected.get()
+                override fun disconnect() { connected.set(false) }
+            }
+        }
+
+        val results = coroutineScope {
+            List(12) { async(Dispatchers.Default) { client.connect() } }.awaitAll()
+        }
+
+        assertTrue(results.all { it.isSuccess })
+        assertEquals(1, factoryCalls.get())
+        assertEquals(1, connectCalls.get())
     }
 
     @Test

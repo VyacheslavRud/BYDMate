@@ -193,6 +193,24 @@ private fun DetailRow(label: String, value: String, valueColor: Color = TextPrim
     }
 }
 
+internal const val MAX_ROUTE_RENDER_POINTS = 800
+
+/** Deterministic index sampling for rendering only; stored GPS history is never modified. */
+internal fun sampleRoutePoints(
+    points: List<TripPointEntity>,
+    maxPoints: Int = MAX_ROUTE_RENDER_POINTS,
+): List<TripPointEntity> {
+    require(maxPoints >= 2) { "maxPoints must be at least 2" }
+    if (points.size <= maxPoints) return points
+
+    val lastIndex = points.lastIndex.toLong()
+    val denominator = (maxPoints - 1).toLong()
+    return List(maxPoints) { sampleIndex ->
+        val sourceIndex = (sampleIndex.toLong() * lastIndex / denominator).toInt()
+        points[sourceIndex]
+    }
+}
+
 @Composable
 private fun TripRouteMap(
     points: List<TripPointEntity>,
@@ -201,9 +219,10 @@ private fun TripRouteMap(
 ) {
     val context = LocalContext.current
     val isAmap = tileSource == "amap"
+    val renderPoints = remember(points) { sampleRoutePoints(points) }
 
-    val geoPoints = remember(points, tileSource) {
-        points.map {
+    val geoPoints = remember(renderPoints, tileSource) {
+        renderPoints.map {
             val (lat, lon) = if (isAmap) Gcj02Converter.wgs84ToGcj02(it.lat, it.lon) else it.lat to it.lon
             GeoPoint(lat, lon)
         }
@@ -238,20 +257,18 @@ private fun TripRouteMap(
 
             if (geoPoints.size >= 2) {
                 // Dark outline underneath for contrast on any road color
-                for (i in 0 until geoPoints.size - 1) {
-                    val outline = Polyline().apply {
-                        setPoints(listOf(geoPoints[i], geoPoints[i + 1]))
-                        outlinePaint.color = android.graphics.Color.argb(180, 0, 0, 0)
-                        outlinePaint.strokeWidth = 14f
-                        outlinePaint.isAntiAlias = true
-                        outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
-                        infoWindow = null
-                    }
-                    map.overlays.add(outline)
+                val outline = Polyline().apply {
+                    setPoints(geoPoints)
+                    outlinePaint.color = android.graphics.Color.argb(180, 0, 0, 0)
+                    outlinePaint.strokeWidth = 14f
+                    outlinePaint.isAntiAlias = true
+                    outlinePaint.strokeCap = android.graphics.Paint.Cap.ROUND
+                    infoWindow = null
                 }
+                map.overlays.add(outline)
                 // Bright speed-colored track on top
                 for (i in 0 until geoPoints.size - 1) {
-                    val speed = points[i].speedKmh ?: 0.0
+                    val speed = renderPoints[i].speedKmh ?: 0.0
                     val color = speedColor(speed)
 
                     val segment = Polyline().apply {

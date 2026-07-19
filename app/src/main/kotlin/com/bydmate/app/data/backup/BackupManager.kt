@@ -170,16 +170,20 @@ class BackupManager(
         internal const val MAX_ENTRY_BYTES = 512L * 1024 * 1024
         internal const val MAX_TOTAL_BYTES = 768L * 1024 * 1024
         internal const val MAX_ENTRIES = 16
+        internal const val MAX_PREFS_BYTES = 2L * 1024 * 1024
+        internal const val MAX_MANIFEST_BYTES = 64L * 1024
 
         /**
          * Reads and validates the three expected zip entries with hard size limits.
-         * Duplicate expected entries, oversized data or a missing entry fail fast,
+         * Unknown/duplicate entries, oversized data or a missing entry fail fast,
          * BEFORE any destructive restore step.
          */
         internal fun readBackupEntries(
             stream: InputStream,
             maxEntryBytes: Long = MAX_ENTRY_BYTES,
             maxTotalBytes: Long = MAX_TOTAL_BYTES,
+            maxPrefsBytes: Long = MAX_PREFS_BYTES,
+            maxManifestBytes: Long = MAX_MANIFEST_BYTES,
         ): BackupEntries {
             var dbBytes: ByteArray? = null
             var prefsJson: String? = null
@@ -193,25 +197,36 @@ class BackupManager(
                         throw IllegalStateException("Файл бэкапа повреждён: слишком много записей в архиве")
                     }
                     val known = entry.name == ENTRY_DB || entry.name == ENTRY_PREFS || entry.name == ENTRY_MANIFEST
-                    if (known) {
-                        val alreadySeen = when (entry.name) {
-                            ENTRY_DB -> dbBytes != null
-                            ENTRY_PREFS -> prefsJson != null
-                            else -> manifestJson != null
-                        }
-                        if (alreadySeen) {
-                            throw IllegalStateException("Файл бэкапа повреждён: дублирующаяся запись ${entry.name}")
-                        }
-                        val bytes = readEntryBounded(zip, maxEntryBytes)
-                        total += bytes.size
-                        if (total > maxTotalBytes) {
-                            throw IllegalStateException("Файл бэкапа слишком большой")
-                        }
-                        when (entry.name) {
-                            ENTRY_DB -> dbBytes = bytes
-                            ENTRY_PREFS -> prefsJson = bytes.toString(Charsets.UTF_8)
-                            ENTRY_MANIFEST -> manifestJson = bytes.toString(Charsets.UTF_8)
-                        }
+                    // The backup format is closed. ZipInputStream.closeEntry() drains the current
+                    // entry, so "skipping" unknown compressed data would bypass every byte limit
+                    // and permit a decompression bomb. Reject it before any payload read or drain.
+                    if (!known) {
+                        throw IllegalStateException(
+                            "Файл бэкапа повреждён: неизвестная запись ${entry.name}"
+                        )
+                    }
+                    val alreadySeen = when (entry.name) {
+                        ENTRY_DB -> dbBytes != null
+                        ENTRY_PREFS -> prefsJson != null
+                        else -> manifestJson != null
+                    }
+                    if (alreadySeen) {
+                        throw IllegalStateException("Файл бэкапа повреждён: дублирующаяся запись ${entry.name}")
+                    }
+                    val entryLimit = when (entry.name) {
+                        ENTRY_DB -> maxEntryBytes
+                        ENTRY_PREFS -> minOf(maxEntryBytes, maxPrefsBytes)
+                        else -> minOf(maxEntryBytes, maxManifestBytes)
+                    }
+                    val bytes = readEntryBounded(zip, entryLimit)
+                    total += bytes.size
+                    if (total > maxTotalBytes) {
+                        throw IllegalStateException("Файл бэкапа слишком большой")
+                    }
+                    when (entry.name) {
+                        ENTRY_DB -> dbBytes = bytes
+                        ENTRY_PREFS -> prefsJson = bytes.toString(Charsets.UTF_8)
+                        ENTRY_MANIFEST -> manifestJson = bytes.toString(Charsets.UTF_8)
                     }
                     zip.closeEntry()
                     entry = zip.nextEntry
@@ -243,6 +258,56 @@ class BackupManager(
                 out.write(buf, 0, n)
             }
             return out.toByteArray()
+        }
+
+        /**
+         * Verifies both SQLite integrity and the schema version declared by manifest.json.
+         * The temporary file is deleted on every failure, before the live DB is touched.
+         */
+        internal fun validateSqliteFile(file: File, expectedSchemaVersion: Int) {
+            val db = try {
+                SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY)
+            } catch (e: SQLiteException) {
+                file.delete()
+                throw IllegalStateException(
+                    "Файл базы данных в бэкапе повреждён или не является базой SQLite",
+                    e,
+                )
+            }
+
+            val quickCheckOk: Boolean
+            val actualSchemaVersion: Int
+            try {
+                quickCheckOk = db.rawQuery("PRAGMA quick_check", null).use { cursor ->
+                    cursor.moveToFirst() && cursor.getString(0).equals("ok", ignoreCase = true)
+                }
+                actualSchemaVersion = db.rawQuery("PRAGMA user_version", null).use { cursor ->
+                    if (!cursor.moveToFirst()) {
+                        throw SQLiteException("PRAGMA user_version returned no row")
+                    }
+                    cursor.getInt(0)
+                }
+            } catch (e: SQLiteException) {
+                file.delete()
+                throw IllegalStateException(
+                    "Файл базы данных в бэкапе не прошёл проверку целостности",
+                    e,
+                )
+            } finally {
+                db.close()
+            }
+
+            if (!quickCheckOk) {
+                file.delete()
+                throw IllegalStateException("Файл базы данных в бэкапе не прошёл проверку целостности")
+            }
+            if (actualSchemaVersion != expectedSchemaVersion) {
+                file.delete()
+                throw IllegalStateException(
+                    "Схема базы данных в manifest.json ($expectedSchemaVersion) " +
+                        "не совпадает с PRAGMA user_version ($actualSchemaVersion)"
+                )
+            }
         }
     }
 
@@ -303,7 +368,7 @@ class BackupManager(
 
         // 4. Build manifest
         val versionCode = try {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionCode
+            context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode.toInt()
         } catch (_: Exception) { 0 }
         val manifest = BackupManifest(
             appVersionCode = versionCode,
@@ -399,7 +464,7 @@ class BackupManager(
         val tmpDbFile = File(dbDir, "bydmate.db.restore.tmp")
         tmpDbFile.delete()
         tmpDbFile.writeBytes(entries.dbBytes)
-        validateSqliteFile(tmpDbFile)
+        validateSqliteFile(tmpDbFile, backupSchema)
 
         // ---------------------------------------------------------------------
         // DESTRUCTIVE PART — only reached once the backup is fully validated.
@@ -461,31 +526,4 @@ class BackupManager(
         // Caller is responsible for restarting the process after this returns.
     }
 
-    /**
-     * Verify [file] is a readable, structurally intact SQLite database.
-     * Throws IllegalStateException (and deletes the temp file) if it is not a SQLite file
-     * or fails quick_check. Opened read-only so a backup from an older (but compatible)
-     * schema is not migrated here.
-     */
-    private fun validateSqliteFile(file: File) {
-        val db = try {
-            SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY)
-        } catch (e: SQLiteException) {
-            file.delete()
-            throw IllegalStateException("Файл базы данных в бэкапе повреждён или не является базой SQLite", e)
-        }
-        val ok = try {
-            db.rawQuery("PRAGMA quick_check", null).use { c ->
-                c.moveToFirst() && c.getString(0).equals("ok", ignoreCase = true)
-            }
-        } catch (e: SQLiteException) {
-            false
-        } finally {
-            db.close()
-        }
-        if (!ok) {
-            file.delete()
-            throw IllegalStateException("Файл базы данных в бэкапе не прошёл проверку целостности")
-        }
-    }
 }

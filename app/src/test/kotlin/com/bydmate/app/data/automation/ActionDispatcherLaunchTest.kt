@@ -89,6 +89,33 @@ class ActionDispatcherLaunchTest {
         verify(exactly = 1) { context.startActivity(any()) }
     }
 
+    // --- externally supplied call / URL payloads ---
+
+    @Test fun `call rejects USSD before launching dialer`() = runBlocking {
+        val action = ActionDef(command = "", displayName = "call", kind = "call",
+            payload = """{"phone":"*100#","autoDial":true}""")
+        val result = dispatcher.dispatch(action, null)
+        assertFalse(result.success)
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test fun `url rejects non-web scheme before ACTION_VIEW`() = runBlocking {
+        val action = ActionDef(command = "", displayName = "url", kind = "url",
+            payload = """{"url":"intent://settings"}""")
+        val result = dispatcher.dispatch(action, null)
+        assertFalse(result.success)
+        verify(exactly = 0) { context.startActivity(any()) }
+    }
+
+    @Test fun `url with https host is launched`() {
+        val action = ActionDef(command = "", displayName = "url", kind = "url",
+            payload = """{"url":"https://example.com/path"}""")
+        val (result, intent) = dispatchAndCapture(action)
+        assertTrue(result.success)
+        assertEquals(Intent.ACTION_VIEW, intent.action)
+        assertEquals("https://example.com/path", intent.dataString)
+    }
+
     // --- navigate ---
 
     @Test fun `navigate by free-text query opens Waze route request`() {

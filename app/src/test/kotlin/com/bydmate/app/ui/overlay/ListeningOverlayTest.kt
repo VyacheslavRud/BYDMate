@@ -18,6 +18,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 
@@ -110,6 +111,59 @@ class ListeningOverlayTest {
         ListeningOverlay.show(context, "Слушаю") // must attempt again, not silently no-op forever
 
         assertEquals(2, attempt)
+    }
+
+    @Test fun `second window failure rolls back both views and destroys owners`() {
+        var firstAdds = 0
+        var secondAdds = 0
+        var firstRollbacks = 0
+        var secondRollbacks = 0
+        var ownerDestroys = 0
+
+        try {
+            ListeningOverlay.attachPairTransaction(
+                addFirst = { firstAdds++ },
+                addSecond = {
+                    secondAdds++
+                    throw IllegalStateException("dialog add failed")
+                },
+                rollbackFirst = { firstRollbacks++ },
+                rollbackSecond = { secondRollbacks++ },
+                destroyOwners = { ownerDestroys++ },
+            )
+            fail("Expected the second add failure")
+        } catch (error: IllegalStateException) {
+            assertEquals("dialog add failed", error.message)
+        }
+
+        assertEquals(1, firstAdds)
+        assertEquals(1, secondAdds)
+        assertEquals(1, firstRollbacks)
+        assertEquals(1, secondRollbacks)
+        assertEquals(1, ownerDestroys)
+    }
+
+    @Test fun `first window failure still attempts both rollbacks and destroys owners`() {
+        var firstRollbacks = 0
+        var secondRollbacks = 0
+        var ownerDestroys = 0
+
+        try {
+            ListeningOverlay.attachPairTransaction(
+                addFirst = { throw IllegalStateException("pill add failed") },
+                addSecond = { fail("Second add must not run") },
+                rollbackFirst = { firstRollbacks++ },
+                rollbackSecond = { secondRollbacks++ },
+                destroyOwners = { ownerDestroys++ },
+            )
+            fail("Expected the first add failure")
+        } catch (error: IllegalStateException) {
+            assertEquals("pill add failed", error.message)
+        }
+
+        assertEquals(1, firstRollbacks)
+        assertEquals(1, secondRollbacks)
+        assertEquals(1, ownerDestroys)
     }
 
     // Finding (Fix wave 2): the pre-dispatch `active != null` check runs on the caller's thread,

@@ -7,6 +7,9 @@ import com.bydmate.app.R
 import com.bydmate.app.data.local.HistoryImporter
 import com.bydmate.app.data.repository.SettingsRepository
 import com.bydmate.app.data.repository.TripRepository
+import com.bydmate.app.data.repository.isValidBatteryCapacitySetting
+import com.bydmate.app.data.repository.isValidTariffSetting
+import com.bydmate.app.data.repository.normalizedNumericSetting
 import com.bydmate.app.demo.DemoMode
 import com.bydmate.app.service.TrackingService
 import com.bydmate.app.util.appLocalizedContext
@@ -33,6 +36,12 @@ data class WelcomeUiState(
     val isComplete: Boolean = false
 )
 
+internal fun WelcomeUiState.hasValidNumericSettings(): Boolean =
+    batteryCapacity.isValidBatteryCapacitySetting() &&
+        homeTariff.isValidTariffSetting() &&
+        dcTariff.isValidTariffSetting() &&
+        (tripCostMode != "custom" || customTariff.isValidTariffSetting())
+
 @HiltViewModel
 class WelcomeViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
@@ -56,7 +65,9 @@ class WelcomeViewModel @Inject constructor(
         _uiState.update { it.copy(currency = currency.code, currencySymbol = currency.symbol) }
     }
 
-    fun nextStep() = _uiState.update { it.copy(step = (it.step + 1).coerceAtMost(2)) }
+    fun nextStep() = _uiState.update {
+        if (it.hasValidNumericSettings()) it.copy(step = (it.step + 1).coerceAtMost(2)) else it
+    }
     fun prevStep() = _uiState.update { it.copy(step = (it.step - 1).coerceAtLeast(1)) }
 
     fun startBydMate() {
@@ -67,17 +78,30 @@ class WelcomeViewModel @Inject constructor(
 
             // Save all settings
             val state = _uiState.value
-            settingsRepository.setString(SettingsRepository.KEY_BATTERY_CAPACITY, state.batteryCapacity)
-            settingsRepository.setString(SettingsRepository.KEY_CURRENCY, state.currency)
-            settingsRepository.setString(SettingsRepository.KEY_HOME_TARIFF, state.homeTariff)
-            settingsRepository.setString(SettingsRepository.KEY_DC_TARIFF, state.dcTariff)
+            if (!state.hasValidNumericSettings()) {
+                _uiState.update { it.copy(isLoading = false, step = 1, importStatus = null) }
+                return@launch
+            }
 
             val tariffValue = when (state.tripCostMode) {
                 "home" -> "home"
                 "dc" -> "dc"
                 else -> state.customTariff
             }
-            settingsRepository.setString(SettingsRepository.KEY_TRIP_COST_TARIFF, tariffValue)
+            settingsRepository.setStrings(
+                mapOf(
+                    SettingsRepository.KEY_BATTERY_CAPACITY to
+                        state.batteryCapacity.normalizedNumericSetting()!!,
+                    SettingsRepository.KEY_CURRENCY to state.currency,
+                    SettingsRepository.KEY_HOME_TARIFF to state.homeTariff.normalizedNumericSetting()!!,
+                    SettingsRepository.KEY_DC_TARIFF to state.dcTariff.normalizedNumericSetting()!!,
+                    SettingsRepository.KEY_TRIP_COST_TARIFF to if (state.tripCostMode == "custom") {
+                        state.customTariff.normalizedNumericSetting()!!
+                    } else {
+                        tariffValue
+                    },
+                ),
+            )
 
             // Dev Demo never imports the car's real EnergyData history.
             val demoEnabled = DemoMode.isEnabled(appContext)

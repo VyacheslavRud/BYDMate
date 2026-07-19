@@ -1,5 +1,6 @@
 package com.bydmate.app.ui.widget
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
@@ -65,6 +66,10 @@ object WidgetController {
 
     private var wm: WindowManager? = null
     private var widgetView: ComposeView? = null
+    // The listener receives only an application-derived ConfigurationContext and is explicitly
+    // disposed/nullified in detach(); retaining it is required to cancel delayed gesture callbacks.
+    @SuppressLint("StaticFieldLeak")
+    private var widgetTouchListener: WidgetTouchListener? = null
     private var widgetLifecycle: OverlayLifecycleOwner? = null
     private var widgetParams: WindowManager.LayoutParams? = null
 
@@ -166,6 +171,8 @@ object WidgetController {
         collapsedY = startY
         expandedState.value = false
 
+        val touchListener = WidgetTouchListener(viewCtx, prefs, metrics)
+        widgetTouchListener = touchListener
         val panelCompose = ComposeView(viewCtx).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             setViewTreeLifecycleOwner(lifecycleOwner)
@@ -186,7 +193,7 @@ object WidgetController {
                     listening = listeningState.value,
                 )
             }
-            setOnTouchListener(WidgetTouchListener(viewCtx, prefs, metrics))
+            setOnTouchListener(touchListener)
         }
         widgetView = panelCompose
 
@@ -283,6 +290,8 @@ object WidgetController {
 
         hideTrashZone()
 
+        widgetTouchListener?.dispose()
+        widgetTouchListener = null
         widgetView?.let { v -> v.setOnTouchListener(null) }
         rootContainer?.let { r ->
             try {
@@ -664,6 +673,14 @@ object WidgetController {
         private var longPressRunnable: Runnable? = null
         private var singleTapRunnable: Runnable? = null
         private var lastTapUpMs: Long = 0L
+
+        fun dispose() {
+            longPressHandler.removeCallbacksAndMessages(null)
+            longPressRunnable = null
+            singleTapRunnable = null
+            lastTapUpMs = 0L
+            dragging = false
+        }
 
         override fun onTouch(v: android.view.View, event: MotionEvent): Boolean {
             val params = widgetParams ?: return false

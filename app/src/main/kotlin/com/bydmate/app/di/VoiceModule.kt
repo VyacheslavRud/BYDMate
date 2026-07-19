@@ -4,9 +4,9 @@ import android.content.Context
 import android.media.AudioManager
 import android.util.Log
 import com.bydmate.app.agent.LlmConnectionResolver
+import com.bydmate.app.data.automation.VehicleSafetySnapshot
 import com.bydmate.app.data.remote.DiParsData
 import com.bydmate.app.data.repository.SettingsRepository
-import com.bydmate.app.service.TrackingService
 import com.bydmate.app.voice.*
 import com.bydmate.app.voice.online.MiniMaxTtsBackend
 import com.bydmate.app.voice.online.OpenRouterTtsBackend
@@ -130,7 +130,7 @@ object VoiceModule {
         override fun isEnabled(): Boolean =
             ctx.getSharedPreferences("voice", Context.MODE_PRIVATE)
                 .getBoolean("voice_enabled", false)
-        override fun vehicleSnapshot(): DiParsData? = TrackingService.lastData.value
+        override fun vehicleSnapshot(): DiParsData? = VehicleSafetySnapshot.current()
         // Fix D: read the language override mirrored by SettingsViewModel.setVoiceLanguage().
         override fun preferredLang(): VoiceLang? =
             when (ctx.getSharedPreferences("voice", Context.MODE_PRIVATE).getString("voice_lang", "")) {

@@ -47,6 +47,9 @@ import io.mockk.mockk
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -164,6 +167,20 @@ class DashboardViewModelTest {
         override fun getAll(): Flow<List<TripEntity>> = flowOf(trips)
     }
 
+    /** Deliberately ignores Job cancellation so a stale query can complete after a newer one. */
+    private class ControlledSummaryTripDao : TripDao by StubTripDao() {
+        private val pending = mutableListOf<Continuation<TripSummary>>()
+
+        override suspend fun getPeriodSummary(from: Long, to: Long): TripSummary =
+            suspendCoroutine { continuation -> pending += continuation }
+
+        fun pendingCount(): Int = pending.size
+
+        fun complete(index: Int, summary: TripSummary) {
+            pending[index].resume(summary)
+        }
+    }
+
     private class StubChargeDaoWithCharges(
         private val charges: List<com.bydmate.app.data.local.entity.ChargeEntity>
     ) : com.bydmate.app.data.local.dao.ChargeDao by StubChargeDao() {
@@ -220,14 +237,15 @@ class DashboardViewModelTest {
         fakeAutoservice: VehicleApi,
         insightsManager: InsightsManager? = null,
         trips: List<TripEntity> = emptyList(),
-        charges: List<com.bydmate.app.data.local.entity.ChargeEntity> = emptyList()
+        charges: List<com.bydmate.app.data.local.entity.ChargeEntity> = emptyList(),
+        tripDaoOverride: TripDao? = null,
     ): DashboardViewModel {
         val ctx: Context = ApplicationProvider.getApplicationContext()
 
         val settingsDao = FakeSettingsDao()
         val settingsRepo = SettingsRepository(settingsDao, mockk<LocalePreferences>(relaxed = true))
 
-        val tripDao = StubTripDaoWithTrips(trips)
+        val tripDao = tripDaoOverride ?: StubTripDaoWithTrips(trips)
         val tripPointDao = StubTripPointDao()
         val tripRepo = TripRepository(tripDao, tripPointDao, mockk<TripTombstoneDao>(relaxed = true), mockk<AppDatabase>(relaxed = true))
 
@@ -262,6 +280,37 @@ class DashboardViewModelTest {
         voltage12v = 14f,
         readAtMs = 0L
     )
+
+    @Test
+    fun `stale period summary cannot overwrite the latest selection`() = runTest {
+        val tripDao = ControlledSummaryTripDao()
+        val vm = buildViewModel(
+            fakeAutoservice = FakeAutoservice(sampleReading, available = true),
+            tripDaoOverride = tripDao,
+        )
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(1, tripDao.pendingCount()) // Initial WEEK load.
+
+        vm.setPeriod(DashboardPeriod.MONTH)
+        testDispatcher.scheduler.runCurrent()
+        vm.setPeriod(DashboardPeriod.YEAR)
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(3, tripDao.pendingCount())
+
+        tripDao.complete(2, TripSummary(totalKm = 300.0, totalKwh = 60.0, tripCount = 3))
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(DashboardPeriod.YEAR, vm.uiState.value.period)
+        assertEquals(300.0, vm.uiState.value.totalKm, 0.0)
+
+        // Complete the cancelled MONTH and WEEK requests after the latest request.
+        tripDao.complete(1, TripSummary(totalKm = 200.0, totalKwh = 40.0, tripCount = 2))
+        tripDao.complete(0, TripSummary(totalKm = 100.0, totalKwh = 20.0, tripCount = 1))
+        testDispatcher.scheduler.runCurrent()
+
+        assertEquals(DashboardPeriod.YEAR, vm.uiState.value.period)
+        assertEquals(300.0, vm.uiState.value.totalKm, 0.0)
+        assertEquals(3, vm.uiState.value.tripCount)
+    }
 
     @Test
     fun `adbConnected is true when autoservice connected`() = runTest {

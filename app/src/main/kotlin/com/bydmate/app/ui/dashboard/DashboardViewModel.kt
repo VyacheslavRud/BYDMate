@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.Calendar
 import javax.inject.Inject
@@ -111,6 +112,7 @@ class DashboardViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(DashboardUiState())
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
+    private var periodLoadJob: Job? = null
 
     init {
         observeDemoMode()
@@ -294,8 +296,9 @@ class DashboardViewModel @Inject constructor(
     }
 
     private fun loadPeriodSummary() {
-        viewModelScope.launch {
-            val period = _uiState.value.period
+        val period = _uiState.value.period
+        periodLoadJob?.cancel()
+        periodLoadJob = viewModelScope.launch {
             val (from, to) = periodRange(period)
             val summary = tripRepository.getPeriodSummary(from, to)
             val avg = if (summary.totalKm > 0) summary.totalKwh / summary.totalKm * 100.0 else 0.0
@@ -312,15 +315,16 @@ class DashboardViewModel @Inject constructor(
             val idleDrainWeek = idleDrainDao.getTodayDrainKwh(weekStart, dayEnd)
             val idleDrainHoursWeek = idleDrainDao.getTodayDrainHours(weekStart, dayEnd)
 
-            _uiState.update {
-                it.copy(
+            _uiState.update { current ->
+                if (current.period != period) return@update current
+                current.copy(
                     totalKm = summary.totalKm,
                     totalKwh = summary.totalKwh,
                     avgConsumption = avg,
                     totalCost = summary.totalCost,
                     tripCount = summary.tripCount,
-                    totalKmToday = if (period == DashboardPeriod.TODAY) summary.totalKm else it.totalKmToday,
-                    totalKwhToday = if (period == DashboardPeriod.TODAY) summary.totalKwh else it.totalKwhToday,
+                    totalKmToday = if (period == DashboardPeriod.TODAY) summary.totalKm else current.totalKmToday,
+                    totalKwhToday = if (period == DashboardPeriod.TODAY) summary.totalKwh else current.totalKwhToday,
                     idleDrainKwhToday = idleDrain,
                     idleDrainPercent = idleDrainPercent,
                     idleDrainRate = idleDrainRate,

@@ -48,7 +48,8 @@ class HudIncidentRecorderTest {
     }
 
     @Test fun `stale active route is classified as Waze data loss`() {
-        val sample = sample(routeAgeMs = 6_000L, wazeGuidanceAgeMs = 6_000L)
+        val staleAge = NavGuidanceHub.ACTIVE_TIMEOUT_MS + 1L
+        val sample = sample(routeAgeMs = staleAge, wazeGuidanceAgeMs = staleAge)
 
         assertEquals(HudIncidentCause.WAZE_DATA, HudIncidentClassifier.cause(sample))
     }
@@ -67,6 +68,52 @@ class HudIncidentRecorderTest {
 
     @Test fun `healthy inputs with missing frame are conservatively classified as HUD pipeline`() {
         assertEquals(HudIncidentCause.HUD_PIPELINE, HudIncidentClassifier.cause(sample()))
+    }
+
+    @Test fun `accepted frames remain healthy between event driven Waze updates`() {
+        val stale = sample(
+            routeAgeMs = 8_000L,
+            wazeGuidanceAgeMs = 8_000L,
+        ).copy(lastFrameSuccessAgeMs = 100L)
+
+        assertEquals(true, HudIncidentClassifier.deliveryHealthy(stale))
+        assertEquals(HudIncidentCause.HUD_PIPELINE, HudIncidentClassifier.cause(stale))
+    }
+
+    @Test fun `lost accessibility marks A11Y delivery unhealthy while frames repeat`() {
+        val disconnected = sample(accessibilityConnected = false)
+            .copy(lastFrameSuccessAgeMs = 100L)
+
+        assertEquals(false, HudIncidentClassifier.deliveryHealthy(disconnected))
+        assertEquals(HudIncidentCause.ACCESSIBILITY, HudIncidentClassifier.cause(disconnected))
+    }
+
+    @Test fun `unreachable A11Y window marks delivery unhealthy without event age heuristics`() {
+        val unreachable = sample(
+            wazeWindowReachable = false,
+            routeAgeMs = 8_000L,
+            wazeGuidanceAgeMs = 8_000L,
+        ).copy(lastFrameSuccessAgeMs = 100L)
+
+        assertEquals(false, HudIncidentClassifier.deliveryHealthy(unreachable))
+        assertEquals(HudIncidentCause.WAZE_WINDOW, HudIncidentClassifier.cause(unreachable))
+    }
+
+    @Test fun `normal route-end grace stays healthy while final frame is delivered`() {
+        val ending = sample(
+            routeAgeMs = 8_000L,
+            wazeGuidanceAgeMs = 8_000L,
+            wazeNoGuidanceAgeMs = 500L,
+        ).copy(lastFrameSuccessAgeMs = 100L)
+
+        assertEquals(true, HudIncidentClassifier.deliveryHealthy(ending))
+    }
+
+    @Test fun `fresh guidance and recent SOME IP frame are healthy`() {
+        assertEquals(
+            true,
+            HudIncidentClassifier.deliveryHealthy(sample().copy(lastFrameSuccessAgeMs = 100L)),
+        )
     }
 
     @Test fun `explicit readable no guidance does not blame stale Waze data`() {
@@ -143,7 +190,7 @@ class HudIncidentRecorderTest {
             HudIncidentClassifier.routeLossCause(
                 ended,
                 NavGuidanceHub.Source.NOTIFICATION.name,
-                90_000L,
+                NavGuidanceHub.ACTIVE_TIMEOUT_MS + 1L,
             ),
         )
         assertNull(

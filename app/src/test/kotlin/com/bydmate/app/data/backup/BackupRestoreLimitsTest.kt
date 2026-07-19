@@ -123,6 +123,38 @@ class BackupRestoreLimitsTest {
     }
 
     @Test
+    fun `prefs have a separate small size cap`() {
+        val zip = zipOf(
+            "bydmate.db" to ByteArray(100),
+            "prefs.json" to ByteArray(128) { 'x'.code.toByte() },
+            "manifest.json" to "{}".toByteArray(),
+        )
+        assertThrows(IllegalStateException::class.java) {
+            BackupManager.readBackupEntries(
+                ByteArrayInputStream(zip),
+                maxEntryBytes = 1_000,
+                maxPrefsBytes = 64,
+            )
+        }
+    }
+
+    @Test
+    fun `manifest has a separate small size cap`() {
+        val zip = zipOf(
+            "bydmate.db" to ByteArray(100),
+            "prefs.json" to "{}".toByteArray(),
+            "manifest.json" to ByteArray(128) { 'x'.code.toByte() },
+        )
+        assertThrows(IllegalStateException::class.java) {
+            BackupManager.readBackupEntries(
+                ByteArrayInputStream(zip),
+                maxEntryBytes = 1_000,
+                maxManifestBytes = 64,
+            )
+        }
+    }
+
+    @Test
     fun `duplicate expected entry fails`() {
         val zip = zipOf("bydmate.db" to ByteArray(10), *validEntries())
         assertThrows(IllegalStateException::class.java) {
@@ -139,11 +171,11 @@ class BackupRestoreLimitsTest {
     }
 
     @Test
-    fun `unknown entries are skipped without reading into memory`() {
-        // evil.bin is larger than maxEntryBytes but must be skipped, not loaded.
+    fun `unknown entries are rejected before their payload is drained`() {
         val zip = zipOf("evil.bin" to ByteArray(10_000), *validEntries())
-        val entries = BackupManager.readBackupEntries(ByteArrayInputStream(zip), maxEntryBytes = 1_000)
-        assertEquals(100, entries.dbBytes.size)
+        assertThrows(IllegalStateException::class.java) {
+            BackupManager.readBackupEntries(ByteArrayInputStream(zip), maxEntryBytes = 1_000)
+        }
     }
 
     @Test
