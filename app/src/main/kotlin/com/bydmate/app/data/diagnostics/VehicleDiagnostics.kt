@@ -124,6 +124,8 @@ data class VehicleDiagnosticsSnapshot(
     val hudReconnectAttempt: Int,
     val hudNextReconnectAtMs: Long?,
     val hudLastRecoveredAtMs: Long?,
+    val hudIncidentCount: Int,
+    val hudLastIncident: HudIncident?,
     val clusterEnabled: Boolean,
     val clusterMode: String,
     val clusterPhase: ClusterRuntimePhase,

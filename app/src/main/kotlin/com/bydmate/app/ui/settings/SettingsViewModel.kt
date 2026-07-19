@@ -28,6 +28,7 @@ import com.bydmate.app.data.remote.LlmHttpException
 import com.bydmate.app.data.remote.OpenRouterClient
 import com.bydmate.app.data.remote.OpenRouterModel
 import com.bydmate.app.data.local.entity.PlaceEntity
+import com.bydmate.app.data.diagnostics.HudIncidentRecorder
 import com.bydmate.app.demo.DemoDataSeeder
 import com.bydmate.app.demo.DemoMode
 import com.bydmate.app.data.repository.ChargeRepository
@@ -226,6 +227,7 @@ class SettingsViewModel @Inject constructor(
     private val placeRepository: PlaceRepository,
     private val energyDataDeadDetector: com.bydmate.app.data.local.EnergyDataDeadDetector,
     private val demoDataSeeder: DemoDataSeeder,
+    private val hudIncidentRecorder: HudIncidentRecorder,
 ) : ViewModel() {
 
     private val _appLanguage = MutableStateFlow(localePreferences.getLanguage() ?: "ru")
@@ -1501,6 +1503,33 @@ class SettingsViewModel @Inject constructor(
                 appendLine("(failed to gather vehicle data sources: ${e.message})")
             }
 
+            appendLine("--- HUD incident recorder ---")
+            try {
+                val incidents = hudIncidentRecorder.incidents()
+                appendLine("saved_incidents: ${incidents.size}")
+                incidents.forEachIndexed { index, incident ->
+                    val detected = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+                        .format(Date(incident.detectedAtMs))
+                    val recovered = incident.recoveredAtMs?.let {
+                        SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date(it))
+                    } ?: "(not recovered)"
+                    appendLine(
+                        "  #${index + 1} detected=$detected cause=${incident.cause} " +
+                            "outageMs=${incident.outageBeforeDetectionMs} recovered=$recovered " +
+                            "hud=${incident.hudStatus} rc=${incident.resultCode} " +
+                            "failure=${incident.failure} route=${incident.routeSource} " +
+                            "routeAgeMs=${incident.routeAgeMs} " +
+                            "a11y=${incident.accessibilityConnected} feed=${incident.feedEnabled} " +
+                            "window=${incident.wazeWindowReachable} " +
+                            "eventAgeMs=${incident.wazeEventAgeMs} " +
+                            "guidanceAgeMs=${incident.wazeGuidanceAgeMs} " +
+                            "noGuidanceAgeMs=${incident.wazeNoGuidanceAgeMs}",
+                    )
+                }
+            } catch (e: Exception) {
+                appendLine("(failed to gather HUD incidents: ${e.message})")
+            }
+
             appendLine("--- audio ---")
             try {
                 val am = appContext.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
@@ -1598,6 +1627,7 @@ class SettingsViewModel @Inject constructor(
                     "AudioCapture:*", "SherpaTtsEngine:*", "VoiceController:*",
                     // HUD wave: SOME/IP output + cluster projection diagnostics
                     "HudController:*", "HudSomeIpBridge:*", "HudPushLoop:*",
+                    "HudIncidentRecorder:*",
                     "ClusterProjection:*",
                     // Direct projection wave: helper daemon (freeform switch diagnostics; visible
                     // only once READ_LOGS is granted AND the app process restarted - the daemon

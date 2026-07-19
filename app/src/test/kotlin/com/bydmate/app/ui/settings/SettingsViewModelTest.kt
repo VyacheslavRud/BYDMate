@@ -282,6 +282,7 @@ class SettingsViewModelTest {
             placeRepository = mockk(relaxed = true),
             energyDataDeadDetector = energyDataDeadDetector,
             demoDataSeeder = mockk(relaxed = true),
+            hudIncidentRecorder = mockk(relaxed = true),
         )
     }
 

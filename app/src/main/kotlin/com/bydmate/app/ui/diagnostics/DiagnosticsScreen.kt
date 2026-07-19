@@ -59,6 +59,8 @@ import com.bydmate.app.data.diagnostics.DiagnosticReason
 import com.bydmate.app.data.diagnostics.DiagnosticSection
 import com.bydmate.app.data.diagnostics.DiagnosticSectionResult
 import com.bydmate.app.data.diagnostics.DisplaySnapshot
+import com.bydmate.app.data.diagnostics.HudIncident
+import com.bydmate.app.data.diagnostics.HudIncidentCause
 import com.bydmate.app.data.diagnostics.VehicleDiagnosticsSnapshot
 import com.bydmate.app.data.diagnostics.WazeWindowState
 import com.bydmate.app.data.vehicle.VehicleProfile
@@ -704,19 +706,63 @@ private fun technicalRows(
         stringResource(R.string.diagnostics_tech_last_success) to timeOrNever(s.clusterLastSuccessAtMs),
         stringResource(R.string.diagnostics_tech_last_failure) to (s.clusterFailure ?: "—"),
     )
-    DiagnosticSection.HUD -> listOf(
-        stringResource(R.string.diagnostics_tech_enabled) to yesNo(s.hudEnabled),
-        "SOME/IP gateway" to yesNo(s.hudGatewayPresent),
-        stringResource(R.string.diagnostics_tech_state) to s.hudState.name,
-        stringResource(R.string.diagnostics_tech_last_attempt) to timeOrNever(s.hudLastAttemptAtMs),
-        stringResource(R.string.diagnostics_tech_last_success) to timeOrNever(s.hudLastSuccessAtMs),
-        stringResource(R.string.diagnostics_tech_result_code) to (s.hudLastResultCode?.toString() ?: "—"),
-        stringResource(R.string.diagnostics_tech_last_failure) to (s.hudFailure ?: "—"),
-        stringResource(R.string.diagnostics_tech_reconnect_attempt) to s.hudReconnectAttempt.toString(),
-        stringResource(R.string.diagnostics_tech_next_reconnect) to timeOrNever(s.hudNextReconnectAtMs),
-        stringResource(R.string.diagnostics_tech_last_recovery) to timeOrNever(s.hudLastRecoveredAtMs),
-    )
+    DiagnosticSection.HUD -> {
+        val incident = s.hudLastIncident
+        listOf(
+            stringResource(R.string.diagnostics_tech_enabled) to yesNo(s.hudEnabled),
+            "SOME/IP gateway" to yesNo(s.hudGatewayPresent),
+            stringResource(R.string.diagnostics_tech_state) to s.hudState.name,
+            stringResource(R.string.diagnostics_tech_last_attempt) to timeOrNever(s.hudLastAttemptAtMs),
+            stringResource(R.string.diagnostics_tech_last_success) to timeOrNever(s.hudLastSuccessAtMs),
+            stringResource(R.string.diagnostics_tech_result_code) to (s.hudLastResultCode?.toString() ?: "—"),
+            stringResource(R.string.diagnostics_tech_last_failure) to (s.hudFailure ?: "—"),
+            stringResource(R.string.diagnostics_tech_reconnect_attempt) to s.hudReconnectAttempt.toString(),
+            stringResource(R.string.diagnostics_tech_next_reconnect) to timeOrNever(s.hudNextReconnectAtMs),
+            stringResource(R.string.diagnostics_tech_last_recovery) to timeOrNever(s.hudLastRecoveredAtMs),
+            stringResource(R.string.diagnostics_tech_hud_incident_count) to
+                s.hudIncidentCount.toString(),
+            stringResource(R.string.diagnostics_tech_hud_last_incident) to
+                hudIncidentCauseText(incident?.cause),
+            stringResource(R.string.diagnostics_tech_hud_incident_detected) to
+                incident?.detectedAtMs?.let(::timeText).orEmpty().ifBlank { "—" },
+            stringResource(R.string.diagnostics_tech_hud_incident_outage) to
+                incident?.outageBeforeDetectionMs?.let {
+                    stringResource(R.string.diagnostics_hud_incident_outage_seconds, it / 1_000f)
+                }.orEmpty().ifBlank { "—" },
+            stringResource(R.string.diagnostics_tech_hud_incident_recovered) to when {
+                incident == null -> "—"
+                incident.recoveredAtMs == null ->
+                    stringResource(R.string.diagnostics_hud_incident_not_recovered)
+                else -> timeText(incident.recoveredAtMs)
+            },
+            stringResource(R.string.diagnostics_tech_hud_incident_details) to
+                (incident?.let(::hudIncidentEvidence) ?: "—"),
+        )
+    }
 }
+
+@Composable
+private fun hudIncidentCauseText(cause: HudIncidentCause?): String = stringResource(
+    when (cause) {
+        HudIncidentCause.SERVICE_RESTART -> R.string.diagnostics_hud_incident_service_restart
+        HudIncidentCause.ACCESSIBILITY -> R.string.diagnostics_hud_incident_accessibility
+        HudIncidentCause.WAZE_WINDOW -> R.string.diagnostics_hud_incident_waze_window
+        HudIncidentCause.WAZE_DATA -> R.string.diagnostics_hud_incident_waze_data
+        HudIncidentCause.SOME_IP -> R.string.diagnostics_hud_incident_some_ip
+        HudIncidentCause.HUD_PIPELINE -> R.string.diagnostics_hud_incident_pipeline
+        null -> R.string.diagnostics_hud_incident_none
+    },
+)
+
+private fun hudIncidentEvidence(incident: HudIncident): String =
+    "status=${incident.hudStatus}; rc=${incident.resultCode ?: "—"}; " +
+        "failure=${incident.failure ?: "—"}; route=${incident.routeSource ?: "—"}; " +
+        "routeAge=${incident.routeAgeMs ?: "—"} ms; " +
+        "a11y=${incident.accessibilityConnected}; feed=${incident.feedEnabled}; " +
+        "window=${incident.wazeWindowReachable ?: "—"}; " +
+        "eventAge=${incident.wazeEventAgeMs ?: "—"} ms; " +
+        "guidanceAge=${incident.wazeGuidanceAgeMs ?: "—"} ms; " +
+        "noGuidanceAge=${incident.wazeNoGuidanceAgeMs ?: "—"} ms"
 
 @Composable
 private fun healthText(health: DiagnosticHealth): String = stringResource(

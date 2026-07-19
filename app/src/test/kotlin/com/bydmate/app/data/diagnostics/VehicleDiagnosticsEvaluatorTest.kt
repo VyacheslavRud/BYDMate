@@ -562,6 +562,8 @@ class VehicleDiagnosticsEvaluatorTest {
         hudReconnectAttempt = hudReconnectAttempt,
         hudNextReconnectAtMs = null,
         hudLastRecoveredAtMs = null,
+        hudIncidentCount = 0,
+        hudLastIncident = null,
         clusterEnabled = clusterEnabled,
         clusterMode = "OFF",
         clusterPhase = clusterPhase,

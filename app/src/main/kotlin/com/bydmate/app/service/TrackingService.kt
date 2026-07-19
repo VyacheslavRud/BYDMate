@@ -101,6 +101,7 @@ class TrackingService : Service(), LocationListener {
     @Inject lateinit var voiceGate: com.bydmate.app.voice.VoiceGate
     @Inject lateinit var audioCapture: com.bydmate.app.voice.AudioCapture
     @Inject lateinit var hudController: com.bydmate.app.hud.HudController
+    @Inject lateinit var hudIncidentRecorder: com.bydmate.app.data.diagnostics.HudIncidentRecorder
     @Inject lateinit var demoDataSeeder: DemoDataSeeder
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -425,6 +426,7 @@ class TrackingService : Service(), LocationListener {
         startLocationUpdates()
         // HUD output resumes with the service on cars where the user enabled it.
         hudController.startIfEnabled()
+        hudIncidentRecorder.start(serviceScope)
 
         // Reset the live trip-distance companion flow — stale value from a prior
         // service instance in the same process must not leak to the widget before
@@ -909,6 +911,7 @@ class TrackingService : Service(), LocationListener {
         com.bydmate.app.ui.widget.WidgetController.detach()
         ChainLog.append(this, "TrackingService onDestroy")
         pollingJob?.cancel()
+        hudIncidentRecorder.stop()
         hudController.stop()
         ConsumptionAggregator.reset()
         // NOTE: do NOT null out _sessionStartedAt or clear SessionPersistence here.

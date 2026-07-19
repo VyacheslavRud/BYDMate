@@ -39,6 +39,7 @@ class VehicleDiagnosticsCollector @Inject constructor(
     private val energyDataDeadDetector: EnergyDataDeadDetector,
     private val helperBootstrap: HelperBootstrap,
     private val hudController: HudController,
+    private val hudIncidentRecorder: HudIncidentRecorder,
     private val tripDao: TripDao,
     private val chargeDao: ChargeDao,
     private val writeLogDao: VehicleWriteLogDao,
@@ -92,6 +93,7 @@ class VehicleDiagnosticsCollector @Inject constructor(
                 DiagnosticEvidenceStore.Evidence.FACTORY_HUD_FRAME,
             ),
         )
+        val hudIncidents = hudIncidentRecorder.incidents()
         val wazeGuidance = wazeInfo?.evidenceScope?.let { scope ->
             newest(
                 a11yDiagnostics.lastGuidanceAtMs.takeIf {
@@ -158,6 +160,8 @@ class VehicleDiagnosticsCollector @Inject constructor(
             hudReconnectAttempt = hudDelivery.reconnectAttempt,
             hudNextReconnectAtMs = hudDelivery.nextReconnectAtMs,
             hudLastRecoveredAtMs = hudDelivery.lastRecoveredAtMs,
+            hudIncidentCount = hudIncidents.size,
+            hudLastIncident = hudIncidents.lastOrNull(),
             clusterEnabled = context.getSharedPreferences(
                 ClusterProjectionManager.PREFS_NAME,
                 Context.MODE_PRIVATE,

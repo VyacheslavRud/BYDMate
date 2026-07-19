@@ -261,6 +261,7 @@ class SettingsViewModelConnectionsTest {
             placeRepository = mockk(relaxed = true),
             energyDataDeadDetector = mockk(relaxed = true),
             demoDataSeeder = mockk(relaxed = true),
+            hudIncidentRecorder = mockk(relaxed = true),
         )
     }
 

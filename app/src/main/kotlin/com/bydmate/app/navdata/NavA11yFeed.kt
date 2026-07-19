@@ -27,6 +27,7 @@ object NavA11yFeed {
     @Volatile private var lastWazeEventAtMs: Long = 0L
     @Volatile private var lastReadableAtMs: Long = 0L
     @Volatile private var lastGuidanceAtMs: Long = 0L
+    @Volatile private var lastNoGuidanceAtMs: Long = 0L
     @Volatile private var lastGuidanceEvidencePersistElapsedMs: Long = 0L
     @Volatile private var lastGuidanceEvidenceScope: String? = null
 
@@ -36,6 +37,7 @@ object NavA11yFeed {
         val windowReachable: Boolean?,
         val lastReadableAtMs: Long?,
         val lastGuidanceAtMs: Long?,
+        val lastNoGuidanceAtMs: Long?,
         val lastGuidanceEvidenceScope: String?,
     )
 
@@ -45,6 +47,7 @@ object NavA11yFeed {
         windowReachable = rootReachable,
         lastReadableAtMs = lastReadableAtMs.takeIf { it > 0L },
         lastGuidanceAtMs = lastGuidanceAtMs.takeIf { it > 0L },
+        lastNoGuidanceAtMs = lastNoGuidanceAtMs.takeIf { it > 0L },
         lastGuidanceEvidenceScope = lastGuidanceEvidenceScope,
     )
 
@@ -96,6 +99,7 @@ object NavA11yFeed {
             when (val result = NavA11yExtractor.read(root)) {
                 is NavA11yExtractor.ReadResult.Guidance -> {
                     lastGuidanceAtMs = nowMs
+                    lastNoGuidanceAtMs = 0L
                     if (lastGuidanceEvidencePersistElapsedMs == 0L ||
                         nowElapsed - lastGuidanceEvidencePersistElapsedMs >=
                         EVIDENCE_PERSIST_INTERVAL_MS
@@ -116,8 +120,10 @@ object NavA11yFeed {
                     }
                     NavGuidanceHub.update(result.data, NavGuidanceHub.Source.A11Y, nowMs)
                 }
-                is NavA11yExtractor.ReadResult.NoGuidance ->
+                is NavA11yExtractor.ReadResult.NoGuidance -> {
+                    lastNoGuidanceAtMs = nowMs
                     NavGuidanceHub.markNoGuidance(nowMs)
+                }
                 is NavA11yExtractor.ReadResult.NotNavigator -> Unit
             }
         } finally {
