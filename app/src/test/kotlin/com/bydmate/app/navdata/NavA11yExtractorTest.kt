@@ -60,4 +60,45 @@ class NavA11yExtractorTest {
         assertEquals(12_000, result.data.totalDistMeters)
         assertEquals(60, result.data.speedLimit)
     }
+
+    @Test fun `unknown Waze view id falls back to bounded visible tree direction`() {
+        val direction = valueNode("TURN_RIGHT")
+        every { direction.childCount } returns 0
+        val root = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { root.packageName } returns "com.waze"
+        every { root.isVisibleToUser } returns true
+        every { root.text } returns null
+        every { root.contentDescription } returns null
+        every { root.childCount } returns 1
+        every { root.getChild(0) } returns direction
+        every { root.findAccessibilityNodeInfosByViewId(any()) } returns emptyList()
+        every { root.findAccessibilityNodeInfosByViewId("com.waze:id/navBarDistance") } returns
+            listOf(valueNode("500 m"))
+
+        val result = NavA11yExtractor.read(root) as NavA11yExtractor.ReadResult.Guidance
+
+        assertEquals(2, result.data.maneuverGaode)
+        assertEquals(500, result.data.distanceMeters)
+    }
+
+    @Test fun `unrecognized known direction node does not hide semantic child direction`() {
+        val direction = valueNode("TURN_RIGHT")
+        every { direction.childCount } returns 0
+        val root = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { root.packageName } returns "com.waze"
+        every { root.isVisibleToUser } returns true
+        every { root.text } returns null
+        every { root.contentDescription } returns null
+        every { root.childCount } returns 1
+        every { root.getChild(0) } returns direction
+        every { root.findAccessibilityNodeInfosByViewId(any()) } returns emptyList()
+        every { root.findAccessibilityNodeInfosByViewId("com.waze:id/navBarDirectionText") } returns
+            listOf(valueNode("Maneuver"))
+        every { root.findAccessibilityNodeInfosByViewId("com.waze:id/navBarDistance") } returns
+            listOf(valueNode("500 m"))
+
+        val result = NavA11yExtractor.read(root) as NavA11yExtractor.ReadResult.Guidance
+
+        assertEquals(2, result.data.maneuverGaode)
+    }
 }

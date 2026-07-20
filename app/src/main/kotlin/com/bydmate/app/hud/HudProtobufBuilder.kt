@@ -14,8 +14,9 @@ object HudProtobufBuilder {
     const val MAX_ETA_CHARS = 16
     const val MAX_SPEED_LIMIT = 250
 
-    /** GAODE maneuver -> f28 reference arrow: 3=left, 2=right, 9=uturn, 1=straight/other. */
+    /** GAODE maneuver -> f28 reference arrow: 0=unknown, 3=left, 2=right, 9=uturn. */
     fun gaodeToF28(gaode: Int): Int = when (gaode) {
+        0 -> 0
         1, 3, 7 -> 3
         2, 4, 8 -> 2
         9, 10 -> 9
@@ -44,7 +45,12 @@ object HudProtobufBuilder {
         if (speedLimit > 0) writeVarintField(inner, 11, speedLimit.toLong())
         writeVarintField(inner, 16, 2L)
         if (etaString != null) writeBytesField(inner, 26, etaString.toByteArray(Charsets.UTF_8))
-        writeVarintField(inner, 28, gaodeToF28(maneuverGaode).toLong())
+        // Do not manufacture f28=1 for an unknown Waze maneuver. On the Sea Lion 07 that
+        // fallback is rendered as a LEFT arrow, which is actively misleading on right turns.
+        // The route card remains visible and a later parsed A11Y/notification update adds f28.
+        if (maneuverGaode > 0) {
+            writeVarintField(inner, 28, gaodeToF28(maneuverGaode).toLong())
+        }
         writeFixed64Field(inner, 33, progress(distanceMeters, totalDistMeters).toRawBits())
         return wrap(inner.toByteArray())
     }

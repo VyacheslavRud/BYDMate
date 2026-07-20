@@ -10,6 +10,7 @@ import android.view.accessibility.AccessibilityNodeInfo
  * layout for landscape/cluster displays, or expose a container whose useful text is in a child.
  */
 object WazeAccessibilityReader {
+    private const val MAX_FALLBACK_TREE_NODES = 256
     private val COMPOSE_TEST_TAG = Regex("^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$")
     private val SPEED_LIMIT = Regex("""(?<![-+\d])(\d{1,3})(?!\d)""")
     private val NUMBERED_EXIT = Regex(
@@ -63,7 +64,7 @@ object WazeAccessibilityReader {
         val pkg = runCatching { root.packageName?.toString() }.getOrNull()
             ?.takeIf(NavPackages::isNavigationPackage)
             ?: return null
-        val maneuver = maneuverValue(
+        val exactManeuver = maneuverValue(
             root,
             "$pkg:id/navBarDirectionText",
             "$pkg:id/navBarInstructionText",
@@ -77,6 +78,22 @@ object WazeAccessibilityReader {
             "$pkg:id/navBarStreetLine",
             "$pkg:id/navBarTowardStreetLine",
         )
+        // Waze resource ids vary between standalone, Automotive and vendor builds. The Sea Lion
+        // build exposes distance/street under known ids but keeps the direction on an unlisted
+        // child node, which previously left every route at maneuver=0. Once a known route anchor
+        // is present, perform one bounded visible-tree scan for a semantically valid direction.
+        val exactManeuverRecognized = NavManeuverCodes.fromInstructionText(exactManeuver) != 0
+        val fallbackManeuver = if (!exactManeuverRecognized &&
+            (maneuverDistance != null || street != null)
+        ) {
+            fallbackManeuverValue(root)
+        } else {
+            null
+        }
+        // Keep the exact raw value as a final fallback so the route anchor remains observable,
+        // but prefer a semantic direction found elsewhere when the known id contains only a
+        // generic label or inaccessible icon name.
+        val maneuver = fallbackManeuver ?: exactManeuver
         val remainingDistance = firstValue(
             root,
             "$pkg:id/minimizedEtaBarDistanceToDestination",
@@ -195,6 +212,41 @@ object WazeAccessibilityReader {
                 .thenBy { -it.nodeIndex }
                 .thenBy { -it.valueIndex },
         ).text
+    }
+
+    private fun fallbackManeuverValue(root: AccessibilityNodeInfo): String? {
+        var visited = 0
+        var result: String? = null
+
+        fun visit(node: AccessibilityNodeInfo) {
+            if (result != null || visited++ >= MAX_FALLBACK_TREE_NODES) return
+            if (!runCatching { node.isVisibleToUser }.getOrDefault(false)) return
+            val values = linkedSetOf<String>()
+            runCatching { node.text?.toString()?.trim() }.getOrNull()
+                ?.takeIf(String::isNotEmpty)?.let(values::add)
+            runCatching { node.contentDescription?.toString()?.trim() }.getOrNull()
+                ?.takeIf(::isUsefulDescription)?.let(values::add)
+            values.forEach { value ->
+                val parsed = NavManeuverCodes.parseInstructionText(value)
+                if (parsed.gaode != 0 && result == null) result = value
+            }
+            if (result != null) return
+            val childCount = runCatching { node.childCount }.getOrDefault(0)
+            for (index in 0 until childCount) {
+                if (result != null || visited >= MAX_FALLBACK_TREE_NODES) break
+                val child = runCatching { node.getChild(index) }.getOrNull() ?: continue
+                try {
+                    visit(child)
+                } finally {
+                    recycle(child)
+                }
+            }
+        }
+
+        visit(root)
+        // Accessibility traversal order mirrors the visual route hierarchy; return the first
+        // semantic maneuver found inside that anchored route tree.
+        return result
     }
 
     /** Unlike generic text fields, maneuver nodes need both text and contentDescription: a Waze

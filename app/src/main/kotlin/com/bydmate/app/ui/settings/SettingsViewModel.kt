@@ -1542,6 +1542,10 @@ class SettingsViewModel @Inject constructor(
                         "windowUnreachableAgeMs=${sample.wazeWindowUnreachableAgeMs} " +
                         "unreadableAgeMs=${sample.wazeUnreadableAgeMs}",
                 )
+                appendLine(
+                    "waze_notification_listener: connected=" +
+                        com.bydmate.app.media.MediaSessionListenerService.isConnected,
+                )
             } catch (e: Exception) {
                 appendLine("(failed to gather live HUD pipeline: ${e.message})")
             }

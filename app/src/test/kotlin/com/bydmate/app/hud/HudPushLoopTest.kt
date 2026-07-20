@@ -124,6 +124,21 @@ class HudPushLoopTest {
         assertArrayEquals(HudProtobufBuilder.buildClearFrame(0), sink.events[1].second)
     }
 
+    @Test fun `window recovery clears overlay then redraws guidance on next tick`() {
+        activeHub(nowMs = 1000L)
+        val sink = FakeSink()
+        val loop = HudPushLoop(sink, nowMsProvider = { 1000L })
+        assertTrue(loop.tick(wasActive = false))
+
+        NavGuidanceHub.requestHudRefresh()
+        assertTrue(loop.tick(wasActive = true))
+        assertArrayEquals(HudProtobufBuilder.buildClearFrame(0), sink.events.last().second)
+
+        assertTrue(loop.tick(wasActive = true))
+        assertEquals(3, sink.events.size)
+        assertArrayEquals(sink.events.first().second, sink.events.last().second)
+    }
+
     @Test fun `rejected clear frame retries until accepted`() {
         activeHub(nowMs = 1000L)
         val sink = FakeSink(results = listOf(0, -7, -7, 0))

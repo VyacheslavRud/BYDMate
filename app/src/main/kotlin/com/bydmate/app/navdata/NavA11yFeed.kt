@@ -201,7 +201,8 @@ object NavA11yFeed {
                 NavGuidanceHub.markRouteIndeterminate()
                 return ProbeResult.WINDOW_UNREACHABLE
             }
-        if (rootReachable == false) {
+        val recoveredWindow = rootReachable == false
+        if (recoveredWindow) {
             rootReachable = true
             Log.i(TAG, "Waze window reachable again")
         } else {
@@ -216,6 +217,7 @@ object NavA11yFeed {
                     mainHandler.removeCallbacks(noRouteConfirmationRunnable)
                     recordGuidanceEvidence(service, nowMs, nowElapsed)
                     NavGuidanceHub.update(result.data, NavGuidanceHub.Source.A11Y, nowMs)
+                    if (recoveredWindow) NavGuidanceHub.requestHudRefresh()
                     ProbeResult.GUIDANCE
                 }
                 is NavA11yExtractor.ReadResult.NoGuidance -> {
@@ -226,6 +228,7 @@ object NavA11yFeed {
                         lastNoGuidanceAtMs = 0L
                         mainHandler.removeCallbacks(noRouteConfirmationRunnable)
                         NavGuidanceHub.markRouteObserved(NavGuidanceHub.Source.A11Y, nowMs)
+                        if (recoveredWindow) NavGuidanceHub.requestHudRefresh()
                         ProbeResult.ROUTE_UNREADABLE
                     } else {
                         lastNoGuidanceAtMs = nowMs

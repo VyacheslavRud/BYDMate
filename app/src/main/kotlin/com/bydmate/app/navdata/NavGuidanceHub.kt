@@ -67,6 +67,8 @@ object NavGuidanceHub {
         val etaUpdatedAtMs: Long = 0L,
         val totalDistMeters: Int = 0,
         val speedLimit: Int = 0,
+        /** Monotonic request to clear and redraw the factory HUD after another system overlay. */
+        val hudRefreshGeneration: Long = 0L,
         /** Last parsed field update, intentionally not refreshed by a route-presence probe. */
         val lastUpdateMs: Long = 0L,
         /** Last positive evidence that the route itself still exists. */
@@ -105,6 +107,7 @@ object NavGuidanceHub {
     @Volatile private var notificationEndedAtMs = 0L
     @Volatile private var lastRouteEndedAtMs = 0L
     @Volatile private var lastRouteEndReason: RouteEndReason? = null
+    @Volatile private var hudRefreshGeneration = 0L
 
     @Synchronized
     fun diagnostics(): Diagnostics = Diagnostics(
@@ -185,6 +188,7 @@ object NavGuidanceHub {
             etaUpdatedAtMs = etaSource?.etaAtMs ?: 0L,
             totalDistMeters = data.totalDistMeters,
             speedLimit = data.speedLimit,
+            hudRefreshGeneration = hudRefreshGeneration,
             // Age of the selected primary, not the newest unrelated fallback event.
             lastUpdateMs = first.updatedAtMs,
             lastRouteObservedMs = lastRouteObservedAtMs,
@@ -295,6 +299,17 @@ object NavGuidanceHub {
     }
 
     /**
+     * A BYD/Waze system overlay can temporarily replace the factory navigation card and then
+     * clear it. Repeating an identical guidance payload is sometimes deduplicated by the gateway,
+     * so the push loop needs one explicit clear/redraw cycle after the Waze route window returns.
+     */
+    @Synchronized
+    fun requestHudRefresh() {
+        hudRefreshGeneration++
+        if (hudRefreshGeneration == Long.MIN_VALUE) hudRefreshGeneration = 1L
+    }
+
+    /**
      * Records a reachable Waze window that explicitly has no route anchor. One empty tree is not
      * enough: projection hand-offs briefly expose just such a tree. Route teardown requires two
      * observations spanning [NO_GUIDANCE_DEACTIVATE_MS].
@@ -360,6 +375,7 @@ object NavGuidanceHub {
         notificationEndedAtMs = 0L
         lastRouteEndedAtMs = 0L
         lastRouteEndReason = null
+        hudRefreshGeneration = 0L
         clearNoRouteSequence()
     }
 

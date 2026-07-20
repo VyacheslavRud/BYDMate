@@ -135,9 +135,27 @@ class HudProtobufBuilderTest {
         assertEquals(2, HudProtobufBuilder.gaodeToF28(8))
         assertEquals(9, HudProtobufBuilder.gaodeToF28(9))    // uturn
         assertEquals(9, HudProtobufBuilder.gaodeToF28(10))
-        assertEquals(1, HudProtobufBuilder.gaodeToF28(11))   // straight & everything else
+        assertEquals(1, HudProtobufBuilder.gaodeToF28(11))   // straight & known fallbacks
         assertEquals(1, HudProtobufBuilder.gaodeToF28(13))
-        assertEquals(1, HudProtobufBuilder.gaodeToF28(0))
+        assertEquals(0, HudProtobufBuilder.gaodeToF28(0))    // unknown; field is omitted
+    }
+
+    @Test fun `unknown maneuver omits misleading fallback direction field`() {
+        val frame = HudProtobufBuilder.buildFrame(
+            maneuverGaode = 0,
+            distanceMeters = 500,
+            road = "A",
+            etaString = null,
+            totalDistMeters = 0,
+            speedLimit = 0,
+            maneuverIconPng = null,
+            speedSignPng = null,
+        )
+
+        val fields = unwrap(frame)
+        assertNull(fields[28])
+        assertNull(fields[8])
+        assertEquals(500L, fields[9]!![0] as Long)
     }
 
     @Test fun `oversize payload drops speed sign but never maneuver icon`() {

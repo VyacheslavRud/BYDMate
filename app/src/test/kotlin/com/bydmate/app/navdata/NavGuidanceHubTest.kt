@@ -57,6 +57,36 @@ class NavGuidanceHubTest {
         assertEquals(NavGuidanceHub.Source.A11Y, s.source)
     }
 
+    @Test fun `notification supplies right turn while fresh a11y maneuver is unknown`() {
+        NavGuidanceHub.update(
+            data(dist = 520, road = "Live road"),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 1_000,
+        )
+        NavGuidanceHub.updateFromNotification(
+            data(gaode = 2, dist = 500),
+            nowMs = 1_100,
+        )
+
+        val snapshot = NavGuidanceHub.snapshot(nowMs = 1_100)
+        assertEquals(NavGuidanceHub.Source.A11Y, snapshot.source)
+        assertEquals(2, snapshot.maneuverGaode)
+        assertEquals(520, snapshot.distanceMeters)
+        assertEquals("Live road", snapshot.road)
+    }
+
+    @Test fun `HUD refresh generation is monotonic and resettable`() {
+        NavGuidanceHub.update(data(gaode = 2), NavGuidanceHub.Source.A11Y, nowMs = 1_000)
+        assertEquals(0L, NavGuidanceHub.snapshot(nowMs = 1_000).hudRefreshGeneration)
+        NavGuidanceHub.requestHudRefresh()
+        NavGuidanceHub.requestHudRefresh()
+        assertEquals(2L, NavGuidanceHub.snapshot(nowMs = 1_000).hudRefreshGeneration)
+
+        NavGuidanceHub.reset()
+        NavGuidanceHub.update(data(gaode = 2), NavGuidanceHub.Source.A11Y, nowMs = 2_000)
+        assertEquals(0L, NavGuidanceHub.snapshot(nowMs = 2_000).hudRefreshGeneration)
+    }
+
     @Test fun `partial same-source update retains route fields inside bounded hold`() {
         NavGuidanceHub.update(
             data(gaode = 2, dist = 250, road = "Старая улица", eta = 300),

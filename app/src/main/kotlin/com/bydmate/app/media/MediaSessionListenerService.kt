@@ -1,6 +1,8 @@
 package com.bydmate.app.media
 
 import android.app.Notification
+import android.os.Handler
+import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
@@ -34,6 +36,7 @@ class MediaSessionListenerService : NotificationListenerService() {
 
     companion object {
         private const val TAG = "WazeNotifListener"
+        private const val HUD_OVERLAY_RECOVERY_DELAY_MS = 1_500L
 
         /** Framework binding state. Secure-settings membership alone is not enough on DiLink:
          * the vendor notification manager can retain the grant without reconnecting the service. */
@@ -41,16 +44,30 @@ class MediaSessionListenerService : NotificationListenerService() {
         var isConnected: Boolean = false
             private set
 
-        // Exact Waze 5.21 channel used by its Android Auto/Automotive navigation path.
-        // Standalone Waze normally exposes only CLOSE_WAZE_CHANNEL, which is intentionally ignored.
+        // Exact Waze 5.21 channel used by its Android Auto/Automotive navigation path. DiLink
+        // standalone builds can use a vendor channel; those are accepted only with strong parsed
+        // route evidence in shouldAcceptNavigationNotification().
         internal const val WAZE_NAVIGATION_CHANNEL = "Waze Navigation Instructions"
 
         internal fun shouldAcceptNavigationNotification(
             category: String?,
             channelId: String?,
+            parsedHasGuidance: Boolean = false,
+            hasStrongRouteEvidence: Boolean = false,
         ): Boolean =
             category == Notification.CATEGORY_NAVIGATION ||
-                channelId == WAZE_NAVIGATION_CHANNEL
+                channelId == WAZE_NAVIGATION_CHANNEL ||
+                (parsedHasGuidance && hasStrongRouteEvidence)
+
+        internal fun hasStrongRouteEvidence(parsed: NaviNotificationParser.Parsed?): Boolean {
+            val guidance = parsed?.guidance ?: return false
+            return guidance.maneuverGaode > 0 && (
+                guidance.distanceMeters > 0 ||
+                    guidance.etaSeconds > 0 ||
+                    guidance.arrivalTime.isNotBlank() ||
+                    guidance.totalDistMeters > 0
+                )
+        }
     }
 
     /** Plain parsed mirrors, not framework Notification objects. Waze can briefly keep an old and
@@ -59,6 +76,14 @@ class MediaSessionListenerService : NotificationListenerService() {
     private val navigationNotifications =
         ConcurrentHashMap<String, NavigationNotificationMirror>()
     private val notificationSequence = AtomicLong()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val hudOverlayRecoveryRunnable = Runnable {
+        val hub = com.bydmate.app.navdata.NavGuidanceHub
+        if (hub.snapshot().active) {
+            hub.requestHudRefresh()
+            Log.i(TAG, "Waze navigation overlay settled; requested HUD clear/redraw")
+        }
+    }
 
     // Both callbacks run on the framework binder thread: an uncaught exception there kills
     // the process AND unbinds this listener, breaking music-session access (Wave G role)
@@ -71,22 +96,7 @@ class MediaSessionListenerService : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification) {
         runCatching {
-            val removed = navigationNotifications.remove(sbn.key) ?: return
-            val remaining = newestNavigationNotification(navigationNotifications.values)
-            if (remaining == null) {
-                NaviRouteHolder.clear(sbn.packageName)
-                // Unless the a11y feed still delivers fresh guidance, the last accepted Waze
-                // navigation notification disappearing means route guidance ended.
-                com.bydmate.app.navdata.NavGuidanceHub.markNotificationEnded()
-            } else if (remaining.observedSequence < removed.observedSequence) {
-                // The removed notification owned the visible latest instruction. Restore the
-                // newest still-active mirror; removing an older key leaves current state intact.
-                // Mark the removed source first: a guidance-bearing predecessor cancels this
-                // marker in updateFromNotification(), while a non-guidance predecessor cannot
-                // accidentally keep the removed maneuver alive.
-                com.bydmate.app.navdata.NavGuidanceHub.markNotificationEnded()
-                applyMirror(remaining, System.currentTimeMillis())
-            }
+            removeNavigationMirror(sbn.key, sbn.packageName)
         }.onFailure { Log.w(TAG, "notification removal handling failed", it) }
     }
 
@@ -134,17 +144,32 @@ class MediaSessionListenerService : NotificationListenerService() {
 
     override fun onDestroy() {
         isConnected = false
+        mainHandler.removeCallbacks(hudOverlayRecoveryRunnable)
         super.onDestroy()
     }
 
     private fun processPosted(sbn: StatusBarNotification) {
-        if (!isAcceptedNavigationNotification(sbn)) return
+        if (!NavPackages.isNavigationPackage(sbn.packageName)) return
         val extras = sbn.notification.extras
         val parsed = runCatching { NaviNotificationParser.parse(sbn.notification) }
             .onFailure { Log.w(TAG, "Waze notification parse failed", it) }
             .getOrNull()
-        if (parsed?.hasGuidance != true) {
+        if (!shouldAcceptNavigationNotification(
+                category = sbn.notification.category,
+                channelId = sbn.notification.channelId,
+                parsedHasGuidance = parsed?.hasGuidance == true,
+                hasStrongRouteEvidence = hasStrongRouteEvidence(parsed),
+            )
+        ) {
+            // DiLink's progress phase can update an already accepted vendor key with distance
+            // only. Preserve the last strong instruction and use this weak update solely as an
+            // overlay-recovery signal; deleting it here made the HUD disappear at the 500 m card.
+            // A real removal, an explicit no-route A11Y tree or the route lease still clears it.
+            if (navigationNotifications.containsKey(sbn.key)) {
+                scheduleHudRefreshAfterOverlay()
+            }
             Log.d("WazeNotifParser", NaviNotificationParser.dump(sbn.notification))
+            return
         }
         val now = System.currentTimeMillis()
         val mirror = NavigationNotificationMirror(
@@ -158,6 +183,17 @@ class MediaSessionListenerService : NotificationListenerService() {
         )
         navigationNotifications[sbn.key] = mirror
         applyMirror(mirror, now)
+        scheduleHudRefreshAfterOverlay()
+    }
+
+    /**
+     * A DiLink navigation notification can temporarily replace the factory windshield card. Its
+     * progress updates may reuse the same key, so this is a trailing-edge debounce: one clear and
+     * redraw runs only after the burst settles instead of flickering on every progress update.
+     */
+    private fun scheduleHudRefreshAfterOverlay() {
+        mainHandler.removeCallbacks(hudOverlayRecoveryRunnable)
+        mainHandler.postDelayed(hudOverlayRecoveryRunnable, HUD_OVERLAY_RECOVERY_DELAY_MS)
     }
 
     private fun applyMirror(mirror: NavigationNotificationMirror, now: Long) {
@@ -175,14 +211,33 @@ class MediaSessionListenerService : NotificationListenerService() {
         }
     }
 
+    private fun removeNavigationMirror(key: String, packageName: String) {
+        val removed = navigationNotifications.remove(key) ?: return
+        val remaining = newestNavigationNotification(navigationNotifications.values)
+        if (remaining == null) {
+            NaviRouteHolder.clear(packageName)
+            // Unless the a11y feed still delivers fresh guidance, the last accepted Waze
+            // navigation notification disappearing means route guidance ended.
+            com.bydmate.app.navdata.NavGuidanceHub.markNotificationEnded()
+        } else if (remaining.observedSequence < removed.observedSequence) {
+            // The removed notification owned the visible latest instruction. Restore the newest
+            // still-active mirror; removing an older key leaves current state intact.
+            com.bydmate.app.navdata.NavGuidanceHub.markNotificationEnded()
+            applyMirror(remaining, System.currentTimeMillis())
+        }
+    }
+
     private fun isAcceptedNavigationNotification(sbn: StatusBarNotification): Boolean {
         if (!NavPackages.isNavigationPackage(sbn.packageName)) return false
-        // Unknown Waze channels include police/hazard/community/engagement alerts. Do not infer
-        // their purpose from wording: only Android's navigation category or Waze's confirmed
-        // navigation channel may feed the route/HUD fallback.
+        val parsed = runCatching { NaviNotificationParser.parse(sbn.notification) }.getOrNull()
+        // The standalone Waze build on DiLink posts real turn instructions on a vendor-specific
+        // channel. Unknown channels are accepted only with a recognized maneuver plus an
+        // independent route metric; engagement and community alerts remain rejected.
         return shouldAcceptNavigationNotification(
             sbn.notification.category,
             sbn.notification.channelId,
+            parsedHasGuidance = parsed?.hasGuidance == true,
+            hasStrongRouteEvidence = hasStrongRouteEvidence(parsed),
         )
     }
 }

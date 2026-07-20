@@ -1,10 +1,14 @@
 package com.bydmate.app.media
 
 import android.app.Notification
+import android.os.UserHandle
+import android.service.notification.StatusBarNotification
+import com.bydmate.app.navdata.NavGuidanceHub
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -13,6 +17,24 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29, 32])
 class NaviNotificationParserTest {
+
+    @Before fun resetHub() = NavGuidanceHub.reset()
+
+    private fun statusBarNotification(
+        notification: Notification,
+        postTimeMs: Long,
+    ): StatusBarNotification = StatusBarNotification(
+        "com.waze",
+        "com.waze",
+        42,
+        "route",
+        1_000,
+        0,
+        0,
+        notification,
+        UserHandle.getUserHandleForUid(1_000),
+        postTimeMs,
+    )
 
     @Test fun `maps standard Waze lines to maneuver distance and street`() {
         val parsed = NaviNotificationParser.fromText(
@@ -120,7 +142,61 @@ class NaviNotificationParserTest {
         assertFalse(MediaSessionListenerService.shouldAcceptNavigationNotification(
             category = null,
             channelId = "ENGAGEMENT",
+            parsedHasGuidance = engagement.hasGuidance,
+            hasStrongRouteEvidence = MediaSessionListenerService.hasStrongRouteEvidence(engagement),
         ))
+    }
+
+    @Test fun `vendor channel accepts parsed maneuver only with independent route metric`() {
+        val realTurn = NaviNotificationParser.fromText(
+            title = "500 m",
+            text = "Turn right",
+            subText = null,
+            bigText = null,
+        )
+        assertTrue(MediaSessionListenerService.shouldAcceptNavigationNotification(
+            category = null,
+            channelId = "VENDOR_WAZE_ROUTE",
+            parsedHasGuidance = realTurn.hasGuidance,
+            hasStrongRouteEvidence = MediaSessionListenerService.hasStrongRouteEvidence(realTurn),
+        ))
+
+        val weak = NaviNotificationParser.fromText(
+            title = null,
+            text = "Continue",
+            subText = null,
+            bigText = null,
+        )
+        assertFalse(MediaSessionListenerService.shouldAcceptNavigationNotification(
+            category = null,
+            channelId = "ENGAGEMENT",
+            parsedHasGuidance = weak.hasGuidance,
+            hasStrongRouteEvidence = MediaSessionListenerService.hasStrongRouteEvidence(weak),
+        ))
+    }
+
+    @Test fun `distance-only progress update preserves accepted vendor route key`() {
+        val service = MediaSessionListenerService()
+        val strong = Notification().apply {
+            extras.putString(Notification.EXTRA_TITLE, "500 m")
+            extras.putString(Notification.EXTRA_TEXT, "Turn right")
+        }
+        service.onNotificationPosted(statusBarNotification(strong, postTimeMs = 1_000L))
+
+        val beforeProgress = NavGuidanceHub.snapshot()
+        assertTrue(beforeProgress.active)
+        assertEquals(2, beforeProgress.maneuverGaode)
+        assertEquals(500, beforeProgress.distanceMeters)
+
+        val distanceOnly = Notification().apply {
+            extras.putString(Notification.EXTRA_TITLE, "450 m")
+        }
+        service.onNotificationPosted(statusBarNotification(distanceOnly, postTimeMs = 2_000L))
+
+        val afterProgress = NavGuidanceHub.snapshot()
+        assertTrue(afterProgress.active)
+        assertEquals(2, afterProgress.maneuverGaode)
+        assertEquals(500, afterProgress.distanceMeters)
     }
 
     @Test fun `parse reads Android notification extras`() {

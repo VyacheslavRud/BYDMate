@@ -19,10 +19,10 @@ enum class HudFrameKind { GUIDANCE, CLEAR }
  * Some DiLink/Waze combinations expose an active maneuver widget whose localized description is
  * not parseable yet, and a background/projected Waze window can temporarily hide every optional
  * field. NavGuidanceHub only becomes active from positive route UI/notification evidence, so the
- * active flag itself is the compatibility gate. The donor HUD protocol intentionally maps
- * maneuver 0 to its neutral f28=1 state and omits the PNG icon. The previous hard requirement for
- * maneuverGaode > 0 therefore turned a recoverable partial update into a complete HUD outage on
- * the Sea Lion 07.
+ * active flag itself is the compatibility gate. For maneuver 0 the encoder omits f28 and the PNG
+ * icon, keeping distance/road guidance alive without inventing a direction. The previous hard
+ * requirement for maneuverGaode > 0 therefore turned a recoverable partial update into a complete
+ * HUD outage on the Sea Lion 07.
  */
 internal fun hasRenderableHudGuidance(snapshot: NavGuidanceHub.Snapshot): Boolean =
     snapshot.active
@@ -50,6 +50,7 @@ class HudPushLoop(
     private var job: Job? = null
     private var counter = 0   // clear frames only; guidance frames carry the constant 2 in f2
     private var pendingClearAttempts = if (initialClearPending) CLEAR_MAX_ATTEMPTS else 0
+    private var lastRefreshGeneration: Long? = null
 
     fun start(scope: CoroutineScope, periodMs: Long = PERIOD_MS) {
         if (job?.isActive == true) return
@@ -76,12 +77,15 @@ class HudPushLoop(
         job?.cancel()
         job = null
         pendingClearAttempts = 0
+        lastRefreshGeneration = null
     }
 
     /** One tick; returns whether guidance was active (input for the next tick). Clear retry state
      * is retained internally because subsequent inactive ticks receive wasActive=false. */
     internal fun tick(wasActive: Boolean): Boolean {
         val s = NavGuidanceHub.snapshot(nowMsProvider())
+        val previousRefreshGeneration = lastRefreshGeneration
+        lastRefreshGeneration = s.hudRefreshGeneration
         if (!hasRenderableHudGuidance(s)) {
             if (wasActive) pendingClearAttempts = CLEAR_MAX_ATTEMPTS
             if (pendingClearAttempts > 0) {
@@ -103,6 +107,21 @@ class HudPushLoop(
                 }
             }
             return false
+        }
+        if (wasActive && previousRefreshGeneration != null &&
+            previousRefreshGeneration != s.hudRefreshGeneration
+        ) {
+            val rc = deliver(
+                HudFrameKind.CLEAR,
+                HudProtobufBuilder.buildClearFrame(counter++),
+            )
+            if (rc >= 0) {
+                // Guidance is sent on the next 300 ms tick. A small gap is intentional: sending
+                // clear+guidance back-to-back is coalesced by the Sea Lion gateway and does not
+                // restore the card erased by the system notification overlay.
+                Log.i(TAG, "HUD overlay recovery clear accepted; guidance redraw pending")
+                return true
+            }
         }
         // A new active frame supersedes any clear that was waiting for a retry.
         pendingClearAttempts = 0
