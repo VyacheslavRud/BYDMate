@@ -52,21 +52,20 @@ object HudProtobufBuilder {
      * The vehicle accepted the scalar route fields but rejected every tested f7/f8 PNG payload.
      * Keep the actual Waze distance unchanged: the factory firmware decides whether to show a
      * turn arrow or straight guidance from that value (20/50 m turned; 100/500 m stayed straight).
-     * Speed and progress remain disabled until a parked calibration confirms their semantics.
+     * f10 road text is confirmed. f11 speed, f26 ETA and non-zero f33 progress are omitted because
+     * the parked matrix did not prove that the Sea Lion firmware renders them.
      */
     fun buildSeaLionGuidanceFrame(
         maneuverGaode: Int,
         distanceMeters: Int,
         road: String,
-        etaString: String?,
     ): ByteArray {
         val safeRoad = road.take(MAX_ROAD_CHARS)
-        val safeEta = etaString?.trim()?.take(MAX_ETA_CHARS)?.takeIf { it.isNotEmpty() }
         val payload = buildFrameWithRawF28(
             rawF28 = seaLionF28ForGaode(maneuverGaode),
             distanceMeters = distanceMeters.coerceAtLeast(0),
             road = safeRoad,
-            etaString = safeEta,
+            etaString = null,
             totalDistMeters = 0,
             speedLimit = 0,
             maneuverIconPng = null,
@@ -148,7 +147,7 @@ object HudProtobufBuilder {
         require(spec.effectiveRenderClass in setOf(1, 6)) {
             "unsupported HUD Lab f6=${spec.effectiveRenderClass}"
         }
-        require(spec.f28 == null || spec.f28 in setOf(0, 1, 2, 3, 9, 13, 24)) {
+        require(spec.f28 == null || spec.f28 in setOf(1, 2, 3, 9, 13, 24)) {
             "unsupported HUD Lab f28=${spec.f28}"
         }
         require(spec.iconCode == null || spec.iconCode in setOf(0, 1, 2, 9, 11)) {

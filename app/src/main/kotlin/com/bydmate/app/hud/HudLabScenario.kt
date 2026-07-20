@@ -1,15 +1,15 @@
 package com.bydmate.app.hud
 
-/** Stable groups shared by the focused research and repeatable calibration catalogs. */
+/** Stable groups shared by the Sea Lion smoke tests and compatibility calibration catalog. */
 enum class HudLabScenarioGroup {
-    SPEED_RESEARCH,
+    SEA_LION_CONFIRMED,
     UTURN,
     ROUNDABOUT,
     SPEED_LIMIT,
     CONTROL,
 }
 
-/** Only donor fields already used by production guidance are allowed in synthetic frames. */
+/** Bounded donor fields allowed in parked synthetic frames. */
 data class HudLabFrameSpec(
     val renderClass: Int? = null,
     val f28: Int? = null,
@@ -79,7 +79,7 @@ data class HudLabScenario(
     }
 }
 
-/** Separate catalogs for the current question and the six useful repeat-calibration scenarios. */
+/** Confirmed Sea Lion smoke tests plus older compatibility probes kept for other vehicles. */
 object HudLabScenarioCatalog {
     private const val BURST_COUNT = 10
     private const val BURST_CADENCE_MS = 300L
@@ -98,228 +98,53 @@ object HudLabScenarioCatalog {
         send(label, frame, gapBeforeMs = CLEAR_GAP_MS),
     )
 
-    private fun speedResearch(
+    private fun confirmedSeaLion(
         id: String,
         title: String,
         frame: HudLabFrameSpec,
         expected: HudLabObserved,
-        repeat: Int = BURST_COUNT,
-        cadenceMs: Long = BURST_CADENCE_MS,
     ) = HudLabScenario(
         id = id,
-        group = HudLabScenarioGroup.SPEED_RESEARCH,
+        group = HudLabScenarioGroup.SEA_LION_CONFIRMED,
         title = title,
         command = null,
         expected = expected,
-        steps = listOf(
-            HudLabScenarioStep.Clear(attempts = 3),
-            send(
-                label = id.lowercase(),
-                frame = frame,
-                repeat = repeat,
-                cadenceMs = cadenceMs,
-                gapBeforeMs = CLEAR_GAP_MS,
-            ),
-        ),
+        steps = burst(id.lowercase(), frame),
     )
 
     /**
-     * Follow-up matrix derived from the N17/N18 result: f11 rendered a number only when a confirmed
-     * maneuver f28 was present. It isolates f6, speed value, distance, route context, an arrow-free
-     * f28=0 candidate and delivery cadence. Rejected PNG fields stay excluded.
+     * Minimal production contract confirmed on the 2025 Chinese-market Sea Lion 07.
+     *
+     * f9 is the real maneuver distance, f10 is optional road text and f28 is emitted only for the
+     * two calibrated directions. The firmware itself keeps the card straight at 100 m and switches
+     * to the native turn arrow at 20/50 m. No f7/f8 PNG, f11 speed, f26 ETA or non-zero progress is
+     * included in these repeatable smoke tests.
      */
-    val current: List<HudLabScenario> = listOf(
-        speedResearch(
-            "X01", "MINIMAL RIGHT · f6=1 · f11=50",
-            HudLabFrameSpec(f28 = 2, distanceMeters = 50, road = "", speedLimit = 50),
-            HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
-        ),
-        speedResearch(
-            "X02", "MINIMAL LEFT · f6=1 · f11=50",
-            HudLabFrameSpec(f28 = 3, distanceMeters = 50, road = "", speedLimit = 50),
-            HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
-        ),
-        speedResearch(
-            "X03", "VALUE RIGHT · f11=80 · f6=6",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 2,
-                distanceMeters = 50,
-                road = "",
-                speedLimit = 80,
-            ),
-            HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
-        ),
-        speedResearch(
-            "X04", "VALUE LEFT · f11=80 · f6=6",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 3,
-                distanceMeters = 50,
-                road = "",
-                speedLimit = 80,
-            ),
-            HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
-        ),
-        speedResearch(
-            "X05", "DISTANCE RIGHT · f9=20",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 2,
-                distanceMeters = 20,
-                road = "",
-                speedLimit = 50,
-            ),
-            HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
-        ),
-        speedResearch(
-            "X06", "DISTANCE RIGHT · f9=100",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 2,
-                distanceMeters = 100,
-                road = "",
-                speedLimit = 50,
-            ),
-            HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
-        ),
-        speedResearch(
-            "X07", "DISTANCE LEFT · f9=20",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 3,
-                distanceMeters = 20,
-                road = "",
-                speedLimit = 50,
-            ),
-            HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
-        ),
-        speedResearch(
-            "X08", "DISTANCE LEFT · f9=100",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 3,
-                distanceMeters = 100,
-                road = "",
-                speedLimit = 50,
-            ),
-            HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
-        ),
-        speedResearch(
-            "X09", "ROAD RIGHT · f10 text",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 2,
-                distanceMeters = 50,
-                road = "HUD LAB SPEED",
-                speedLimit = 50,
-            ),
-            HudLabObserved.SPEED_MANEUVER_ROAD_VISIBLE,
-        ),
-        speedResearch(
-            "X10", "ETA RIGHT · f26=12:34",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 2,
-                distanceMeters = 50,
-                road = "",
-                etaString = "12:34",
-                speedLimit = 50,
-            ),
-            HudLabObserved.SPEED_MANEUVER_ETA_VISIBLE,
-        ),
-        speedResearch(
-            "X11", "PROGRESS RIGHT · f33=0.5",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 2,
-                distanceMeters = 50,
-                road = "",
-                totalDistanceMeters = 100,
-                speedLimit = 50,
-            ),
-            HudLabObserved.SPEED_MANEUVER_PROGRESS_VISIBLE,
-        ),
-        speedResearch(
-            "X12", "FULL SCALAR LEFT · road + ETA + progress",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 3,
-                distanceMeters = 50,
-                road = "HUD LAB FULL",
-                etaString = "12:34",
-                totalDistanceMeters = 100,
-                speedLimit = 50,
-            ),
-            HudLabObserved.FULL_SCALAR_VISIBLE,
-        ),
-        speedResearch(
-            "X13", "ARROW-FREE CANDIDATE · f28=0",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 0,
-                distanceMeters = 50,
-                road = "",
-                speedLimit = 50,
-            ),
-            HudLabObserved.SPEED_NUMBER_VISIBLE,
-        ),
-        speedResearch(
-            "X14", "UTURN COEXIST · f28=9",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 9,
-                distanceMeters = 50,
-                road = "",
-                speedLimit = 50,
-            ),
-            HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
-        ),
-        speedResearch(
-            "X15", "CADENCE · RIGHT single packet",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 2,
-                distanceMeters = 50,
-                road = "",
-                speedLimit = 50,
-            ),
-            HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
-            repeat = 1,
-            cadenceMs = 0L,
-        ),
-        speedResearch(
-            "X16", "CADENCE · RIGHT 6x @500ms",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 2,
-                distanceMeters = 50,
-                road = "",
-                speedLimit = 50,
-            ),
-            HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
-            repeat = 6,
-            cadenceMs = 500L,
-        ),
-        speedResearch(
-            "X17", "DEPENDENCY CONTROL · RIGHT without f11",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 2,
-                distanceMeters = 50,
-                road = "",
-            ),
+    val confirmed: List<HudLabScenario> = listOf(
+        confirmedSeaLion(
+            "SL01", "CONFIRMED · RIGHT at 50 m",
+            HudLabFrameSpec(f28 = 2, distanceMeters = 50, road = ""),
             HudLabObserved.RIGHT,
         ),
-        speedResearch(
-            "X18", "DEPENDENCY CONTROL · LEFT without f11",
-            HudLabFrameSpec(
-                renderClass = 6,
-                f28 = 3,
-                distanceMeters = 50,
-                road = "",
-            ),
+        confirmedSeaLion(
+            "SL02", "CONFIRMED · LEFT at 50 m",
+            HudLabFrameSpec(f28 = 3, distanceMeters = 50, road = ""),
             HudLabObserved.LEFT,
+        ),
+        confirmedSeaLion(
+            "SL03", "FIRMWARE THRESHOLD · RIGHT at 100 m",
+            HudLabFrameSpec(f28 = 2, distanceMeters = 100, road = ""),
+            HudLabObserved.STRAIGHT,
+        ),
+        confirmedSeaLion(
+            "SL04", "FIRMWARE THRESHOLD · LEFT at 100 m",
+            HudLabFrameSpec(f28 = 3, distanceMeters = 100, road = ""),
+            HudLabObserved.STRAIGHT,
+        ),
+        confirmedSeaLion(
+            "SL05", "CONFIRMED · RIGHT + road text",
+            HudLabFrameSpec(f28 = 2, distanceMeters = 50, road = "HUD LAB ROAD"),
+            HudLabObserved.ROAD_VISIBLE,
         ),
     )
 
@@ -360,7 +185,7 @@ object HudLabScenarioCatalog {
         ),
     )
 
-    private fun confirmedCoexistence(
+    private fun legacyCoexistence(
         id: String,
         title: String,
         rawF28: Int,
@@ -382,8 +207,8 @@ object HudLabScenarioCatalog {
         ),
     )
 
-    /** Previous calibration plus the two visually confirmed Sea Lion speed-number scenarios. */
-    val calibration: List<HudLabScenario> = listOf(
+    /** Older working probes retained as a separate compatibility set for another BYD firmware. */
+    val compatibility: List<HudLabScenario> = listOf(
         directionCandidate("U01", HudLabScenarioGroup.UTURN, HudLabCommand.UTURN, 20),
         directionCandidate("U02", HudLabScenarioGroup.UTURN, HudLabCommand.UTURN, 50),
         directionCandidate(
@@ -400,11 +225,11 @@ object HudLabScenarioCatalog {
         ),
         speedCandidate("S01", 50),
         speedCandidate("S02", 80),
-        confirmedCoexistence("N17", "CONFIRMED · RIGHT + speed 50", 2),
-        confirmedCoexistence("N18", "CONFIRMED · LEFT + speed 50", 3),
+        legacyCoexistence("N17", "LEGACY · RIGHT + f6=6 + f11=50", 2),
+        legacyCoexistence("N18", "LEGACY · LEFT + f6=6 + f11=50", 3),
     )
 
-    val all: List<HudLabScenario> = current + calibration
+    val all: List<HudLabScenario> = confirmed + compatibility
 
     fun byId(id: String): HudLabScenario? = all.firstOrNull { it.id == id }
 }

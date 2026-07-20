@@ -165,21 +165,20 @@ class HudProtobufBuilderTest {
                 maneuverGaode = NavManeuverCodes.GAODE_RIGHT,
                 distanceMeters = 50,
                 road = "Road",
-                etaString = " 12:34 ",
             ),
         )
 
-        assertEquals(setOf(2, 6, 9, 10, 16, 26, 28, 33), fields.keys)
+        assertEquals(setOf(2, 6, 9, 10, 16, 28, 33), fields.keys)
         assertEquals(2L, fields[2]!!.single() as Long)
         assertEquals(1L, fields[6]!!.single() as Long)
         assertEquals(50L, fields[9]!!.single() as Long)
         assertEquals("Road", String(fields[10]!!.single() as ByteArray, Charsets.UTF_8))
-        assertEquals("12:34", String(fields[26]!!.single() as ByteArray, Charsets.UTF_8))
         assertEquals(2L, fields[28]!!.single() as Long)
         assertEquals(0.0, Double.fromBits(fields[33]!!.single() as Long), 0.0)
         assertNull(fields[7])
         assertNull(fields[8])
         assertNull(fields[11])
+        assertNull(fields[26])
     }
 
     @Test fun `Sea Lion production mapping emits only confirmed left and right values`() {
@@ -214,7 +213,6 @@ class HudProtobufBuilderTest {
                     maneuverGaode = NavManeuverCodes.GAODE_RIGHT,
                     distanceMeters = distance,
                     road = "",
-                    etaString = null,
                 ),
             )
             assertEquals(distance.toLong(), fields[9]!!.single() as Long)
@@ -228,7 +226,6 @@ class HudProtobufBuilderTest {
                 maneuverGaode = NavManeuverCodes.GAODE_STRAIGHT,
                 distanceMeters = 500,
                 road = "A",
-                etaString = null,
             ),
         )
 
@@ -243,7 +240,6 @@ class HudProtobufBuilderTest {
                 maneuverGaode = NavManeuverCodes.GAODE_LEFT,
                 distanceMeters = -1,
                 road = "x".repeat(HudProtobufBuilder.MAX_ROAD_CHARS + 50),
-                etaString = " 12345678901234567890 ",
             ),
         )
 
@@ -252,10 +248,7 @@ class HudProtobufBuilderTest {
             HudProtobufBuilder.MAX_ROAD_CHARS,
             String(fields[10]!!.single() as ByteArray, Charsets.UTF_8).length,
         )
-        assertEquals(
-            "1234567890123456",
-            String(fields[26]!!.single() as ByteArray, Charsets.UTF_8),
-        )
+        assertNull(fields[26])
     }
 
     @Test fun `HUD Lab frame sends exact raw f28 without PNG`() {
@@ -322,22 +315,6 @@ class HudProtobufBuilderTest {
 
         assertEquals(6L, fields[6]!!.single() as Long)
         assertEquals(50L, fields[11]!!.single() as Long)
-        assertNull(fields[7])
-        assertNull(fields[8])
-    }
-
-    @Test fun `HUD Lab can encode bounded arrow-free f28 zero candidate`() {
-        val spec = HudLabFrameSpec(
-            renderClass = 6,
-            f28 = 0,
-            distanceMeters = 50,
-            road = "",
-            speedLimit = 50,
-        )
-
-        val fields = unwrap(HudProtobufBuilder.buildHudLabScenarioFrame(spec, null, null))
-
-        assertEquals(0L, fields[28]!!.single() as Long)
         assertNull(fields[7])
         assertNull(fields[8])
     }

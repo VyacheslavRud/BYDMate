@@ -24,57 +24,56 @@ class HudLabScenarioCatalogTest {
         }
 
     @Test
-    fun `catalog keeps current research separate from repeat calibration`() {
-        val currentIds = (1..18).map { "X%02d".format(it) }
-        val calibrationIds = listOf(
+    fun `catalog keeps confirmed Sea Lion checks separate from compatibility probes`() {
+        val confirmedIds = listOf("SL01", "SL02", "SL03", "SL04", "SL05")
+        val compatibilityIds = listOf(
             "U01", "U02", "R01", "R02", "S01", "S02", "N17", "N18",
         )
 
-        assertEquals(currentIds, HudLabScenarioCatalog.current.map(HudLabScenario::id))
-        assertEquals(calibrationIds, HudLabScenarioCatalog.calibration.map(HudLabScenario::id))
-        assertEquals(currentIds + calibrationIds, HudLabScenarioCatalog.all.map(HudLabScenario::id))
-        assertEquals(26, HudLabScenarioCatalog.all.map(HudLabScenario::id).toSet().size)
+        assertEquals(confirmedIds, HudLabScenarioCatalog.confirmed.map(HudLabScenario::id))
+        assertEquals(
+            compatibilityIds,
+            HudLabScenarioCatalog.compatibility.map(HudLabScenario::id),
+        )
+        assertEquals(
+            confirmedIds + compatibilityIds,
+            HudLabScenarioCatalog.all.map(HudLabScenario::id),
+        )
+        assertEquals(13, HudLabScenarioCatalog.all.map(HudLabScenario::id).toSet().size)
+        assertNull(HudLabScenarioCatalog.byId("X01"))
         assertNull(HudLabScenarioCatalog.byId("W01"))
     }
 
     @Test
-    fun `follow-up research isolates dependencies around confirmed speed and maneuver frames`() {
-        val frames = (1..18).associate { number ->
-            val id = "X%02d".format(number)
-            id to onlySend(id).frame
-        }
-        val confirmedRight = onlySend("N17").frame
-        val confirmedLeft = onlySend("N18").frame
+    fun `confirmed checks reproduce the minimal production contract`() {
+        val right50 = onlySend("SL01").frame
+        val left50 = onlySend("SL02").frame
 
-        assertEquals(confirmedRight.copy(renderClass = null), frames.getValue("X01"))
-        assertEquals(confirmedLeft.copy(renderClass = null), frames.getValue("X02"))
-        assertEquals(confirmedRight.copy(speedLimit = 80), frames.getValue("X03"))
-        assertEquals(confirmedLeft.copy(speedLimit = 80), frames.getValue("X04"))
-        assertEquals(confirmedRight.copy(distanceMeters = 20), frames.getValue("X05"))
-        assertEquals(confirmedRight.copy(distanceMeters = 100), frames.getValue("X06"))
-        assertEquals(confirmedLeft.copy(distanceMeters = 20), frames.getValue("X07"))
-        assertEquals(confirmedLeft.copy(distanceMeters = 100), frames.getValue("X08"))
-        assertEquals(confirmedRight.copy(road = "HUD LAB SPEED"), frames.getValue("X09"))
-        assertEquals(confirmedRight.copy(etaString = "12:34"), frames.getValue("X10"))
-        assertEquals(confirmedRight.copy(totalDistanceMeters = 100), frames.getValue("X11"))
-        assertEquals(
-            confirmedLeft.copy(
-                road = "HUD LAB FULL",
-                etaString = "12:34",
-                totalDistanceMeters = 100,
-            ),
-            frames.getValue("X12"),
-        )
-        assertEquals(confirmedRight.copy(f28 = 0), frames.getValue("X13"))
-        assertEquals(confirmedRight.copy(f28 = 9), frames.getValue("X14"))
-        assertEquals(confirmedRight, frames.getValue("X15"))
-        assertEquals(confirmedRight, frames.getValue("X16"))
-        assertEquals(confirmedRight.copy(speedLimit = 0), frames.getValue("X17"))
-        assertEquals(confirmedLeft.copy(speedLimit = 0), frames.getValue("X18"))
+        assertEquals(HudLabFrameSpec(f28 = 2, distanceMeters = 50, road = ""), right50)
+        assertEquals(right50.copy(f28 = 3), left50)
+        assertEquals(right50.copy(distanceMeters = 100), onlySend("SL03").frame)
+        assertEquals(left50.copy(distanceMeters = 100), onlySend("SL04").frame)
+        assertEquals(right50.copy(road = "HUD LAB ROAD"), onlySend("SL05").frame)
+
+        assertEquals(HudLabObserved.RIGHT, scenario("SL01").expected)
+        assertEquals(HudLabObserved.LEFT, scenario("SL02").expected)
+        assertEquals(HudLabObserved.STRAIGHT, scenario("SL03").expected)
+        assertEquals(HudLabObserved.STRAIGHT, scenario("SL04").expected)
+        assertEquals(HudLabObserved.ROAD_VISIBLE, scenario("SL05").expected)
+
+        HudLabScenarioCatalog.confirmed.forEach { confirmed ->
+            val frame = onlySend(confirmed.id).frame
+            assertEquals(1, frame.effectiveRenderClass)
+            assertEquals(0, frame.speedLimit)
+            assertNull(frame.etaString)
+            assertEquals(0, frame.totalDistanceMeters)
+            assertFalse(frame.includeSpeedSign)
+            assertNull(frame.iconCode)
+        }
     }
 
     @Test
-    fun `previous six calibration scenarios retain their exact fields`() {
+    fun `older working compatibility probes retain their exact fields`() {
         val uturnFrames = listOf(onlySend("U01").frame, onlySend("U02").frame)
         assertEquals(listOf(20, 50), uturnFrames.map(HudLabFrameSpec::distanceMeters))
         uturnFrames.forEach { assertEquals(9, it.f28) }
@@ -102,19 +101,14 @@ class HudLabScenarioCatalogTest {
     }
 
     @Test
-    fun `all scenarios keep accepted cadence and bounded scalar fields`() {
+    fun `all scenarios keep accepted cadence and bounded fields`() {
         HudLabScenarioCatalog.all.forEach { scenario ->
             assertEquals(2, scenario.steps.size)
             val clear = scenario.steps.first() as HudLabScenarioStep.Clear
             val send = scenario.steps.last() as HudLabScenarioStep.Send
             assertEquals(3, clear.attempts)
-            val expectedDelivery = when (scenario.id) {
-                "X15" -> 1 to 0L
-                "X16" -> 6 to 500L
-                else -> 10 to 300L
-            }
-            assertEquals(expectedDelivery.first, send.repeatCount)
-            assertEquals(expectedDelivery.second, send.cadenceMs)
+            assertEquals(10, send.repeatCount)
+            assertEquals(300L, send.cadenceMs)
             assertEquals(350L, send.gapBeforeMs)
             assertNull(send.frame.iconCode)
             assertFalse(send.frame.includeSpeedSign)

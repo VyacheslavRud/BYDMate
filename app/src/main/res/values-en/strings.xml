@@ -1234,13 +1234,13 @@
 
     <!-- Dev-only factory HUD calibration -->
     <string name="diagnostics_hud_lab_title">HUD Lab — factory HUD calibration</string>
-    <string name="diagnostics_hud_lab_description">New research and the previous verification scenarios are kept in separate sets.</string>
-    <string name="diagnostics_hud_lab_native_hint">New tests use scalar fields only; confirmed results and previous calibration remain separate.</string>
+    <string name="diagnostics_hud_lab_description">The confirmed Sea Lion 07 contract and older compatibility probes are kept in separate sets.</string>
+    <string name="diagnostics_hud_lab_native_hint">The primary set reproduces the safe production frame without PNG, speed sign, ETA or progress.</string>
     <string name="diagnostics_hud_lab_catalog_title">Test set</string>
-    <string name="diagnostics_hud_lab_catalog_current">New research</string>
-    <string name="diagnostics_hud_lab_catalog_calibration">Previous and confirmed</string>
-    <string name="diagnostics_hud_lab_catalog_current_hint">18 new scalar-only tests refine f28 + f11 across f6, values, distances, route context, cadence and no-f11 controls.</string>
-    <string name="diagnostics_hud_lab_catalog_calibration_hint">6 previous calibration tests plus confirmed N17/N18: speed number together with RIGHT/LEFT.</string>
+    <string name="diagnostics_hud_lab_catalog_confirmed">Sea Lion 07</string>
+    <string name="diagnostics_hud_lab_catalog_compatibility">Other BYD</string>
+    <string name="diagnostics_hud_lab_catalog_confirmed_hint">5 short smoke tests cover RIGHT/LEFT, the native 50/100 m threshold and road text.</string>
+    <string name="diagnostics_hud_lab_catalog_compatibility_hint">Older working U-turn, roundabout and f11 variants remain available to calibrate another BYD firmware.</string>
     <string name="diagnostics_hud_lab_launcher_description">The compact step-by-step lab opens separately from the long diagnostics screen.</string>
     <string name="diagnostics_hud_lab_open">Open</string>
     <string name="diagnostics_hud_lab_test_counter">Test %1$d of %2$d</string>
@@ -1269,7 +1269,7 @@
     <string name="diagnostics_hud_lab_saw_road">Road text visible</string>
     <string name="diagnostics_hud_lab_saw_eta">Arrival time visible</string>
     <string name="diagnostics_hud_lab_saw_progress">Route progress visible</string>
-    <string name="diagnostics_hud_lab_saw_speed_number">Speed-limit number visible</string>
+    <string name="diagnostics_hud_lab_saw_speed_number">Number visible</string>
     <string name="diagnostics_hud_lab_saw_speed_outline">Empty circle visible, no number</string>
     <string name="diagnostics_hud_lab_saw_speed_number_with_maneuver">Number and arrow visible</string>
     <string name="diagnostics_hud_lab_saw_speed_outline_with_maneuver">Empty circle and arrow visible</string>

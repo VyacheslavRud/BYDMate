@@ -76,11 +76,11 @@ fun HudLabScreen(
     val externalLabBusy = clusterState.busy || clusterState.pendingObservationRecordId != null
     var selectedCatalog by rememberSaveable { mutableIntStateOf(0) }
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
-    val currentCatalogSelected = selectedCatalog == 0
-    val scenarios = if (currentCatalogSelected) {
-        HudLabScenarioCatalog.current
+    val confirmedCatalogSelected = selectedCatalog == 0
+    val scenarios = if (confirmedCatalogSelected) {
+        HudLabScenarioCatalog.confirmed
     } else {
-        HudLabScenarioCatalog.calibration
+        HudLabScenarioCatalog.compatibility
     }
     val safeSelectedIndex = selectedIndex.coerceIn(0, scenarios.lastIndex)
     var parkConfirmed by rememberSaveable { mutableStateOf(false) }
@@ -127,14 +127,14 @@ fun HudLabScreen(
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
                 HudLabCatalogCard(
-                    currentSelected = currentCatalogSelected,
+                    confirmedSelected = confirmedCatalogSelected,
                     enabled = canSwitchCatalog,
-                    onSelectCurrent = {
+                    onSelectConfirmed = {
                         selectedCatalog = 0
                         selectedIndex = 0
                         parkConfirmed = false
                     },
-                    onSelectCalibration = {
+                    onSelectCompatibility = {
                         selectedCatalog = 1
                         selectedIndex = 0
                         parkConfirmed = false
@@ -179,12 +179,12 @@ fun HudLabScreen(
 
 @Composable
 private fun HudLabCatalogCard(
-    currentSelected: Boolean,
+    confirmedSelected: Boolean,
     enabled: Boolean,
-    onSelectCurrent: () -> Unit,
-    onSelectCalibration: () -> Unit,
+    onSelectConfirmed: () -> Unit,
+    onSelectCompatibility: () -> Unit,
 ) {
-    val accent = if (currentSelected) AccentBlue else AccentOrange
+    val accent = if (confirmedSelected) AccentBlue else AccentOrange
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.08f)),
@@ -202,44 +202,50 @@ private fun HudLabCatalogCard(
                 modifier = Modifier.fillMaxWidth().padding(top = 9.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (currentSelected) {
+                if (confirmedSelected) {
                     Button(
-                        onClick = onSelectCurrent,
+                        onClick = onSelectConfirmed,
                         enabled = enabled,
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
                     ) {
-                        Text(stringResource(R.string.diagnostics_hud_lab_catalog_current), maxLines = 2)
+                        Text(
+                            stringResource(R.string.diagnostics_hud_lab_catalog_confirmed),
+                            maxLines = 2,
+                        )
                     }
                 } else {
                     OutlinedButton(
-                        onClick = onSelectCurrent,
-                        enabled = enabled,
-                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                    ) {
-                        Text(stringResource(R.string.diagnostics_hud_lab_catalog_current), maxLines = 2)
-                    }
-                }
-                if (currentSelected) {
-                    OutlinedButton(
-                        onClick = onSelectCalibration,
+                        onClick = onSelectConfirmed,
                         enabled = enabled,
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                     ) {
                         Text(
-                            stringResource(R.string.diagnostics_hud_lab_catalog_calibration),
+                            stringResource(R.string.diagnostics_hud_lab_catalog_confirmed),
+                            maxLines = 2,
+                        )
+                    }
+                }
+                if (confirmedSelected) {
+                    OutlinedButton(
+                        onClick = onSelectCompatibility,
+                        enabled = enabled,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    ) {
+                        Text(
+                            stringResource(R.string.diagnostics_hud_lab_catalog_compatibility),
                             maxLines = 2,
                         )
                     }
                 } else {
                     Button(
-                        onClick = onSelectCalibration,
+                        onClick = onSelectCompatibility,
                         enabled = enabled,
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
                     ) {
                         Text(
-                            stringResource(R.string.diagnostics_hud_lab_catalog_calibration),
+                            stringResource(R.string.diagnostics_hud_lab_catalog_compatibility),
                             maxLines = 2,
                         )
                     }
@@ -247,13 +253,13 @@ private fun HudLabCatalogCard(
             }
             Text(
                 stringResource(
-                    if (currentSelected) {
-                        R.string.diagnostics_hud_lab_catalog_current_hint
+                    if (confirmedSelected) {
+                        R.string.diagnostics_hud_lab_catalog_confirmed_hint
                     } else {
-                        R.string.diagnostics_hud_lab_catalog_calibration_hint
+                        R.string.diagnostics_hud_lab_catalog_compatibility_hint
                     },
                 ),
-                color = if (currentSelected) TextSecondary else AccentOrange,
+                color = if (confirmedSelected) TextSecondary else AccentOrange,
                 fontSize = 11.sp,
                 lineHeight = 15.sp,
                 modifier = Modifier.padding(top = 8.dp),
@@ -591,6 +597,19 @@ private fun observationOptions(
     scenarioId: String?,
     expected: HudLabObserved,
 ): List<HudLabObserved> = when {
+    scenarioId?.startsWith("SL") == true -> listOf(
+        expected,
+        HudLabObserved.RIGHT,
+        HudLabObserved.LEFT,
+        HudLabObserved.STRAIGHT,
+        HudLabObserved.DISTANCE_VISIBLE,
+        HudLabObserved.ROAD_VISIBLE,
+        HudLabObserved.INFO_VISIBLE,
+        HudLabObserved.NOTHING,
+        HudLabObserved.FLASHED,
+        HudLabObserved.OTHER,
+        HudLabObserved.NOT_REPORTED,
+    ).distinct()
     scenarioId?.startsWith("U") == true -> listOf(
         HudLabObserved.UTURN,
         HudLabObserved.LEFT,

@@ -121,7 +121,7 @@ class HudLabManagerTest {
             scenarioDelay = {}
         }
 
-        manager.sendScenario("X01", parkConfirmedByUser = true)
+        manager.sendScenario("SL01", parkConfirmedByUser = true)
 
         awaitTrue { manager.state.value.pending?.autoCleared == true }
         val afterWatchdog = HudLabLogStore.records(context).single()
@@ -131,7 +131,7 @@ class HudLabManagerTest {
             it.label == "safety_watchdog_clear" && it.phase == HudLabEventPhase.RESULT
         })
 
-        manager.recordObservation(HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE)
+        manager.recordObservation(HudLabObserved.RIGHT)
 
         awaitTrue { manager.state.value.pending == null }
         assertTrue(HudLabLogStore.renderDiagnosticSection(context).contains("verdict=MATCH"))

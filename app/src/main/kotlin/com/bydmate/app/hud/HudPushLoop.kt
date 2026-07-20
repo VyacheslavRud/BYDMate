@@ -2,8 +2,6 @@ package com.bydmate.app.hud
 
 import android.util.Log
 import com.bydmate.app.navdata.NavGuidanceHub
-import java.util.Calendar
-import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -173,7 +171,6 @@ class HudPushLoop(
             maneuverGaode = s.maneuverGaode,
             distanceMeters = s.distanceMeters,
             road = s.road,
-            etaString = s.arrivalTime.ifBlank { etaString(s.etaSeconds, s.etaUpdatedAtMs) },
         )
         deliver(HudFrameKind.GUIDANCE, frame)
         return true
@@ -199,12 +196,4 @@ class HudPushLoop(
         return rc
     }
 
-    /** Remaining seconds -> wall-clock arrival "HH:MM" (f26); null when unknown. */
-    internal fun etaString(etaSeconds: Int, updatedAtMs: Long = nowMsProvider()): String? {
-        if (etaSeconds <= 0) return null
-        val anchorMs = updatedAtMs.takeIf { it > 0L } ?: nowMsProvider()
-        val cal = Calendar.getInstance().apply { timeInMillis = anchorMs + etaSeconds * 1000L }
-        return String.format(Locale.US, "%02d:%02d",
-            cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
-    }
 }

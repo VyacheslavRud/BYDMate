@@ -1352,13 +1352,13 @@
 
     <!-- Dev-only factory HUD calibration -->
     <string name="diagnostics_hud_lab_title">HUD Lab — 原厂 HUD 校准</string>
-    <string name="diagnostics_hud_lab_description">新的研究测试与之前的验证场景分成两个独立集合。</string>
-    <string name="diagnostics_hud_lab_native_hint">新测试仅使用 scalar 字段；已确认结果和以前的校准保持分开。</string>
+    <string name="diagnostics_hud_lab_description">已确认的 Sea Lion 07 协议与旧版兼容性测试分成两个集合。</string>
+    <string name="diagnostics_hud_lab_native_hint">主测试集复现安全的 production 帧，不包含 PNG、限速标志、ETA 或进度。</string>
     <string name="diagnostics_hud_lab_catalog_title">测试集合</string>
-    <string name="diagnostics_hud_lab_catalog_current">新的研究</string>
-    <string name="diagnostics_hud_lab_catalog_calibration">以前和已确认</string>
-    <string name="diagnostics_hud_lab_catalog_current_hint">18 个新的 scalar-only 测试继续验证 f28 + f11，并覆盖 f6、数值、距离、路线信息、cadence 和无 f11 对照。</string>
-    <string name="diagnostics_hud_lab_catalog_calibration_hint">6 个以前的校准测试，加上已确认的 N17/N18：限速数字与 RIGHT/LEFT 同时显示。</string>
+    <string name="diagnostics_hud_lab_catalog_confirmed">Sea Lion 07</string>
+    <string name="diagnostics_hud_lab_catalog_compatibility">其他 BYD</string>
+    <string name="diagnostics_hud_lab_catalog_confirmed_hint">5 个简短 smoke test 验证 RIGHT/LEFT、原厂 50/100 米阈值和道路文字。</string>
+    <string name="diagnostics_hud_lab_catalog_compatibility_hint">旧版 U-turn、环岛和 f11 测试保留用于校准其他 BYD 固件。</string>
     <string name="diagnostics_hud_lab_launcher_description">紧凑的逐步实验室与长诊断页面分开打开。</string>
     <string name="diagnostics_hud_lab_open">打开</string>
     <string name="diagnostics_hud_lab_test_counter">测试 %1$d / %2$d</string>
@@ -1387,7 +1387,7 @@
     <string name="diagnostics_hud_lab_saw_road">道路文字可见</string>
     <string name="diagnostics_hud_lab_saw_eta">到达时间可见</string>
     <string name="diagnostics_hud_lab_saw_progress">路线进度可见</string>
-    <string name="diagnostics_hud_lab_saw_speed_number">限速数字可见</string>
+    <string name="diagnostics_hud_lab_saw_speed_number">数字可见</string>
     <string name="diagnostics_hud_lab_saw_speed_outline">仅显示空圆圈，没有数字</string>
     <string name="diagnostics_hud_lab_saw_speed_number_with_maneuver">数字和箭头都可见</string>
     <string name="diagnostics_hud_lab_saw_speed_outline_with_maneuver">空圆圈和箭头都可见</string>

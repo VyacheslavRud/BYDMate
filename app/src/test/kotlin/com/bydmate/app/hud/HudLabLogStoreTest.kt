@@ -185,7 +185,7 @@ class HudLabLogStoreTest {
     }
 
     @Test fun `scenario summary takes raw f28 from a commandless frame spec`() {
-        val scenario = requireNotNull(HudLabScenarioCatalog.byId("X01"))
+        val scenario = requireNotNull(HudLabScenarioCatalog.byId("SL01"))
 
         val record = HudLabLogStore.beginScenario(context, scenario, nowMs = 1_000L)
 

@@ -1231,13 +1231,13 @@
 
     <!-- Dev-only factory HUD calibration -->
     <string name="diagnostics_hud_lab_title">HUD Lab — calibração do HUD original</string>
-    <string name="diagnostics_hud_lab_description">A nova investigação e os cenários de verificação anteriores ficam em conjuntos separados.</string>
-    <string name="diagnostics_hud_lab_native_hint">Os novos testes usam apenas campos scalar; resultados confirmados e calibração anterior ficam separados.</string>
+    <string name="diagnostics_hud_lab_description">O contrato confirmado do Sea Lion 07 e os testes antigos de compatibilidade ficam separados.</string>
+    <string name="diagnostics_hud_lab_native_hint">O conjunto principal reproduz o frame production seguro sem PNG, sinal de velocidade, ETA ou progresso.</string>
     <string name="diagnostics_hud_lab_catalog_title">Conjunto de testes</string>
-    <string name="diagnostics_hud_lab_catalog_current">Nova investigação</string>
-    <string name="diagnostics_hud_lab_catalog_calibration">Anteriores e confirmados</string>
-    <string name="diagnostics_hud_lab_catalog_current_hint">18 novos testes scalar-only refinam f28 + f11 em f6, valores, distâncias, contexto, cadence e controlos sem f11.</string>
-    <string name="diagnostics_hud_lab_catalog_calibration_hint">6 testes anteriores mais N17/N18 confirmados: número da velocidade com RIGHT/LEFT.</string>
+    <string name="diagnostics_hud_lab_catalog_confirmed">Sea Lion 07</string>
+    <string name="diagnostics_hud_lab_catalog_compatibility">Outros BYD</string>
+    <string name="diagnostics_hud_lab_catalog_confirmed_hint">5 smoke tests curtos verificam RIGHT/LEFT, o limite nativo de 50/100 m e o texto da via.</string>
+    <string name="diagnostics_hud_lab_catalog_compatibility_hint">Os testes antigos de U-turn, rotunda e f11 ficam disponíveis para calibrar outro firmware BYD.</string>
     <string name="diagnostics_hud_lab_launcher_description">O laboratório compacto passo a passo abre separado do ecrã longo de diagnóstico.</string>
     <string name="diagnostics_hud_lab_open">Abrir</string>
     <string name="diagnostics_hud_lab_test_counter">Teste %1$d de %2$d</string>
@@ -1266,7 +1266,7 @@
     <string name="diagnostics_hud_lab_saw_road">Texto da via visível</string>
     <string name="diagnostics_hud_lab_saw_eta">Hora de chegada visível</string>
     <string name="diagnostics_hud_lab_saw_progress">Progresso da rota visível</string>
-    <string name="diagnostics_hud_lab_saw_speed_number">Número do limite visível</string>
+    <string name="diagnostics_hud_lab_saw_speed_number">Número visível</string>
     <string name="diagnostics_hud_lab_saw_speed_outline">Círculo vazio visível, sem número</string>
     <string name="diagnostics_hud_lab_saw_speed_number_with_maneuver">Número e seta visíveis</string>
     <string name="diagnostics_hud_lab_saw_speed_outline_with_maneuver">Círculo vazio e seta visíveis</string>

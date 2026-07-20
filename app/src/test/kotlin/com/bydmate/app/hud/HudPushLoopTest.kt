@@ -47,7 +47,6 @@ class HudPushLoopTest {
         assertEquals(HudSomeIpBridge.TOPIC_NAVI, sink.events.single().first)
         val expected = HudProtobufBuilder.buildSeaLionGuidanceFrame(
             maneuverGaode = 2, distanceMeters = 250, road = "A",
-            etaString = null,
         )
         assertArrayEquals(expected, sink.events.single().second)
     }
@@ -70,12 +69,11 @@ class HudPushLoopTest {
             maneuverGaode = 0,
             distanceMeters = 250,
             road = "A",
-            etaString = null,
         )
         assertArrayEquals(expected, sink.events.single().second)
     }
 
-    @Test fun `unparsed active maneuver does not clear previous HUD frame`() {
+    @Test fun `arrival-only active update keeps minimal HUD frame without unconfirmed ETA`() {
         activeHub(nowMs = 1000L)
         val sink = FakeSink()
         val loop = HudPushLoop(sink, nowMsProvider = { 1000L })
@@ -97,7 +95,6 @@ class HudPushLoopTest {
                 maneuverGaode = 0,
                 distanceMeters = 0,
                 road = "",
-                etaString = "10:30",
             ),
             sink.events.last().second,
         )
@@ -322,9 +319,15 @@ class HudPushLoopTest {
         }
     }
 
-    @Test fun `Sea Lion live frame omits unconfirmed speed and PNG fields`() {
+    @Test fun `Sea Lion live frame omits unconfirmed speed ETA and PNG fields`() {
         NavGuidanceHub.update(
-            NavGuidance(maneuverGaode = 2, distanceMeters = 250, road = "A", speedLimit = 60),
+            NavGuidance(
+                maneuverGaode = 2,
+                distanceMeters = 250,
+                road = "A",
+                arrivalTime = "12:34",
+                speedLimit = 60,
+            ),
             NavGuidanceHub.Source.A11Y, nowMs = 1000L,
         )
         val sink = FakeSink()
@@ -332,7 +335,6 @@ class HudPushLoopTest {
         loop.tick(wasActive = false)
         val expected = HudProtobufBuilder.buildSeaLionGuidanceFrame(
             maneuverGaode = 2, distanceMeters = 250, road = "A",
-            etaString = null,
         )
         assertArrayEquals(expected, sink.events.single().second)
     }
@@ -352,25 +354,9 @@ class HudPushLoopTest {
                 maneuverGaode = 11,
                 distanceMeters = 500,
                 road = "A",
-                etaString = null,
             ),
             sink.events.single().second,
         )
-    }
-
-    @Test fun `eta string format`() {
-        val loop = HudPushLoop(FakeSink(), nowMsProvider = { 1_000_000_000_000L })
-        assertEquals(null, loop.etaString(0))
-        assertTrue(loop.etaString(1620)!!.matches(Regex("""\d{2}:\d{2}""")))
-    }
-
-    @Test fun `eta fallback stays anchored to guidance update`() {
-        var now = 1_000_000_000_000L
-        val updatedAt = now
-        val loop = HudPushLoop(FakeSink(), nowMsProvider = { now })
-        val first = loop.etaString(1620, updatedAt)
-        now += 60_000L
-        assertEquals(first, loop.etaString(1620, updatedAt))
     }
 
     @Test fun `delivery result reports gateway rejection`() {
