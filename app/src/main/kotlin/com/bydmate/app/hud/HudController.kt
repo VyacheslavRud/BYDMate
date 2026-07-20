@@ -470,7 +470,6 @@ class HudController @Inject constructor(
                     scheduleReconnect("start_service_rejected")
                     return@launch
                 }
-                HudIconLoader.init(context)
                 bridge = b
                 NavA11yFeed.enable()
                 _status.value = Status.ON
@@ -506,7 +505,6 @@ class HudController @Inject constructor(
                 )
                 loop = HudPushLoop(
                     productionSink(b),
-                    speedSignEnabled = { isSpeedSignEnabled() },
                     onDeliveryAttempt = { kind, rc ->
                         val now = System.currentTimeMillis()
                         val previous = _deliveryDiagnostics.value

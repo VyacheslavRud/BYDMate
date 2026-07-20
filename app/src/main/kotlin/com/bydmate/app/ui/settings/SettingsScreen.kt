@@ -992,7 +992,6 @@ private fun DisplaySection() {
     // ClusterEntryPoint as projection - HudController is a @Singleton behind it.
     val hudController = remember { entryPoint.hudController() }
     var hudEnabled by remember { mutableStateOf(hudController.isEnabled()) }
-    var hudSpeedSign by remember { mutableStateOf(hudController.isSpeedSignEnabled()) }
     val hudStatus by hudController.status.collectAsStateWithLifecycle()
 
     SectionHeader(text = stringResource(R.string.settings_hud_header))
@@ -1012,16 +1011,6 @@ private fun DisplaySection() {
                 },
             )
             if (hudEnabled) {
-                SettingDivider()
-                SettingToggleRow(
-                    title = stringResource(R.string.settings_hud_speed_sign_title),
-                    description = stringResource(R.string.settings_hud_speed_sign_desc),
-                    checked = hudSpeedSign,
-                    onCheckedChange = {
-                        hudSpeedSign = it
-                        hudController.setSpeedSignEnabled(it)
-                    },
-                )
                 SettingDivider()
                 SettingStatusRow(
                     title = when (hudStatus) {

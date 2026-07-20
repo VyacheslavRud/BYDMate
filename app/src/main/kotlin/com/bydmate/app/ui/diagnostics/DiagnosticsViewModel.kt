@@ -10,7 +10,6 @@ import com.bydmate.app.data.diagnostics.VehicleDiagnosticsCollector
 import com.bydmate.app.data.diagnostics.VehicleDiagnosticsEvaluator
 import com.bydmate.app.data.diagnostics.VehicleDiagnosticsSnapshot
 import com.bydmate.app.hud.HudLabManager
-import com.bydmate.app.hud.HudLabObserved
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -100,20 +99,6 @@ class DiagnosticsViewModel @Inject constructor(
     fun setCapabilityConfirmed(id: CapabilityId, confirmed: Boolean) {
         collector.setUserConfirmed(id, confirmed)
         refresh(showSpinner = false)
-    }
-
-    fun sendHudLabScenario(scenarioId: String, parkConfirmedByUser: Boolean) {
-        val cluster = clusterLabState.value
-        if (cluster.busy || cluster.pendingObservationRecordId != null) return
-        hudLabManager.sendScenario(scenarioId, parkConfirmedByUser)
-    }
-
-    fun recordHudLabObservation(observed: HudLabObserved) {
-        hudLabManager.recordObservation(observed)
-    }
-
-    fun clearHudLab() {
-        hudLabManager.clear()
     }
 
     fun exportHudLab() {

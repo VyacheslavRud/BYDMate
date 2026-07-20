@@ -1,5 +1,6 @@
 package com.bydmate.app.hud
 
+import com.bydmate.app.navdata.NavManeuverCodes
 import java.io.ByteArrayOutputStream
 
 /** Hand-rolled protobuf encoder for the BYD HUD frame (discope reference, donor stage 6).
@@ -21,6 +22,58 @@ object HudProtobufBuilder {
         2, 4, 8 -> 2
         9, 10 -> 9
         else -> 1
+    }
+
+    /**
+     * Sea Lion 07 (2025 CN) native-arrow mapping confirmed by the parked HUD Lab.
+     *
+     * Raw f28=2 renders right and f28=3 renders left when the real remaining distance is below
+     * the vehicle firmware's own turn threshold. Raw f28=1 is deliberately never used here: the
+     * car rendered it as left at close range, so using it as a straight/fallback value is unsafe.
+     * Uncalibrated maneuvers keep the route card but omit f28 rather than showing a false arrow.
+     */
+    fun seaLionF28ForGaode(gaode: Int): Int? = when (gaode) {
+        NavManeuverCodes.GAODE_LEFT,
+        NavManeuverCodes.GAODE_SLIGHT_LEFT,
+        NavManeuverCodes.GAODE_HARD_LEFT,
+        -> 3
+
+        NavManeuverCodes.GAODE_RIGHT,
+        NavManeuverCodes.GAODE_SLIGHT_RIGHT,
+        NavManeuverCodes.GAODE_HARD_RIGHT,
+        -> 2
+
+        else -> null
+    }
+
+    /**
+     * Production guidance frame for the confirmed Sea Lion 07 SOME/IP contract.
+     *
+     * The vehicle accepted the scalar route fields but rejected every tested f7/f8 PNG payload.
+     * Keep the actual Waze distance unchanged: the factory firmware decides whether to show a
+     * turn arrow or straight guidance from that value (20/50 m turned; 100/500 m stayed straight).
+     * Speed and progress remain disabled until a parked calibration confirms their semantics.
+     */
+    fun buildSeaLionGuidanceFrame(
+        maneuverGaode: Int,
+        distanceMeters: Int,
+        road: String,
+        etaString: String?,
+    ): ByteArray {
+        val safeRoad = road.take(MAX_ROAD_CHARS)
+        val safeEta = etaString?.trim()?.take(MAX_ETA_CHARS)?.takeIf { it.isNotEmpty() }
+        val payload = buildFrameWithRawF28(
+            rawF28 = seaLionF28ForGaode(maneuverGaode),
+            distanceMeters = distanceMeters.coerceAtLeast(0),
+            road = safeRoad,
+            etaString = safeEta,
+            totalDistMeters = 0,
+            speedLimit = 0,
+            maneuverIconPng = null,
+            speedSignPng = null,
+        )
+        check(payload.size <= MAX_PAYLOAD_BYTES) { "Sea Lion HUD payload exceeds safe limit" }
+        return payload
     }
 
     fun buildFrame(
@@ -92,7 +145,7 @@ object HudProtobufBuilder {
         maneuverIconPng: ByteArray?,
         speedSignPng: ByteArray?,
     ): ByteArray {
-        require(spec.f28 == null || spec.f28 in setOf(1, 2, 3, 9)) {
+        require(spec.f28 == null || spec.f28 in setOf(1, 2, 3, 9, 13, 24)) {
             "unsupported HUD Lab f28=${spec.f28}"
         }
         require(spec.iconCode == null || spec.iconCode in setOf(0, 1, 2, 9, 11)) {

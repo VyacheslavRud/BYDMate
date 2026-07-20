@@ -131,6 +131,7 @@ data class ClusterLabState(
     val pendingObservationRecordId: String? = null,
     val pendingObservationScenarioId: String? = null,
     val recordsCount: Int = 0,
+    val clusterDisplayAvailable: Boolean = false,
     val lastOutcome: ClusterLabOutcome? = null,
 )
 
@@ -493,10 +494,19 @@ class ClusterLabManager @Inject constructor(
             updateProgress("inventory_sample_$sample", (scenario.durationMs - (deadline - elapsedRealtimeProvider())).toFloat() / scenario.durationMs)
             delay(INVENTORY_INTERVAL_MS)
         }
+        _state.update {
+            it.copy(
+                clusterDisplayAvailable = candidateFirstSeen ||
+                    inspectDisplays().any { display -> display.clusterCandidate },
+            )
+        }
     }
 
     private suspend fun runStateSnapshot(record: ClusterLabRecord, startedElapsed: Long) {
         val displays = inspectDisplays()
+        _state.update {
+            it.copy(clusterDisplayAvailable = displays.any { display -> display.clusterCandidate })
+        }
         val projection = ClusterProjectionManager.diagnosticState.value
         val prefs = projectionPrefs()
         val helperAlive = withTimeoutOrNull(HELPER_PROBE_TIMEOUT_MS) { helper.isAlive() } ?: false

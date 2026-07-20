@@ -1234,8 +1234,15 @@
 
     <!-- Dev-only factory HUD calibration -->
     <string name="diagnostics_hud_lab_title">HUD Lab — factory arrow calibration</string>
-    <string name="diagnostics_hud_lab_description">36 bounded parked scenarios test CLEAR, arrows, isolated fields, full frames, transitions and delivery cadence on the windshield HUD.</string>
-    <string name="diagnostics_hud_lab_native_hint">Scenarios use single frames and bounded 100/300/500 ms bursts. Export records every packet, SOME/IP code, field manifest and payload hash.</string>
+    <string name="diagnostics_hud_lab_description">A separate compact screen with 6 tests for the remaining unknowns: UTURN, ROUNDABOUT and SPEED_LIMIT.</string>
+    <string name="diagnostics_hud_lab_native_hint">LEFT/RIGHT are already in production. The lab uses only plain frames without rejected PNG fields.</string>
+    <string name="diagnostics_hud_lab_launcher_description">The compact step-by-step lab opens separately from the long diagnostics screen.</string>
+    <string name="diagnostics_hud_lab_open">Open</string>
+    <string name="diagnostics_hud_lab_test_counter">Test %1$d of %2$d</string>
+    <string name="diagnostics_hud_lab_previous">Previous</string>
+    <string name="diagnostics_hud_lab_next">Next</string>
+    <string name="diagnostics_hud_lab_run_selected">Run selected test</string>
+    <string name="diagnostics_hud_lab_cluster_busy">Finish the instrument cluster test first.</string>
     <string name="diagnostics_hud_lab_park_confirmation">Vehicle is stationary and gear P is selected</string>
     <string name="diagnostics_hud_lab_left">Expected left</string>
     <string name="diagnostics_hud_lab_right">Expected right</string>
@@ -1249,6 +1256,7 @@
     <string name="diagnostics_hud_lab_saw_right">Saw right</string>
     <string name="diagnostics_hud_lab_saw_straight">Saw straight</string>
     <string name="diagnostics_hud_lab_saw_uturn">Saw U-turn</string>
+    <string name="diagnostics_hud_lab_saw_roundabout">Saw roundabout</string>
     <string name="diagnostics_hud_lab_saw_nothing">Nothing appeared</string>
     <string name="diagnostics_hud_lab_saw_flashed">Appeared then vanished</string>
     <string name="diagnostics_hud_lab_saw_info">Distance/text visible</string>
@@ -1269,6 +1277,15 @@
     <string name="diagnostics_hud_lab_clear">Clear HUD</string>
     <string name="diagnostics_hud_lab_export">Export</string>
     <string name="diagnostics_hud_lab_saved_count">Saved tests: %1$d</string>
+    <string name="diagnostics_hud_lab_journal_title">Test journal</string>
+    <string name="diagnostics_hud_lab_journal_hint">Export includes technical HUD and cluster results. Delete clears only saved windshield HUD tests inside the app; previously exported files remain.</string>
+    <string name="diagnostics_hud_lab_delete_records">Delete saved HUD tests</string>
+    <string name="diagnostics_hud_lab_delete_title">Clear the HUD Lab journal?</string>
+    <string name="diagnostics_hud_lab_delete_message">All saved windshield HUD tests will be removed from the app. Exported files and instrument cluster tests are kept.</string>
+    <string name="diagnostics_hud_lab_delete_confirm">Delete</string>
+    <string name="diagnostics_hud_lab_delete_cancel">Cancel</string>
+    <string name="diagnostics_hud_lab_records_deleted">Saved HUD tests deleted.</string>
+    <string name="diagnostics_hud_lab_records_delete_failed">Could not clear the HUD Lab journal.</string>
     <string name="diagnostics_hud_lab_frame_sent">Series sent; last SOME/IP reply rc=%1$d. This is a transport code; record the visual result.</string>
     <string name="diagnostics_hud_lab_send_rejected">Test frame rejected (rc=%1$d).</string>
     <string name="diagnostics_hud_lab_clear_result">Clear command completed (rc=%1$d).</string>
@@ -1289,8 +1306,9 @@
     <string name="diagnostics_hud_lab_failure_journal">The test could not be saved. The HUD was cleared safely; try again.</string>
     <string name="diagnostics_hud_lab_failure_send">The test frame did not receive rc=0 confirmation. The result was logged and a safe cleanup attempt was made.</string>
     <string name="diagnostics_cluster_lab_title">Instrument Cluster Lab</string>
-    <string name="diagnostics_cluster_lab_description">Separately tests the second display: inventory, projection state, calibration grid and two bounded Waze projection cycles.</string>
-    <string name="diagnostics_cluster_lab_safety_hint">For C03–C05 manually open the factory Navi/projection mode. The lab never enables unvalidated auto_container commands and always restores OFF.</string>
+    <string name="diagnostics_cluster_lab_description">First checks display inventory and projection state. Visual tests appear only after an instrument-cluster display is actually detected.</string>
+    <string name="diagnostics_cluster_lab_safety_hint">Open the factory Navi/projection mode and run C01. The lab never enables unvalidated auto_container commands and always restores OFF.</string>
+    <string name="diagnostics_cluster_lab_display_required">C03–C05 are hidden because no cluster display is available. Open factory projection and run C01 again.</string>
     <string name="diagnostics_cluster_lab_what_seen">What happened on the instrument cluster during %1$s?</string>
     <string name="diagnostics_cluster_lab_cancel">Stop and clean up</string>
     <string name="diagnostics_cluster_lab_export_all">Export both HUD labs</string>

@@ -3,6 +3,7 @@ package com.bydmate.app.hud
 import android.content.Context
 import android.content.pm.PackageInfo
 import androidx.test.core.app.ApplicationProvider
+import com.bydmate.app.BuildConfig
 import com.bydmate.app.data.vehicle.HelperBootstrap
 import com.bydmate.app.data.vehicle.HelperClient
 import com.bydmate.app.data.remote.diParsData
@@ -26,6 +27,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -58,6 +60,8 @@ class HudControllerTest {
         every { bridge.isConnected() } returns true
         return bridge
     }
+
+    private fun requireDebugHudLab() = assumeTrue("HUD Lab is dev-only", BuildConfig.DEBUG)
 
     @Before fun reset() {
         NavGuidanceHub.reset()
@@ -94,6 +98,7 @@ class HudControllerTest {
     }
 
     @Test fun `HUD Lab requires parked confirmation before native send`() {
+        requireDebugHudLab()
         installSomeIp()
         coEvery { helperBootstrap.ensureRunning() } returns true
         val bridge = connectedBridge()
@@ -112,6 +117,7 @@ class HudControllerTest {
     }
 
     @Test fun `HUD Lab sends raw frame then clear through ready native channel`() {
+        requireDebugHudLab()
         installSomeIp()
         coEvery { helperBootstrap.ensureRunning() } returns true
         val payloads = mutableListOf<ByteArray>()
@@ -134,6 +140,7 @@ class HudControllerTest {
     }
 
     @Test fun `HUD Lab keeps production suspended until zero clear and increments counters`() {
+        requireDebugHudLab()
         installSomeIp()
         coEvery { helperBootstrap.ensureRunning() } returns true
         val payloads = mutableListOf<ByteArray>()
@@ -201,6 +208,7 @@ class HudControllerTest {
     }
 
     @Test fun `HUD Lab cannot overwrite an active Waze route`() {
+        requireDebugHudLab()
         installSomeIp()
         coEvery { helperBootstrap.ensureRunning() } returns true
         val bridge = connectedBridge()
@@ -223,6 +231,7 @@ class HudControllerTest {
     }
 
     @Test fun `HUD Lab pre-transport rejection has no remote result or ownership`() {
+        requireDebugHudLab()
         installSomeIp()
         coEvery { helperBootstrap.ensureRunning() } returns true
         val bridge = connectedBridge()
@@ -242,6 +251,7 @@ class HudControllerTest {
     }
 
     @Test fun `HUD Lab rechecks vehicle state after durable marker and before transport`() {
+        requireDebugHudLab()
         installSomeIp()
         coEvery { helperBootstrap.ensureRunning() } returns true
         val bridge = connectedBridge()
@@ -266,6 +276,7 @@ class HudControllerTest {
     }
 
     @Test fun `later burst guard failure preserves ownership from an earlier synthetic frame`() {
+        requireDebugHudLab()
         installSomeIp()
         coEvery { helperBootstrap.ensureRunning() } returns true
         val bridge = connectedBridge()
@@ -301,6 +312,7 @@ class HudControllerTest {
     }
 
     @Test fun `atomic production gate drains in-flight delivery before lab and suppresses later frames`() {
+        requireDebugHudLab()
         installSomeIp()
         coEvery { helperBootstrap.ensureRunning() } returns true
         val bridge = connectedBridge()
@@ -363,6 +375,7 @@ class HudControllerTest {
     }
 
     @Test fun `stop waits for in-flight lab frame and leaves confirmed clear last`() {
+        requireDebugHudLab()
         installSomeIp()
         coEvery { helperBootstrap.ensureRunning() } returns true
         val bridge = connectedBridge()
@@ -405,6 +418,7 @@ class HudControllerTest {
     }
 
     @Test fun `HUD Lab rejects moving or unavailable vehicle safety data`() {
+        requireDebugHudLab()
         installSomeIp()
         coEvery { helperBootstrap.ensureRunning() } returns true
         val bridge = connectedBridge()
@@ -519,7 +533,10 @@ class HudControllerTest {
         c.setEnabled(true)
         assertEquals(HudController.Status.SEND_FAILED, c.status.value)
 
-        awaitTrue { c.status.value == HudController.Status.ON }
+        awaitTrue {
+            c.status.value == HudController.Status.ON &&
+                c.deliveryDiagnostics.value.lastRecoveredAtMs != null
+        }
 
         assertTrue(c.deliveryDiagnostics.value.lastRecoveredAtMs != null)
         c.setEnabled(false)

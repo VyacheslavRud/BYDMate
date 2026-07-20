@@ -63,6 +63,7 @@ import com.bydmate.app.ui.charges.ChargesScreen
 import com.bydmate.app.ui.automation.AutomationScreen
 import com.bydmate.app.ui.dashboard.DashboardScreen
 import com.bydmate.app.ui.diagnostics.DiagnosticsScreen
+import com.bydmate.app.ui.diagnostics.HudLabScreen
 import com.bydmate.app.ui.settings.DonateDialog
 import com.bydmate.app.ui.settings.DonateEntry
 import com.bydmate.app.ui.settings.DonationReminder
@@ -82,6 +83,7 @@ enum class Screen(val route: String, val labelRes: Int, val icon: ImageVector) {
 }
 
 private const val DIAGNOSTICS_ROUTE = "diagnostics"
+private const val HUD_LAB_ROUTE = "hud_lab"
 
 @Composable
 fun AppNavigation(
@@ -201,7 +203,8 @@ fun AppNavigation(
     }
 
     val hideBottomBar = currentDestination?.route == "welcome" ||
-        currentDestination?.route == DIAGNOSTICS_ROUTE
+        currentDestination?.route == DIAGNOSTICS_ROUTE ||
+        currentDestination?.route == HUD_LAB_ROUTE
 
     Scaffold(
         containerColor = NavyDark,
@@ -272,7 +275,13 @@ fun AppNavigation(
                 )
             }
             composable(DIAGNOSTICS_ROUTE) {
-                DiagnosticsScreen(onBack = { navController.popBackStack() })
+                DiagnosticsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenHudLab = { navController.navigate(HUD_LAB_ROUTE) },
+                )
+            }
+            composable(HUD_LAB_ROUTE) {
+                HudLabScreen(onBack = { navController.popBackStack() })
             }
             composable("agent_chat") {
                 com.bydmate.app.ui.debug.AgentChatScreen(onBack = { navController.popBackStack() })

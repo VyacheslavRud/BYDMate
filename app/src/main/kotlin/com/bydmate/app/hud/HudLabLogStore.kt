@@ -24,6 +24,8 @@ enum class HudLabCommand(
     RIGHT(2, 2, HudLabObserved.RIGHT),
     LEFT(1, 3, HudLabObserved.LEFT),
     UTURN(9, 9, HudLabObserved.UTURN),
+    ROUNDABOUT_ENTER(13, 13, HudLabObserved.ROUNDABOUT),
+    ROUNDABOUT_EXIT(24, 24, HudLabObserved.ROUNDABOUT),
 }
 
 /** Kept for decoding calibration journals written by dev builds 3.6.8 and 3.6.9. */
@@ -35,6 +37,7 @@ enum class HudLabObserved {
     RIGHT,
     STRAIGHT,
     UTURN,
+    ROUNDABOUT,
     NOTHING,
     FLASHED,
     INFO_VISIBLE,
@@ -327,6 +330,14 @@ object HudLabLogStore {
         }
         target.writeText(report, Charsets.UTF_8)
         return target
+    }
+
+    @Synchronized
+    fun clearRecords(context: Context) {
+        check(
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().remove(KEY_RECORDS).commit(),
+        ) { "hud_lab_log_clear_failed" }
     }
 
     @Synchronized

@@ -45,10 +45,9 @@ class HudPushLoopTest {
         val loop = HudPushLoop(sink, nowMsProvider = { 1000L })
         assertTrue(loop.tick(wasActive = false))
         assertEquals(HudSomeIpBridge.TOPIC_NAVI, sink.events.single().first)
-        val expected = HudProtobufBuilder.buildFrameSafe(
+        val expected = HudProtobufBuilder.buildSeaLionGuidanceFrame(
             maneuverGaode = 2, distanceMeters = 250, road = "A",
-            etaString = null, totalDistMeters = 0, speedLimit = 0,
-            maneuverIconPng = HudIconLoader.iconFor(2), speedSignPng = null,
+            etaString = null,
         )
         assertArrayEquals(expected, sink.events.single().second)
     }
@@ -67,15 +66,11 @@ class HudPushLoopTest {
 
         assertTrue(loop.tick(wasActive = false))
 
-        val expected = HudProtobufBuilder.buildFrameSafe(
+        val expected = HudProtobufBuilder.buildSeaLionGuidanceFrame(
             maneuverGaode = 0,
             distanceMeters = 250,
             road = "A",
             etaString = null,
-            totalDistMeters = 0,
-            speedLimit = 0,
-            maneuverIconPng = null,
-            speedSignPng = null,
         )
         assertArrayEquals(expected, sink.events.single().second)
     }
@@ -98,15 +93,11 @@ class HudPushLoopTest {
 
         assertEquals(2, sink.events.size)
         assertArrayEquals(
-            HudProtobufBuilder.buildFrameSafe(
+            HudProtobufBuilder.buildSeaLionGuidanceFrame(
                 maneuverGaode = 0,
                 distanceMeters = 0,
                 road = "",
                 etaString = "10:30",
-                totalDistMeters = 0,
-                speedLimit = 0,
-                maneuverIconPng = null,
-                speedSignPng = null,
             ),
             sink.events.last().second,
         )
@@ -331,20 +322,40 @@ class HudPushLoopTest {
         }
     }
 
-    @Test fun `speed sign toggle off builds frame without sign`() {
+    @Test fun `Sea Lion live frame omits unconfirmed speed and PNG fields`() {
         NavGuidanceHub.update(
             NavGuidance(maneuverGaode = 2, distanceMeters = 250, road = "A", speedLimit = 60),
             NavGuidanceHub.Source.A11Y, nowMs = 1000L,
         )
         val sink = FakeSink()
-        val loop = HudPushLoop(sink, speedSignEnabled = { false }, nowMsProvider = { 1000L })
+        val loop = HudPushLoop(sink, nowMsProvider = { 1000L })
         loop.tick(wasActive = false)
-        val expected = HudProtobufBuilder.buildFrameSafe(
+        val expected = HudProtobufBuilder.buildSeaLionGuidanceFrame(
             maneuverGaode = 2, distanceMeters = 250, road = "A",
-            etaString = null, totalDistMeters = 0, speedLimit = 60,
-            maneuverIconPng = HudIconLoader.iconFor(2), speedSignPng = null,
+            etaString = null,
         )
         assertArrayEquals(expected, sink.events.single().second)
+    }
+
+    @Test fun `Sea Lion live straight guidance stays active without false direction`() {
+        NavGuidanceHub.update(
+            NavGuidance(maneuverGaode = 11, distanceMeters = 500, road = "A"),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 1000L,
+        )
+        val sink = FakeSink()
+        val loop = HudPushLoop(sink, nowMsProvider = { 1000L })
+
+        assertTrue(loop.tick(wasActive = false))
+        assertArrayEquals(
+            HudProtobufBuilder.buildSeaLionGuidanceFrame(
+                maneuverGaode = 11,
+                distanceMeters = 500,
+                road = "A",
+                etaString = null,
+            ),
+            sink.events.single().second,
+        )
     }
 
     @Test fun `eta string format`() {

@@ -28,12 +28,9 @@ internal fun hasRenderableHudGuidance(snapshot: NavGuidanceHub.Snapshot): Boolea
     snapshot.active
 
 /** 300 ms push loop: NavGuidanceHub snapshot -> protobuf frame -> SOME/IP fireEvent.
- *  When guidance ends (hub goes inactive), a clear frame is retried up to a small fixed bound.
- *  [speedSignEnabled] is read every tick, so the settings toggle applies within
- *  one period without restarting the loop. */
+ *  When guidance ends (hub goes inactive), a clear frame is retried up to a small fixed bound. */
 class HudPushLoop(
     private val sink: HudEventSink,
-    private val speedSignEnabled: () -> Boolean = { true },
     private val nowMsProvider: () -> Long = { System.currentTimeMillis() },
     private val onDeliveryResult: (Int) -> Unit = {},
     private val onDeliveryAttempt: (HudFrameKind, Int) -> Unit = { _, _ -> },
@@ -169,21 +166,14 @@ class HudPushLoop(
         }
         // A new active frame supersedes any clear that was waiting for a retry.
         pendingClearAttempts = 0
-        val speedLimit = s.speedLimit.coerceIn(0, HudProtobufBuilder.MAX_SPEED_LIMIT)
-        val signPng = if (speedSignEnabled() && speedLimit > 0) {
-            HudSpeedSign.render(speedLimit)
-        } else {
-            null
-        }
-        val frame = HudProtobufBuilder.buildFrameSafe(
+        // Do not feed donor PNG fields or uncalibrated maneuver metadata to the Sea Lion gateway.
+        // The Waze parser, route snapshot and service lifecycle stay untouched; only the native
+        // SOME/IP payload is narrowed to the fields confirmed by parked tests on this car.
+        val frame = HudProtobufBuilder.buildSeaLionGuidanceFrame(
             maneuverGaode = s.maneuverGaode,
             distanceMeters = s.distanceMeters,
             road = s.road,
             etaString = s.arrivalTime.ifBlank { etaString(s.etaSeconds, s.etaUpdatedAtMs) },
-            totalDistMeters = s.totalDistMeters,
-            speedLimit = speedLimit,
-            maneuverIconPng = HudIconLoader.iconFor(s.maneuverGaode),
-            speedSignPng = signPng,
         )
         deliver(HudFrameKind.GUIDANCE, frame)
         return true

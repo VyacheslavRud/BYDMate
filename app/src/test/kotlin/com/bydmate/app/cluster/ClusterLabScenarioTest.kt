@@ -23,6 +23,17 @@ class ClusterLabScenarioTest {
         assertNull(ClusterLabScenarioCatalog.byId("C99"))
     }
 
+    @Test fun `visual scenarios stay hidden until a cluster display was detected`() {
+        assertEquals(
+            listOf("C01", "C02"),
+            ClusterLabScenarioCatalog.visible(clusterDisplayAvailable = false).map { it.id },
+        )
+        assertEquals(
+            listOf("C01", "C02", "C03", "C04", "C05"),
+            ClusterLabScenarioCatalog.visible(clusterDisplayAvailable = true).map { it.id },
+        )
+    }
+
     @Test fun `parked debug route-free input is accepted`() {
         val result = evaluateClusterLabSafety(
             ClusterLabSafetyInput(

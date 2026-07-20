@@ -74,6 +74,24 @@ class HudLabLogStoreTest {
         assertTrue(section.contains("verdict=MISMATCH"))
     }
 
+    @Test fun `clear records removes only the persisted HUD journal`() {
+        HudLabLogStore.createAttempt(
+            context = context,
+            command = HudLabCommand.UTURN,
+            payloadBytes = 20,
+            sendRc = 0,
+            sendFailure = null,
+            gear = 1,
+            speedKmh = 0,
+        )
+        assertEquals(1, HudLabLogStore.records(context).size)
+
+        HudLabLogStore.clearRecords(context)
+
+        assertTrue(HudLabLogStore.records(context).isEmpty())
+        assertTrue(HudLabLogStore.renderDiagnosticSection(context).contains("saved_tests: 0"))
+    }
+
     @Test fun `export creates self-contained shareable calibration report`() {
         HudLabLogStore.createAttempt(
             context = context,
@@ -131,7 +149,7 @@ class HudLabLogStoreTest {
     }
 
     @Test fun `scenario journal preserves every event and treats positive rc as unconfirmed`() {
-        val scenario = requireNotNull(HudLabScenarioCatalog.byId("W14"))
+        val scenario = requireNotNull(HudLabScenarioCatalog.byId("U01"))
         val record = HudLabLogStore.beginScenario(context, scenario, nowMs = 1_000L)
         HudLabLogStore.appendEvent(
             context,
@@ -139,13 +157,13 @@ class HudLabLogStoreTest {
             HudLabEvent(
                 type = HudLabEventType.SEND,
                 stepIndex = 1,
-                label = "matched_right",
+                label = "right_50m",
                 pushIndex = 0,
                 atMs = 1_100L,
                 elapsedMs = 100L,
                 payloadBytes = 1_288,
                 payloadSha256 = "abc123",
-                fieldManifest = "f2=2,f8=0x2.png,f28=2",
+                fieldManifest = "f2=2,f9=50,f28=2",
                 rc = 1,
                 gear = 1,
                 speedKmh = 0,
@@ -155,13 +173,13 @@ class HudLabLogStoreTest {
         HudLabLogStore.completeDelivery(context, record.id, nowMs = 1_200L)
 
         val restored = HudLabLogStore.records(context).single()
-        assertEquals("W14", restored.scenarioId)
+        assertEquals("U01", restored.scenarioId)
         assertEquals(HudLabRemoteResult.REMOTE_NONZERO_UNCONFIRMED, restored.events.single().remoteResult)
         assertEquals("abc123", restored.events.single().payloadSha256)
         assertEquals(true, restored.events.single().outputMayBeOwned)
 
         val report = HudLabLogStore.renderDiagnosticSection(context)
-        assertTrue(report.contains("scenario=W14"))
+        assertTrue(report.contains("scenario=U01"))
         assertTrue(report.contains("remoteResult=REMOTE_NONZERO_UNCONFIRMED"))
         assertTrue(report.contains("sha256=abc123"))
     }
@@ -181,7 +199,7 @@ class HudLabLogStoreTest {
     }
 
     @Test fun `durable intent survives reload and exposes interrupted native attempt`() {
-        val scenario = requireNotNull(HudLabScenarioCatalog.byId("W14"))
+        val scenario = requireNotNull(HudLabScenarioCatalog.byId("U01"))
         val record = HudLabLogStore.beginScenario(context, scenario, nowMs = 1_000L)
         HudLabLogStore.appendEvent(
             context,
@@ -189,7 +207,7 @@ class HudLabLogStoreTest {
             HudLabEvent(
                 type = HudLabEventType.SEND,
                 stepIndex = 1,
-                label = "matched_right",
+                label = "right_50m",
                 pushIndex = 0,
                 atMs = 1_100L,
                 elapsedMs = 100L,

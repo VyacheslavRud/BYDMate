@@ -61,6 +61,10 @@ object ClusterLabScenarioCatalog {
     )
 
     fun byId(id: String): ClusterLabScenario? = all.firstOrNull { it.id == id }
+
+    fun visible(clusterDisplayAvailable: Boolean): List<ClusterLabScenario> = all.filter {
+        it.mutation == ClusterLabMutation.NONE || clusterDisplayAvailable
+    }
 }
 
 enum class ClusterLabFailure {

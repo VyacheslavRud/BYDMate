@@ -50,17 +50,17 @@ class HudLabManagerTest {
             scenarioDelay = {}
         }
 
-        manager.send(HudLabCommand.RIGHT, parkConfirmedByUser = true)
+        manager.sendScenario("U01", parkConfirmedByUser = true)
 
         awaitTrue { manager.state.value.pending?.autoCleared == true }
         verify(exactly = 10) { controller.sendHudLabFrame(any(), true) }
         verify(exactly = 3) { controller.clearHudLabFrameSafely(true) }
         verify(exactly = 3) { controller.clearHudLabFrame() }
         val pending = manager.state.value.pending!!
-        assertEquals(2, pending.record.rawF28)
+        assertEquals(9, pending.record.rawF28)
         assertEquals(HudLabFrameVariant.SCENARIO_MATRIX, pending.record.frameVariant)
-        assertTrue(pending.record.includePng)
-        assertEquals(2, pending.record.iconGaodeCode)
+        assertTrue(!pending.record.includePng)
+        assertEquals(null, pending.record.iconGaodeCode)
         assertTrue(pending.record.events.any { it.fieldManifest?.contains("pngBytes=") == true })
         assertEquals(10, pending.record.events.count {
             it.type == HudLabEventType.SEND && it.phase == HudLabEventPhase.RESULT
@@ -108,7 +108,7 @@ class HudLabManagerTest {
         )
         val manager = HudLabManager(context, controller).apply { scenarioDelay = {} }
 
-        manager.send(HudLabCommand.LEFT, parkConfirmedByUser = true)
+        manager.sendScenario("U01", parkConfirmedByUser = true)
 
         awaitTrue { !manager.state.value.busy }
         verify(exactly = 1) { controller.sendHudLabFrame(any(), true) }
@@ -116,9 +116,9 @@ class HudLabManagerTest {
         assertEquals(HudLabSendFailure.ROUTE_ACTIVE, manager.state.value.lastOutcome?.failure)
         val saved = HudLabLogStore.records(context).single()
         assertEquals(HudLabSendFailure.ROUTE_ACTIVE.name, saved.sendFailure)
-        assertEquals(HudLabCommand.LEFT, saved.command)
+        assertEquals(HudLabCommand.UTURN, saved.command)
         assertEquals(HudLabFrameVariant.SCENARIO_MATRIX, saved.frameVariant)
-        assertTrue(saved.includePng)
+        assertTrue(!saved.includePng)
     }
 
     @Test fun `positive remote code remains unconfirmed but does not truncate burst`() {
@@ -143,7 +143,7 @@ class HudLabManagerTest {
             scenarioDelay = {}
         }
 
-        manager.sendScenario("W14", parkConfirmedByUser = true)
+        manager.sendScenario("U01", parkConfirmedByUser = true)
 
         awaitTrue { manager.state.value.pending?.autoCleared == true }
         verify(exactly = 10) { controller.sendHudLabFrame(any(), true) }
@@ -166,7 +166,7 @@ class HudLabManagerTest {
         )
         val manager = HudLabManager(context, controller).apply { scenarioDelay = {} }
 
-        manager.sendScenario("W01", parkConfirmedByUser = true)
+        manager.sendScenario("U01", parkConfirmedByUser = true)
 
         awaitTrue { !manager.state.value.busy }
         assertEquals(HudLabOutcomeType.SEND_REJECTED, manager.state.value.lastOutcome?.type)
@@ -200,7 +200,7 @@ class HudLabManagerTest {
             scenarioDelay = {}
         }
 
-        manager.sendScenario("W14", parkConfirmedByUser = true)
+        manager.sendScenario("U01", parkConfirmedByUser = true)
 
         awaitTrue {
             manager.state.value.pending != null &&
@@ -231,7 +231,7 @@ class HudLabManagerTest {
         )
         val manager = HudLabManager(context, controller).apply { scenarioDelay = {} }
 
-        manager.sendScenario("W01", parkConfirmedByUser = true)
+        manager.sendScenario("U01", parkConfirmedByUser = true)
 
         awaitTrue { !manager.state.value.busy }
         assertEquals(HudLabSendFailure.HUD_CLEAR_FAILED, manager.state.value.lastOutcome?.failure)
@@ -262,7 +262,7 @@ class HudLabManagerTest {
         every { controller.clearHudLabFrame() } returns 0
         val manager = HudLabManager(context, controller).apply { scenarioDelay = {} }
 
-        manager.sendScenario("W14", parkConfirmedByUser = true)
+        manager.sendScenario("U01", parkConfirmedByUser = true)
 
         awaitTrue { !manager.state.value.busy }
         verify(exactly = 3) { controller.clearHudLabFrame() }
@@ -279,7 +279,7 @@ class HudLabManagerTest {
         every { controller.clearHudLabFrame() } returns 0
         val manager = HudLabManager(context, controller).apply { scenarioDelay = {} }
 
-        manager.sendScenario("W03", parkConfirmedByUser = true)
+        manager.sendScenario("U01", parkConfirmedByUser = true)
 
         awaitTrue { !manager.state.value.busy }
         verify(exactly = 3) { controller.clearHudLabFrame() }
@@ -302,6 +302,26 @@ class HudLabManagerTest {
             it.type == HudLabEventType.CLEAR && it.phase == HudLabEventPhase.RESULT
         })
         assertEquals(HudLabOutcomeType.CLEARED, manager.state.value.lastOutcome?.type)
+    }
+
+    @Test fun `delete records clears only idle HUD journal and updates count`() {
+        HudLabLogStore.createAttempt(
+            context = context,
+            command = HudLabCommand.UTURN,
+            payloadBytes = 20,
+            sendRc = 0,
+            sendFailure = null,
+            gear = 1,
+            speedKmh = 0,
+        )
+        val manager = HudLabManager(context, controller)
+        assertEquals(1, manager.state.value.recordsCount)
+
+        manager.deleteRecords()
+
+        awaitTrue { manager.state.value.lastOutcome?.type == HudLabOutcomeType.RECORDS_DELETED }
+        assertEquals(0, manager.state.value.recordsCount)
+        assertTrue(HudLabLogStore.records(context).isEmpty())
     }
 
     private fun awaitTrue(timeoutMs: Long = 3_000L, condition: () -> Boolean) {

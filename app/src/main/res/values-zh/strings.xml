@@ -1352,8 +1352,15 @@
 
     <!-- Dev-only factory HUD calibration -->
     <string name="diagnostics_hud_lab_title">HUD Lab — 原厂箭头校准</string>
-    <string name="diagnostics_hud_lab_description">36 个受限驻车场景测试前挡风 HUD 的 CLEAR、箭头、独立字段、完整帧、切换和发送频率。</string>
-    <string name="diagnostics_hud_lab_native_hint">场景使用单帧以及受控的 100/300/500 ms 连续发送。导出会记录每个数据包、SOME/IP 代码、字段和哈希。</string>
+    <string name="diagnostics_hud_lab_description">独立紧凑页面包含 6 个剩余未知项测试：UTURN、ROUNDABOUT 和 SPEED_LIMIT。</string>
+    <string name="diagnostics_hud_lab_native_hint">LEFT/RIGHT 已进入 production。实验室只使用不含被拒绝 PNG 字段的普通帧。</string>
+    <string name="diagnostics_hud_lab_launcher_description">紧凑的逐步实验室与长诊断页面分开打开。</string>
+    <string name="diagnostics_hud_lab_open">打开</string>
+    <string name="diagnostics_hud_lab_test_counter">测试 %1$d / %2$d</string>
+    <string name="diagnostics_hud_lab_previous">上一个</string>
+    <string name="diagnostics_hud_lab_next">下一个</string>
+    <string name="diagnostics_hud_lab_run_selected">运行所选测试</string>
+    <string name="diagnostics_hud_lab_cluster_busy">请先完成仪表屏测试。</string>
     <string name="diagnostics_hud_lab_park_confirmation">车辆已静止并挂入 P 挡</string>
     <string name="diagnostics_hud_lab_left">预期向左</string>
     <string name="diagnostics_hud_lab_right">预期向右</string>
@@ -1367,6 +1374,7 @@
     <string name="diagnostics_hud_lab_saw_right">看到向右</string>
     <string name="diagnostics_hud_lab_saw_straight">看到直行</string>
     <string name="diagnostics_hud_lab_saw_uturn">看到掉头</string>
+    <string name="diagnostics_hud_lab_saw_roundabout">看到环岛</string>
     <string name="diagnostics_hud_lab_saw_nothing">没有显示</string>
     <string name="diagnostics_hud_lab_saw_flashed">出现后消失</string>
     <string name="diagnostics_hud_lab_saw_info">距离/文字可见</string>
@@ -1387,6 +1395,15 @@
     <string name="diagnostics_hud_lab_clear">清除 HUD</string>
     <string name="diagnostics_hud_lab_export">导出</string>
     <string name="diagnostics_hud_lab_saved_count">已保存测试：%1$d</string>
+    <string name="diagnostics_hud_lab_journal_title">测试日志</string>
+    <string name="diagnostics_hud_lab_journal_hint">导出包含 HUD 和仪表屏技术结果。删除只清除应用内保存的前挡 HUD 测试；已导出的文件保留。</string>
+    <string name="diagnostics_hud_lab_delete_records">删除已保存的 HUD 测试</string>
+    <string name="diagnostics_hud_lab_delete_title">清空 HUD Lab 日志？</string>
+    <string name="diagnostics_hud_lab_delete_message">应用内所有已保存的前挡 HUD 测试将被删除。已导出的文件和仪表屏测试保留。</string>
+    <string name="diagnostics_hud_lab_delete_confirm">删除</string>
+    <string name="diagnostics_hud_lab_delete_cancel">取消</string>
+    <string name="diagnostics_hud_lab_records_deleted">已删除保存的 HUD 测试。</string>
+    <string name="diagnostics_hud_lab_records_delete_failed">无法清空 HUD Lab 日志。</string>
     <string name="diagnostics_hud_lab_frame_sent">序列已发送；最后一个 SOME/IP 回复 rc=%1$d。请记录目视结果。</string>
     <string name="diagnostics_hud_lab_send_rejected">测试帧被拒绝（rc=%1$d）。</string>
     <string name="diagnostics_hud_lab_clear_result">清除命令完成（rc=%1$d）。</string>
@@ -1407,8 +1424,9 @@
     <string name="diagnostics_hud_lab_failure_journal">无法保存测试。HUD 已安全清除，请重试。</string>
     <string name="diagnostics_hud_lab_failure_send">测试帧未收到 rc=0 确认。结果已记录，并已执行安全清除尝试。</string>
     <string name="diagnostics_cluster_lab_title">仪表屏实验室</string>
-    <string name="diagnostics_cluster_lab_description">单独测试第二显示屏：显示列表、投影状态、校准网格和两个受限 Waze 投影周期。</string>
-    <string name="diagnostics_cluster_lab_safety_hint">C03–C05 前请手动打开原厂 Navi/投影模式。实验室不会使用未验证的 auto_container 命令，并始终恢复 OFF。</string>
+    <string name="diagnostics_cluster_lab_description">先检查显示屏列表和投影状态。仅在实际检测到仪表屏后显示可视测试。</string>
+    <string name="diagnostics_cluster_lab_safety_hint">打开原厂 Navi/投影模式并运行 C01。实验室不会使用未验证的 auto_container 命令，并始终恢复 OFF。</string>
+    <string name="diagnostics_cluster_lab_display_required">未找到仪表屏，因此隐藏 C03–C05。打开原厂投影后再次运行 C01。</string>
     <string name="diagnostics_cluster_lab_what_seen">测试 %1$s 时仪表屏发生了什么？</string>
     <string name="diagnostics_cluster_lab_cancel">停止并清理</string>
     <string name="diagnostics_cluster_lab_export_all">导出两个 HUD 实验室</string>

@@ -1389,8 +1389,15 @@
 
     <!-- Dev-only factory HUD calibration -->
     <string name="diagnostics_hud_lab_title">HUD Lab — калибровка штатных стрелок</string>
-    <string name="diagnostics_hud_lab_description">36 безопасных сценариев проверяют лобовой HUD без поездки: CLEAR, стрелки, отдельные поля, полный кадр, переходы и частоту отправки.</string>
-    <string name="diagnostics_hud_lab_native_hint">Сценарии используют одиночные кадры и контролируемые серии 100/300/500 мс. В экспорт записываются все пакеты, коды SOME/IP, поля и хэши.</string>
+    <string name="diagnostics_hud_lab_description">Отдельный компактный экран с 6 тестами оставшихся неизвестных: UTURN, ROUNDABOUT и SPEED_LIMIT.</string>
+    <string name="diagnostics_hud_lab_native_hint">LEFT/RIGHT уже перенесены в production. Лаборатория использует только plain-кадры без отклонённых PNG.</string>
+    <string name="diagnostics_hud_lab_launcher_description">Компактная пошаговая лаборатория открывается отдельно от длинного экрана диагностики.</string>
+    <string name="diagnostics_hud_lab_open">Открыть</string>
+    <string name="diagnostics_hud_lab_test_counter">Тест %1$d из %2$d</string>
+    <string name="diagnostics_hud_lab_previous">Предыдущий</string>
+    <string name="diagnostics_hud_lab_next">Следующий</string>
+    <string name="diagnostics_hud_lab_run_selected">Запустить выбранный тест</string>
+    <string name="diagnostics_hud_lab_cluster_busy">Сначала завершите тест приборки.</string>
     <string name="diagnostics_hud_lab_park_confirmation">Машина стоит, включена передача P</string>
     <string name="diagnostics_hud_lab_left">Ожидается налево</string>
     <string name="diagnostics_hud_lab_right">Ожидается направо</string>
@@ -1404,6 +1411,7 @@
     <string name="diagnostics_hud_lab_saw_right">Увидел направо</string>
     <string name="diagnostics_hud_lab_saw_straight">Увидел прямо</string>
     <string name="diagnostics_hud_lab_saw_uturn">Увидел разворот</string>
+    <string name="diagnostics_hud_lab_saw_roundabout">Увидел кольцо</string>
     <string name="diagnostics_hud_lab_saw_nothing">Ничего не появилось</string>
     <string name="diagnostics_hud_lab_saw_flashed">Появилось и пропало</string>
     <string name="diagnostics_hud_lab_saw_info">Видны дистанция/текст</string>
@@ -1424,6 +1432,15 @@
     <string name="diagnostics_hud_lab_clear">Очистить HUD</string>
     <string name="diagnostics_hud_lab_export">Экспортировать</string>
     <string name="diagnostics_hud_lab_saved_count">Сохранено тестов: %1$d</string>
+    <string name="diagnostics_hud_lab_journal_title">Журнал тестов</string>
+    <string name="diagnostics_hud_lab_journal_hint">Экспорт включает технические результаты HUD и приборки. Удаление очищает только сохранённые тесты HUD внутри приложения; ранее экспортированные файлы останутся.</string>
+    <string name="diagnostics_hud_lab_delete_records">Удалить сохранённые тесты HUD</string>
+    <string name="diagnostics_hud_lab_delete_title">Очистить журнал HUD Lab?</string>
+    <string name="diagnostics_hud_lab_delete_message">Все сохранённые тесты HUD будут удалены из приложения. Экспортированные файлы и тесты приборки не удаляются.</string>
+    <string name="diagnostics_hud_lab_delete_confirm">Удалить</string>
+    <string name="diagnostics_hud_lab_delete_cancel">Отмена</string>
+    <string name="diagnostics_hud_lab_records_deleted">Сохранённые тесты HUD удалены.</string>
+    <string name="diagnostics_hud_lab_records_delete_failed">Не удалось очистить журнал HUD Lab.</string>
     <string name="diagnostics_hud_lab_frame_sent">Серия отправлена; последний ответ SOME/IP rc=%1$d. Это транспортный код, результат отметьте визуально.</string>
     <string name="diagnostics_hud_lab_send_rejected">Тестовый кадр отклонён (rc=%1$d).</string>
     <string name="diagnostics_hud_lab_clear_result">Команда очистки выполнена (rc=%1$d).</string>
@@ -1444,8 +1461,9 @@
     <string name="diagnostics_hud_lab_failure_journal">Не удалось сохранить тест в журнал. HUD безопасно очищен; повторите попытку.</string>
     <string name="diagnostics_hud_lab_failure_send">Тестовый кадр не получил подтверждение rc=0. Результат записан; выполнена безопасная попытка очистки.</string>
     <string name="diagnostics_cluster_lab_title">Instrument Cluster Lab — приборка</string>
-    <string name="diagnostics_cluster_lab_description">Отдельно проверяет второй экран: список дисплеев, состояние проекции, тестовую сетку и два ограниченных цикла запуска Waze.</string>
-    <string name="diagnostics_cluster_lab_safety_hint">Для C03–C05 вручную откройте штатный режим Navi/проекции. Lab не включает неподтверждённые команды auto_container и всегда возвращает режим OFF.</string>
+    <string name="diagnostics_cluster_lab_description">Сначала проверяет список дисплеев и состояние проекции. Визуальные тесты появляются только после фактического обнаружения дисплея приборки.</string>
+    <string name="diagnostics_cluster_lab_safety_hint">Откройте штатный режим Navi/проекции и запустите C01. Lab не включает неподтверждённые команды auto_container и всегда возвращает режим OFF.</string>
+    <string name="diagnostics_cluster_lab_display_required">C03–C05 скрыты: дисплей приборки пока не найден. После открытия штатной проекции повторите C01.</string>
     <string name="diagnostics_cluster_lab_what_seen">Что произошло на приборке в тесте %1$s?</string>
     <string name="diagnostics_cluster_lab_cancel">Остановить и очистить</string>
     <string name="diagnostics_cluster_lab_export_all">Экспорт обоих HUD</string>

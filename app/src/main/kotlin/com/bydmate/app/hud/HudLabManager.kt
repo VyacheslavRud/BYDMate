@@ -37,6 +37,8 @@ enum class HudLabOutcomeType {
     OBSERVATION_SAVED,
     EXPORTED,
     EXPORT_FAILED,
+    RECORDS_DELETED,
+    RECORDS_DELETE_FAILED,
 }
 
 data class HudLabOutcome(
@@ -112,31 +114,6 @@ class HudLabManager @Inject constructor(
                 runScenario(scenario, parkConfirmedByUser)
             }
         }
-    }
-
-    /** Compatibility mapping for the 3.6.9 four-button UI and tests. */
-    fun send(
-        command: HudLabCommand,
-        parkConfirmedByUser: Boolean,
-        frameVariant: HudLabFrameVariant = HudLabFrameVariant.LIVE_PNG_F8,
-    ) {
-        val scenarioId = when (frameVariant) {
-            HudLabFrameVariant.RAW_F28_ONLY -> when (command) {
-                HudLabCommand.STRAIGHT -> "W04"
-                HudLabCommand.RIGHT -> "W05"
-                HudLabCommand.LEFT -> "W06"
-                HudLabCommand.UTURN -> "W07"
-            }
-            HudLabFrameVariant.LIVE_PNG_F8,
-            HudLabFrameVariant.SCENARIO_MATRIX,
-            -> when (command) {
-                HudLabCommand.LEFT -> "W13"
-                HudLabCommand.RIGHT -> "W14"
-                HudLabCommand.STRAIGHT -> "W15"
-                HudLabCommand.UTURN -> "W16"
-            }
-        }
-        sendScenario(scenarioId, parkConfirmedByUser)
     }
 
     private suspend fun runScenario(
@@ -565,6 +542,29 @@ class HudLabManager @Inject constructor(
                             HudLabOutcome(HudLabOutcomeType.EXPORT_FAILED)
                         },
                     ),
+                )
+            }
+        }
+    }
+
+    /** Deletes only the in-app windshield HUD journal; exported files and cluster logs remain. */
+    fun deleteRecords() {
+        synchronized(actionLock) {
+            if (_state.value.busy || _state.value.pending != null) return
+            _state.update { it.copy(busy = true, lastOutcome = null) }
+        }
+        scope.launch {
+            operationMutex.withLock {
+                val result = runCatching { HudLabLogStore.clearRecords(context) }
+                _state.value = _state.value.copy(
+                    busy = false,
+                    recordsCount = HudLabLogStore.records(context).size,
+                    lastOutcome = if (result.isSuccess) {
+                        HudLabOutcome(HudLabOutcomeType.RECORDS_DELETED)
+                    } else {
+                        Log.e(TAG, "HUD Lab journal delete failed", result.exceptionOrNull())
+                        HudLabOutcome(HudLabOutcomeType.RECORDS_DELETE_FAILED)
+                    },
                 )
             }
         }

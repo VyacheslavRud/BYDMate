@@ -1,5 +1,6 @@
 package com.bydmate.app.hud
 
+import com.bydmate.app.navdata.NavManeuverCodes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -156,6 +157,105 @@ class HudProtobufBuilderTest {
         assertNull(fields[28])
         assertNull(fields[8])
         assertEquals(500L, fields[9]!![0] as Long)
+    }
+
+    @Test fun `Sea Lion production frame contains only confirmed scalar fields`() {
+        val fields = unwrap(
+            HudProtobufBuilder.buildSeaLionGuidanceFrame(
+                maneuverGaode = NavManeuverCodes.GAODE_RIGHT,
+                distanceMeters = 50,
+                road = "Road",
+                etaString = " 12:34 ",
+            ),
+        )
+
+        assertEquals(setOf(2, 6, 9, 10, 16, 26, 28, 33), fields.keys)
+        assertEquals(2L, fields[2]!!.single() as Long)
+        assertEquals(1L, fields[6]!!.single() as Long)
+        assertEquals(50L, fields[9]!!.single() as Long)
+        assertEquals("Road", String(fields[10]!!.single() as ByteArray, Charsets.UTF_8))
+        assertEquals("12:34", String(fields[26]!!.single() as ByteArray, Charsets.UTF_8))
+        assertEquals(2L, fields[28]!!.single() as Long)
+        assertEquals(0.0, Double.fromBits(fields[33]!!.single() as Long), 0.0)
+        assertNull(fields[7])
+        assertNull(fields[8])
+        assertNull(fields[11])
+    }
+
+    @Test fun `Sea Lion production mapping emits only confirmed left and right values`() {
+        listOf(
+            NavManeuverCodes.GAODE_LEFT,
+            NavManeuverCodes.GAODE_SLIGHT_LEFT,
+            NavManeuverCodes.GAODE_HARD_LEFT,
+        ).forEach { gaode -> assertEquals(3, HudProtobufBuilder.seaLionF28ForGaode(gaode)) }
+        listOf(
+            NavManeuverCodes.GAODE_RIGHT,
+            NavManeuverCodes.GAODE_SLIGHT_RIGHT,
+            NavManeuverCodes.GAODE_HARD_RIGHT,
+        ).forEach { gaode -> assertEquals(2, HudProtobufBuilder.seaLionF28ForGaode(gaode)) }
+        listOf(
+            0,
+            NavManeuverCodes.GAODE_STRAIGHT,
+            NavManeuverCodes.GAODE_UTURN,
+            NavManeuverCodes.GAODE_UTURN_RIGHT,
+            NavManeuverCodes.GAODE_ROUNDABOUT_ENTER,
+            NavManeuverCodes.GAODE_ROUNDABOUT_EXIT,
+            NavManeuverCodes.GAODE_WAYPOINT,
+            NavManeuverCodes.GAODE_FERRY,
+            NavManeuverCodes.GAODE_ARRIVE,
+            NavManeuverCodes.GAODE_TUNNEL,
+        ).forEach { gaode -> assertNull(HudProtobufBuilder.seaLionF28ForGaode(gaode)) }
+    }
+
+    @Test fun `Sea Lion production frame preserves real distance for firmware threshold`() {
+        listOf(20, 50, 100, 500).forEach { distance ->
+            val fields = unwrap(
+                HudProtobufBuilder.buildSeaLionGuidanceFrame(
+                    maneuverGaode = NavManeuverCodes.GAODE_RIGHT,
+                    distanceMeters = distance,
+                    road = "",
+                    etaString = null,
+                ),
+            )
+            assertEquals(distance.toLong(), fields[9]!!.single() as Long)
+            assertEquals(2L, fields[28]!!.single() as Long)
+        }
+    }
+
+    @Test fun `Sea Lion uncalibrated maneuver keeps information without a false arrow`() {
+        val fields = unwrap(
+            HudProtobufBuilder.buildSeaLionGuidanceFrame(
+                maneuverGaode = NavManeuverCodes.GAODE_STRAIGHT,
+                distanceMeters = 500,
+                road = "A",
+                etaString = null,
+            ),
+        )
+
+        assertEquals(500L, fields[9]!!.single() as Long)
+        assertEquals("A", String(fields[10]!!.single() as ByteArray, Charsets.UTF_8))
+        assertNull(fields[28])
+    }
+
+    @Test fun `Sea Lion production frame bounds external Waze values`() {
+        val fields = unwrap(
+            HudProtobufBuilder.buildSeaLionGuidanceFrame(
+                maneuverGaode = NavManeuverCodes.GAODE_LEFT,
+                distanceMeters = -1,
+                road = "x".repeat(HudProtobufBuilder.MAX_ROAD_CHARS + 50),
+                etaString = " 12345678901234567890 ",
+            ),
+        )
+
+        assertEquals(0L, fields[9]!!.single() as Long)
+        assertEquals(
+            HudProtobufBuilder.MAX_ROAD_CHARS,
+            String(fields[10]!!.single() as ByteArray, Charsets.UTF_8).length,
+        )
+        assertEquals(
+            "1234567890123456",
+            String(fields[26]!!.single() as ByteArray, Charsets.UTF_8),
+        )
     }
 
     @Test fun `HUD Lab frame sends exact raw f28 without PNG`() {
