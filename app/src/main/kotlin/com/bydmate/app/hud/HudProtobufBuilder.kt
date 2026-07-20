@@ -145,7 +145,10 @@ object HudProtobufBuilder {
         maneuverIconPng: ByteArray?,
         speedSignPng: ByteArray?,
     ): ByteArray {
-        require(spec.f28 == null || spec.f28 in setOf(1, 2, 3, 9, 13, 24)) {
+        require(spec.effectiveRenderClass in setOf(1, 6)) {
+            "unsupported HUD Lab f6=${spec.effectiveRenderClass}"
+        }
+        require(spec.f28 == null || spec.f28 in setOf(0, 1, 2, 3, 9, 13, 24)) {
             "unsupported HUD Lab f28=${spec.f28}"
         }
         require(spec.iconCode == null || spec.iconCode in setOf(0, 1, 2, 9, 11)) {
@@ -174,6 +177,7 @@ object HudProtobufBuilder {
             "HUD Lab ETA text too long"
         }
         val payload = buildFrameWithRawF28(
+            renderClass = spec.effectiveRenderClass,
             rawF28 = spec.f28,
             distanceMeters = spec.distanceMeters,
             road = spec.road,
@@ -188,6 +192,7 @@ object HudProtobufBuilder {
     }
 
     private fun buildFrameWithRawF28(
+        renderClass: Int? = null,
         rawF28: Int?,
         distanceMeters: Int,
         road: String,
@@ -201,7 +206,11 @@ object HudProtobufBuilder {
         // f2 is the constant 2 in every reference guidance frame (donor stage 6,
         // 1779/1779 discope events); only the clear frame carries a counter here.
         writeVarintField(inner, 2, 2L)
-        writeVarintField(inner, 6, if (speedSignPng != null) 6L else 1L)
+        writeVarintField(
+            inner,
+            6,
+            (renderClass ?: if (speedSignPng != null) 6 else 1).toLong(),
+        )
         if (speedSignPng != null) writeBytesField(inner, 7, speedSignPng)
         if (maneuverIconPng != null) writeBytesField(inner, 8, maneuverIconPng)
         writeVarintField(inner, 9, distanceMeters.toLong())

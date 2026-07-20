@@ -24,83 +24,101 @@ class HudLabScenarioCatalogTest {
         }
 
     @Test
-    fun `catalog exposes six compact unknown-only scenarios`() {
-        val expectedIds = listOf("U01", "U02", "R01", "R02", "S01", "S02")
-        val actualIds = HudLabScenarioCatalog.all.map(HudLabScenario::id)
+    fun `catalog keeps current research separate from repeat calibration`() {
+        val currentIds = (1..18).map { "X%02d".format(it) }
+        val calibrationIds = listOf(
+            "U01", "U02", "R01", "R02", "S01", "S02", "N17", "N18",
+        )
 
-        assertEquals(expectedIds, actualIds)
-        assertEquals(expectedIds.size, actualIds.toSet().size)
+        assertEquals(currentIds, HudLabScenarioCatalog.current.map(HudLabScenario::id))
+        assertEquals(calibrationIds, HudLabScenarioCatalog.calibration.map(HudLabScenario::id))
+        assertEquals(currentIds + calibrationIds, HudLabScenarioCatalog.all.map(HudLabScenario::id))
+        assertEquals(26, HudLabScenarioCatalog.all.map(HudLabScenario::id).toSet().size)
         assertNull(HudLabScenarioCatalog.byId("W01"))
     }
 
     @Test
-    fun `groups contain only remaining calibration targets`() {
-        val expected = mapOf(
-            HudLabScenarioGroup.UTURN to listOf("U01", "U02"),
-            HudLabScenarioGroup.ROUNDABOUT to listOf("R01", "R02"),
-            HudLabScenarioGroup.SPEED_LIMIT to listOf("S01", "S02"),
-            HudLabScenarioGroup.CONTROL to emptyList(),
-        )
-
-        expected.forEach { (group, ids) ->
-            assertEquals(
-                ids,
-                HudLabScenarioCatalog.all.filter { it.group == group }.map(HudLabScenario::id),
-            )
+    fun `follow-up research isolates dependencies around confirmed speed and maneuver frames`() {
+        val frames = (1..18).associate { number ->
+            val id = "X%02d".format(number)
+            id to onlySend(id).frame
         }
-    }
+        val confirmedRight = onlySend("N17").frame
+        val confirmedLeft = onlySend("N18").frame
 
-    @Test
-    fun `uturn candidates keep raw nine and compare close distances`() {
-        val frames = listOf(onlySend("U01").frame, onlySend("U02").frame)
-
-        assertEquals(listOf(20, 50), frames.map(HudLabFrameSpec::distanceMeters))
-        frames.forEach { frame -> assertEquals(9, frame.f28) }
-        assertTrue(listOf("U01", "U02").all { scenario(it).expected == HudLabObserved.UTURN })
-    }
-
-    @Test
-    fun `roundabout candidates test enter and exit codes without PNG`() {
-        val enter = onlySend("R01").frame
-        val exit = onlySend("R02").frame
-
-        assertEquals(13, enter.f28)
-        assertEquals(24, exit.f28)
-        assertEquals(20, enter.distanceMeters)
+        assertEquals(confirmedRight.copy(renderClass = null), frames.getValue("X01"))
+        assertEquals(confirmedLeft.copy(renderClass = null), frames.getValue("X02"))
+        assertEquals(confirmedRight.copy(speedLimit = 80), frames.getValue("X03"))
+        assertEquals(confirmedLeft.copy(speedLimit = 80), frames.getValue("X04"))
+        assertEquals(confirmedRight.copy(distanceMeters = 20), frames.getValue("X05"))
+        assertEquals(confirmedRight.copy(distanceMeters = 100), frames.getValue("X06"))
+        assertEquals(confirmedLeft.copy(distanceMeters = 20), frames.getValue("X07"))
+        assertEquals(confirmedLeft.copy(distanceMeters = 100), frames.getValue("X08"))
+        assertEquals(confirmedRight.copy(road = "HUD LAB SPEED"), frames.getValue("X09"))
+        assertEquals(confirmedRight.copy(etaString = "12:34"), frames.getValue("X10"))
+        assertEquals(confirmedRight.copy(totalDistanceMeters = 100), frames.getValue("X11"))
         assertEquals(
-            enter.copy(f28 = 24, road = "HUD LAB ROUNDABOUT_EXIT"),
-            exit,
+            confirmedLeft.copy(
+                road = "HUD LAB FULL",
+                etaString = "12:34",
+                totalDistanceMeters = 100,
+            ),
+            frames.getValue("X12"),
         )
-        assertEquals(HudLabCommand.ROUNDABOUT_ENTER, scenario("R01").command)
-        assertEquals(HudLabCommand.ROUNDABOUT_EXIT, scenario("R02").command)
-        assertEquals(HudLabObserved.ROUNDABOUT, scenario("R01").expected)
-        assertEquals(HudLabObserved.ROUNDABOUT, scenario("R02").expected)
+        assertEquals(confirmedRight.copy(f28 = 0), frames.getValue("X13"))
+        assertEquals(confirmedRight.copy(f28 = 9), frames.getValue("X14"))
+        assertEquals(confirmedRight, frames.getValue("X15"))
+        assertEquals(confirmedRight, frames.getValue("X16"))
+        assertEquals(confirmedRight.copy(speedLimit = 0), frames.getValue("X17"))
+        assertEquals(confirmedLeft.copy(speedLimit = 0), frames.getValue("X18"))
     }
 
     @Test
-    fun `speed candidates change only f11 value`() {
-        val fifty = onlySend("S01").frame
-        val eighty = onlySend("S02").frame
+    fun `previous six calibration scenarios retain their exact fields`() {
+        val uturnFrames = listOf(onlySend("U01").frame, onlySend("U02").frame)
+        assertEquals(listOf(20, 50), uturnFrames.map(HudLabFrameSpec::distanceMeters))
+        uturnFrames.forEach { assertEquals(9, it.f28) }
 
-        assertEquals(50, fifty.speedLimit)
-        assertEquals(fifty.copy(speedLimit = 80), eighty)
-        assertFalse(fifty.includeSpeedSign)
-        assertFalse(eighty.includeSpeedSign)
-        assertEquals(HudLabObserved.SPEED_NUMBER_VISIBLE, scenario("S01").expected)
+        assertEquals(13, onlySend("R01").frame.f28)
+        assertEquals(24, onlySend("R02").frame.f28)
+        assertEquals(20, onlySend("R01").frame.distanceMeters)
+        assertEquals(20, onlySend("R02").frame.distanceMeters)
+
+        val speed50 = onlySend("S01").frame
+        val speed80 = onlySend("S02").frame
+        assertEquals(50, speed50.speedLimit)
+        assertEquals(speed50.copy(speedLimit = 80), speed80)
+        assertFalse(speed50.includeSpeedSign)
+        assertFalse(speed80.includeSpeedSign)
+
+        assertEquals(2, onlySend("N17").frame.f28)
+        assertEquals(3, onlySend("N18").frame.f28)
+        assertEquals(6, onlySend("N17").frame.effectiveRenderClass)
+        assertEquals(50, onlySend("N17").frame.speedLimit)
+        assertEquals(
+            HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
+            scenario("N17").expected,
+        )
     }
 
     @Test
-    fun `all scenarios use accepted plain cadence and bounded fields`() {
+    fun `all scenarios keep accepted cadence and bounded scalar fields`() {
         HudLabScenarioCatalog.all.forEach { scenario ->
             assertEquals(2, scenario.steps.size)
             val clear = scenario.steps.first() as HudLabScenarioStep.Clear
             val send = scenario.steps.last() as HudLabScenarioStep.Send
             assertEquals(3, clear.attempts)
-            assertEquals(10, send.repeatCount)
-            assertEquals(300L, send.cadenceMs)
+            val expectedDelivery = when (scenario.id) {
+                "X15" -> 1 to 0L
+                "X16" -> 6 to 500L
+                else -> 10 to 300L
+            }
+            assertEquals(expectedDelivery.first, send.repeatCount)
+            assertEquals(expectedDelivery.second, send.cadenceMs)
             assertEquals(350L, send.gapBeforeMs)
             assertNull(send.frame.iconCode)
             assertFalse(send.frame.includeSpeedSign)
+            assertTrue(send.frame.effectiveRenderClass in setOf(1, 6))
 
             val fields = fieldNumbers(send.frame)
             val canonicalIndexes = fields.map(allowedFieldOrder::indexOf)

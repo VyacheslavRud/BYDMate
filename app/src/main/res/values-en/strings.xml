@@ -1233,9 +1233,14 @@
     <string name="diagnostics_waze_window_guidance">route guidance visible</string>
 
     <!-- Dev-only factory HUD calibration -->
-    <string name="diagnostics_hud_lab_title">HUD Lab — factory arrow calibration</string>
-    <string name="diagnostics_hud_lab_description">A separate compact screen with 6 tests for the remaining unknowns: UTURN, ROUNDABOUT and SPEED_LIMIT.</string>
-    <string name="diagnostics_hud_lab_native_hint">LEFT/RIGHT are already in production. The lab uses only plain frames without rejected PNG fields.</string>
+    <string name="diagnostics_hud_lab_title">HUD Lab — factory HUD calibration</string>
+    <string name="diagnostics_hud_lab_description">New research and the previous verification scenarios are kept in separate sets.</string>
+    <string name="diagnostics_hud_lab_native_hint">New tests use scalar fields only; confirmed results and previous calibration remain separate.</string>
+    <string name="diagnostics_hud_lab_catalog_title">Test set</string>
+    <string name="diagnostics_hud_lab_catalog_current">New research</string>
+    <string name="diagnostics_hud_lab_catalog_calibration">Previous and confirmed</string>
+    <string name="diagnostics_hud_lab_catalog_current_hint">18 new scalar-only tests refine f28 + f11 across f6, values, distances, route context, cadence and no-f11 controls.</string>
+    <string name="diagnostics_hud_lab_catalog_calibration_hint">6 previous calibration tests plus confirmed N17/N18: speed number together with RIGHT/LEFT.</string>
     <string name="diagnostics_hud_lab_launcher_description">The compact step-by-step lab opens separately from the long diagnostics screen.</string>
     <string name="diagnostics_hud_lab_open">Open</string>
     <string name="diagnostics_hud_lab_test_counter">Test %1$d of %2$d</string>
@@ -1265,6 +1270,13 @@
     <string name="diagnostics_hud_lab_saw_eta">Arrival time visible</string>
     <string name="diagnostics_hud_lab_saw_progress">Route progress visible</string>
     <string name="diagnostics_hud_lab_saw_speed_number">Speed-limit number visible</string>
+    <string name="diagnostics_hud_lab_saw_speed_outline">Empty circle visible, no number</string>
+    <string name="diagnostics_hud_lab_saw_speed_number_with_maneuver">Number and arrow visible</string>
+    <string name="diagnostics_hud_lab_saw_speed_outline_with_maneuver">Empty circle and arrow visible</string>
+    <string name="diagnostics_hud_lab_saw_speed_maneuver_road">Number, arrow and road visible</string>
+    <string name="diagnostics_hud_lab_saw_speed_maneuver_eta">Number, arrow and ETA visible</string>
+    <string name="diagnostics_hud_lab_saw_speed_maneuver_progress">Number, arrow and progress visible</string>
+    <string name="diagnostics_hud_lab_saw_full_scalar">Arrow, number, road, ETA and progress visible</string>
     <string name="diagnostics_hud_lab_saw_speed_sign">Speed sign visible</string>
     <string name="diagnostics_hud_lab_saw_left_then_right">Left, then right</string>
     <string name="diagnostics_hud_lab_saw_redrawn">Right, CLEAR, right again</string>

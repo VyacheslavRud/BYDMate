@@ -74,11 +74,18 @@ fun HudLabScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val clusterState by viewModel.clusterLabState.collectAsStateWithLifecycle()
     val externalLabBusy = clusterState.busy || clusterState.pendingObservationRecordId != null
+    var selectedCatalog by rememberSaveable { mutableIntStateOf(0) }
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
-    val scenarios = HudLabScenarioCatalog.all
+    val currentCatalogSelected = selectedCatalog == 0
+    val scenarios = if (currentCatalogSelected) {
+        HudLabScenarioCatalog.current
+    } else {
+        HudLabScenarioCatalog.calibration
+    }
     val safeSelectedIndex = selectedIndex.coerceIn(0, scenarios.lastIndex)
     var parkConfirmed by rememberSaveable { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
+    val canSwitchCatalog = !state.busy && state.pending == null && !externalLabBusy
 
     if (showDeleteConfirmation) {
         AlertDialog(
@@ -118,6 +125,22 @@ fun HudLabScreen(
             item(span = { GridItemSpan(maxLineSpan) }) {
                 HudLabHeader(onBack)
             }
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                HudLabCatalogCard(
+                    currentSelected = currentCatalogSelected,
+                    enabled = canSwitchCatalog,
+                    onSelectCurrent = {
+                        selectedCatalog = 0
+                        selectedIndex = 0
+                        parkConfirmed = false
+                    },
+                    onSelectCalibration = {
+                        selectedCatalog = 1
+                        selectedIndex = 0
+                        parkConfirmed = false
+                    },
+                )
+            }
             item {
                 HudLabRunnerCard(
                     state = state,
@@ -134,7 +157,12 @@ fun HudLabScreen(
                     onRun = {
                         viewModel.sendScenario(scenarios[safeSelectedIndex].id, parkConfirmed)
                     },
-                    onObserved = viewModel::recordObservation,
+                    onObserved = { observed ->
+                        viewModel.recordObservation(observed)
+                        if (safeSelectedIndex < scenarios.lastIndex) {
+                            selectedIndex = safeSelectedIndex + 1
+                        }
+                    },
                     onClear = viewModel::clearHud,
                 )
             }
@@ -145,6 +173,91 @@ fun HudLabScreen(
                     onDelete = { showDeleteConfirmation = true },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun HudLabCatalogCard(
+    currentSelected: Boolean,
+    enabled: Boolean,
+    onSelectCurrent: () -> Unit,
+    onSelectCalibration: () -> Unit,
+) {
+    val accent = if (currentSelected) AccentBlue else AccentOrange
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.08f)),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.38f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+            Text(
+                stringResource(R.string.diagnostics_hud_lab_catalog_title),
+                color = TextPrimary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 9.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (currentSelected) {
+                    Button(
+                        onClick = onSelectCurrent,
+                        enabled = enabled,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+                    ) {
+                        Text(stringResource(R.string.diagnostics_hud_lab_catalog_current), maxLines = 2)
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = onSelectCurrent,
+                        enabled = enabled,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    ) {
+                        Text(stringResource(R.string.diagnostics_hud_lab_catalog_current), maxLines = 2)
+                    }
+                }
+                if (currentSelected) {
+                    OutlinedButton(
+                        onClick = onSelectCalibration,
+                        enabled = enabled,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    ) {
+                        Text(
+                            stringResource(R.string.diagnostics_hud_lab_catalog_calibration),
+                            maxLines = 2,
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = onSelectCalibration,
+                        enabled = enabled,
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = AccentOrange),
+                    ) {
+                        Text(
+                            stringResource(R.string.diagnostics_hud_lab_catalog_calibration),
+                            maxLines = 2,
+                        )
+                    }
+                }
+            }
+            Text(
+                stringResource(
+                    if (currentSelected) {
+                        R.string.diagnostics_hud_lab_catalog_current_hint
+                    } else {
+                        R.string.diagnostics_hud_lab_catalog_calibration_hint
+                    },
+                ),
+                color = if (currentSelected) TextSecondary else AccentOrange,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                modifier = Modifier.padding(top = 8.dp),
+            )
         }
     }
 }
@@ -342,7 +455,10 @@ private fun HudLabRunnerCard(
                     fontSize = 12.sp,
                     modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
                 )
-                observationOptions(pending.record.scenarioId).chunked(2).forEach { row ->
+                observationOptions(
+                    pending.record.scenarioId,
+                    pending.record.expected,
+                ).chunked(2).forEach { row ->
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -471,7 +587,10 @@ private fun HudLabJournalCard(
     }
 }
 
-private fun observationOptions(scenarioId: String?): List<HudLabObserved> = when {
+private fun observationOptions(
+    scenarioId: String?,
+    expected: HudLabObserved,
+): List<HudLabObserved> = when {
     scenarioId?.startsWith("U") == true -> listOf(
         HudLabObserved.UTURN,
         HudLabObserved.LEFT,
@@ -493,15 +612,81 @@ private fun observationOptions(scenarioId: String?): List<HudLabObserved> = when
         HudLabObserved.OTHER,
         HudLabObserved.NOT_REPORTED,
     )
-    else -> listOf(
-        HudLabObserved.SPEED_NUMBER_VISIBLE,
-        HudLabObserved.SPEED_SIGN_VISIBLE,
+    scenarioId == "X09" -> listOf(
+        HudLabObserved.SPEED_MANEUVER_ROAD_VISIBLE,
+        HudLabObserved.ROAD_VISIBLE,
+        HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
+        HudLabObserved.SPEED_OUTLINE_WITH_MANEUVER_VISIBLE,
         HudLabObserved.INFO_VISIBLE,
         HudLabObserved.NOTHING,
         HudLabObserved.FLASHED,
         HudLabObserved.OTHER,
         HudLabObserved.NOT_REPORTED,
     )
+    scenarioId == "X10" -> listOf(
+        HudLabObserved.SPEED_MANEUVER_ETA_VISIBLE,
+        HudLabObserved.ETA_VISIBLE,
+        HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
+        HudLabObserved.SPEED_OUTLINE_WITH_MANEUVER_VISIBLE,
+        HudLabObserved.INFO_VISIBLE,
+        HudLabObserved.NOTHING,
+        HudLabObserved.FLASHED,
+        HudLabObserved.OTHER,
+        HudLabObserved.NOT_REPORTED,
+    )
+    scenarioId == "X11" -> listOf(
+        HudLabObserved.SPEED_MANEUVER_PROGRESS_VISIBLE,
+        HudLabObserved.PROGRESS_VISIBLE,
+        HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
+        HudLabObserved.SPEED_OUTLINE_WITH_MANEUVER_VISIBLE,
+        HudLabObserved.INFO_VISIBLE,
+        HudLabObserved.NOTHING,
+        HudLabObserved.FLASHED,
+        HudLabObserved.OTHER,
+        HudLabObserved.NOT_REPORTED,
+    )
+    scenarioId == "X12" -> listOf(
+        HudLabObserved.FULL_SCALAR_VISIBLE,
+        HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
+        HudLabObserved.SPEED_OUTLINE_WITH_MANEUVER_VISIBLE,
+        HudLabObserved.INFO_VISIBLE,
+        HudLabObserved.NOTHING,
+        HudLabObserved.FLASHED,
+        HudLabObserved.OTHER,
+        HudLabObserved.NOT_REPORTED,
+    )
+    scenarioId in setOf("N17", "N18") || scenarioId?.startsWith("X") == true -> listOf(
+        HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
+        HudLabObserved.SPEED_OUTLINE_WITH_MANEUVER_VISIBLE,
+        HudLabObserved.SPEED_NUMBER_VISIBLE,
+        HudLabObserved.SPEED_SIGN_OUTLINE_VISIBLE,
+        HudLabObserved.LEFT,
+        HudLabObserved.RIGHT,
+        HudLabObserved.STRAIGHT,
+        HudLabObserved.UTURN,
+        HudLabObserved.NOTHING,
+        HudLabObserved.FLASHED,
+        HudLabObserved.OTHER,
+        HudLabObserved.NOT_REPORTED,
+    )
+    scenarioId?.startsWith("N") == true || scenarioId?.startsWith("S") == true -> listOf(
+        HudLabObserved.SPEED_NUMBER_VISIBLE,
+        HudLabObserved.SPEED_SIGN_OUTLINE_VISIBLE,
+        HudLabObserved.INFO_VISIBLE,
+        HudLabObserved.STRAIGHT,
+        HudLabObserved.NOTHING,
+        HudLabObserved.FLASHED,
+        HudLabObserved.OTHER,
+        HudLabObserved.NOT_REPORTED,
+    )
+    else -> listOf(
+        expected,
+        HudLabObserved.INFO_VISIBLE,
+        HudLabObserved.NOTHING,
+        HudLabObserved.FLASHED,
+        HudLabObserved.OTHER,
+        HudLabObserved.NOT_REPORTED,
+    ).distinct()
 }
 
 @Composable
@@ -520,6 +705,19 @@ private fun hudLabObservedText(observed: HudLabObserved): String = stringResourc
         HudLabObserved.ETA_VISIBLE -> R.string.diagnostics_hud_lab_saw_eta
         HudLabObserved.PROGRESS_VISIBLE -> R.string.diagnostics_hud_lab_saw_progress
         HudLabObserved.SPEED_NUMBER_VISIBLE -> R.string.diagnostics_hud_lab_saw_speed_number
+        HudLabObserved.SPEED_SIGN_OUTLINE_VISIBLE ->
+            R.string.diagnostics_hud_lab_saw_speed_outline
+        HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE ->
+            R.string.diagnostics_hud_lab_saw_speed_number_with_maneuver
+        HudLabObserved.SPEED_OUTLINE_WITH_MANEUVER_VISIBLE ->
+            R.string.diagnostics_hud_lab_saw_speed_outline_with_maneuver
+        HudLabObserved.SPEED_MANEUVER_ROAD_VISIBLE ->
+            R.string.diagnostics_hud_lab_saw_speed_maneuver_road
+        HudLabObserved.SPEED_MANEUVER_ETA_VISIBLE ->
+            R.string.diagnostics_hud_lab_saw_speed_maneuver_eta
+        HudLabObserved.SPEED_MANEUVER_PROGRESS_VISIBLE ->
+            R.string.diagnostics_hud_lab_saw_speed_maneuver_progress
+        HudLabObserved.FULL_SCALAR_VISIBLE -> R.string.diagnostics_hud_lab_saw_full_scalar
         HudLabObserved.SPEED_SIGN_VISIBLE -> R.string.diagnostics_hud_lab_saw_speed_sign
         HudLabObserved.LEFT_THEN_RIGHT -> R.string.diagnostics_hud_lab_saw_left_then_right
         HudLabObserved.RIGHT_CLEARED_AND_REDRAWN -> R.string.diagnostics_hud_lab_saw_redrawn

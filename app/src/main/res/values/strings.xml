@@ -1388,9 +1388,14 @@
     <string name="diagnostics_waze_window_guidance">маршрутные подсказки доступны</string>
 
     <!-- Dev-only factory HUD calibration -->
-    <string name="diagnostics_hud_lab_title">HUD Lab — калибровка штатных стрелок</string>
-    <string name="diagnostics_hud_lab_description">Отдельный компактный экран с 6 тестами оставшихся неизвестных: UTURN, ROUNDABOUT и SPEED_LIMIT.</string>
-    <string name="diagnostics_hud_lab_native_hint">LEFT/RIGHT уже перенесены в production. Лаборатория использует только plain-кадры без отклонённых PNG.</string>
+    <string name="diagnostics_hud_lab_title">HUD Lab — калибровка штатного HUD</string>
+    <string name="diagnostics_hud_lab_description">Новые исследования и прежние проверочные сценарии находятся в отдельных наборах.</string>
+    <string name="diagnostics_hud_lab_native_hint">Новые тесты используют только scalar-поля; подтверждённые результаты и прежняя калибровка хранятся отдельно.</string>
+    <string name="diagnostics_hud_lab_catalog_title">Набор тестов</string>
+    <string name="diagnostics_hud_lab_catalog_current">Новые исследования</string>
+    <string name="diagnostics_hud_lab_catalog_calibration">Старые и подтверждённые</string>
+    <string name="diagnostics_hud_lab_catalog_current_hint">18 новых scalar-only тестов уточняют связь f28 + f11: f6, значения, дистанции, route context, cadence и контроль без f11.</string>
+    <string name="diagnostics_hud_lab_catalog_calibration_hint">6 прежних калибровочных тестов и подтверждённые N17/N18: число скорости одновременно с RIGHT/LEFT.</string>
     <string name="diagnostics_hud_lab_launcher_description">Компактная пошаговая лаборатория открывается отдельно от длинного экрана диагностики.</string>
     <string name="diagnostics_hud_lab_open">Открыть</string>
     <string name="diagnostics_hud_lab_test_counter">Тест %1$d из %2$d</string>
@@ -1420,6 +1425,13 @@
     <string name="diagnostics_hud_lab_saw_eta">Видно время прибытия</string>
     <string name="diagnostics_hud_lab_saw_progress">Виден прогресс маршрута</string>
     <string name="diagnostics_hud_lab_saw_speed_number">Видно число ограничения скорости</string>
+    <string name="diagnostics_hud_lab_saw_speed_outline">Виден пустой круг без числа</string>
+    <string name="diagnostics_hud_lab_saw_speed_number_with_maneuver">Видны число и стрелка</string>
+    <string name="diagnostics_hud_lab_saw_speed_outline_with_maneuver">Видны пустой круг и стрелка</string>
+    <string name="diagnostics_hud_lab_saw_speed_maneuver_road">Видны число, стрелка и улица</string>
+    <string name="diagnostics_hud_lab_saw_speed_maneuver_eta">Видны число, стрелка и ETA</string>
+    <string name="diagnostics_hud_lab_saw_speed_maneuver_progress">Видны число, стрелка и progress</string>
+    <string name="diagnostics_hud_lab_saw_full_scalar">Видны стрелка, число, улица, ETA и progress</string>
     <string name="diagnostics_hud_lab_saw_speed_sign">Виден знак скорости</string>
     <string name="diagnostics_hud_lab_saw_left_then_right">Сначала влево, затем вправо</string>
     <string name="diagnostics_hud_lab_saw_redrawn">Вправо, CLEAR, снова вправо</string>

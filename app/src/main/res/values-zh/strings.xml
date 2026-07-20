@@ -1351,9 +1351,14 @@
     <string name="diagnostics_waze_window_guidance">可见路线提示</string>
 
     <!-- Dev-only factory HUD calibration -->
-    <string name="diagnostics_hud_lab_title">HUD Lab — 原厂箭头校准</string>
-    <string name="diagnostics_hud_lab_description">独立紧凑页面包含 6 个剩余未知项测试：UTURN、ROUNDABOUT 和 SPEED_LIMIT。</string>
-    <string name="diagnostics_hud_lab_native_hint">LEFT/RIGHT 已进入 production。实验室只使用不含被拒绝 PNG 字段的普通帧。</string>
+    <string name="diagnostics_hud_lab_title">HUD Lab — 原厂 HUD 校准</string>
+    <string name="diagnostics_hud_lab_description">新的研究测试与之前的验证场景分成两个独立集合。</string>
+    <string name="diagnostics_hud_lab_native_hint">新测试仅使用 scalar 字段；已确认结果和以前的校准保持分开。</string>
+    <string name="diagnostics_hud_lab_catalog_title">测试集合</string>
+    <string name="diagnostics_hud_lab_catalog_current">新的研究</string>
+    <string name="diagnostics_hud_lab_catalog_calibration">以前和已确认</string>
+    <string name="diagnostics_hud_lab_catalog_current_hint">18 个新的 scalar-only 测试继续验证 f28 + f11，并覆盖 f6、数值、距离、路线信息、cadence 和无 f11 对照。</string>
+    <string name="diagnostics_hud_lab_catalog_calibration_hint">6 个以前的校准测试，加上已确认的 N17/N18：限速数字与 RIGHT/LEFT 同时显示。</string>
     <string name="diagnostics_hud_lab_launcher_description">紧凑的逐步实验室与长诊断页面分开打开。</string>
     <string name="diagnostics_hud_lab_open">打开</string>
     <string name="diagnostics_hud_lab_test_counter">测试 %1$d / %2$d</string>
@@ -1383,6 +1388,13 @@
     <string name="diagnostics_hud_lab_saw_eta">到达时间可见</string>
     <string name="diagnostics_hud_lab_saw_progress">路线进度可见</string>
     <string name="diagnostics_hud_lab_saw_speed_number">限速数字可见</string>
+    <string name="diagnostics_hud_lab_saw_speed_outline">仅显示空圆圈，没有数字</string>
+    <string name="diagnostics_hud_lab_saw_speed_number_with_maneuver">数字和箭头都可见</string>
+    <string name="diagnostics_hud_lab_saw_speed_outline_with_maneuver">空圆圈和箭头都可见</string>
+    <string name="diagnostics_hud_lab_saw_speed_maneuver_road">数字、箭头和道路都可见</string>
+    <string name="diagnostics_hud_lab_saw_speed_maneuver_eta">数字、箭头和 ETA 都可见</string>
+    <string name="diagnostics_hud_lab_saw_speed_maneuver_progress">数字、箭头和进度都可见</string>
+    <string name="diagnostics_hud_lab_saw_full_scalar">箭头、数字、道路、ETA 和进度都可见</string>
     <string name="diagnostics_hud_lab_saw_speed_sign">限速标志可见</string>
     <string name="diagnostics_hud_lab_saw_left_then_right">先左转，后右转</string>
     <string name="diagnostics_hud_lab_saw_redrawn">右转、CLEAR、再次右转</string>

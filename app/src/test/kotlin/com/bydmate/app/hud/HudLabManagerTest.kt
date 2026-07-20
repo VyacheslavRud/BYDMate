@@ -7,6 +7,7 @@ import io.mockk.mockk
 import io.mockk.verify
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -88,6 +89,52 @@ class HudLabManagerTest {
         assertEquals(HudLabObserved.LEFT, saved.observed)
         assertTrue(saved.autoCleared)
         assertEquals(0, saved.clearRc)
+    }
+
+    @Test fun `post-delivery watchdog clear does not rewrite a completed test as aborted`() {
+        var safetyChecks = 0
+        every { controller.checkHudLabSafety(true) } answers {
+            safetyChecks += 1
+            if (safetyChecks <= 3) {
+                HudLabTransportResult(rc = 0, gear = 1, speedKmh = 0)
+            } else {
+                HudLabTransportResult(
+                    failure = HudLabSendFailure.VEHICLE_DATA_UNAVAILABLE,
+                    gear = 1,
+                    speedKmh = 0,
+                )
+            }
+        }
+        every { controller.sendHudLabFrame(any(), true) } returns HudLabTransportResult(
+            rc = 0,
+            gear = 1,
+            speedKmh = 0,
+        )
+        every { controller.clearHudLabFrameSafely(true) } returns HudLabTransportResult(
+            rc = 0,
+            gear = 1,
+            speedKmh = 0,
+        )
+        every { controller.clearHudLabFrame() } returns 0
+        val manager = HudLabManager(context, controller).apply {
+            autoClearDelayMs = 1L
+            scenarioDelay = {}
+        }
+
+        manager.sendScenario("X01", parkConfirmedByUser = true)
+
+        awaitTrue { manager.state.value.pending?.autoCleared == true }
+        val afterWatchdog = HudLabLogStore.records(context).single()
+        assertNull(afterWatchdog.abortedFailure)
+        assertTrue(afterWatchdog.deliveryCompletedAtMs != null)
+        assertEquals(3, afterWatchdog.events.count {
+            it.label == "safety_watchdog_clear" && it.phase == HudLabEventPhase.RESULT
+        })
+
+        manager.recordObservation(HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE)
+
+        awaitTrue { manager.state.value.pending == null }
+        assertTrue(HudLabLogStore.renderDiagnosticSection(context).contains("verdict=MATCH"))
     }
 
     @Test fun `transport rejection is durably exported as failed attempt`() {

@@ -1230,9 +1230,14 @@
     <string name="diagnostics_waze_window_guidance">instruções de rota visíveis</string>
 
     <!-- Dev-only factory HUD calibration -->
-    <string name="diagnostics_hud_lab_title">HUD Lab — calibração das setas originais</string>
-    <string name="diagnostics_hud_lab_description">Um ecrã compacto separado com 6 testes para as incógnitas restantes: UTURN, ROUNDABOUT e SPEED_LIMIT.</string>
-    <string name="diagnostics_hud_lab_native_hint">LEFT/RIGHT já estão em production. O laboratório usa apenas frames simples sem campos PNG rejeitados.</string>
+    <string name="diagnostics_hud_lab_title">HUD Lab — calibração do HUD original</string>
+    <string name="diagnostics_hud_lab_description">A nova investigação e os cenários de verificação anteriores ficam em conjuntos separados.</string>
+    <string name="diagnostics_hud_lab_native_hint">Os novos testes usam apenas campos scalar; resultados confirmados e calibração anterior ficam separados.</string>
+    <string name="diagnostics_hud_lab_catalog_title">Conjunto de testes</string>
+    <string name="diagnostics_hud_lab_catalog_current">Nova investigação</string>
+    <string name="diagnostics_hud_lab_catalog_calibration">Anteriores e confirmados</string>
+    <string name="diagnostics_hud_lab_catalog_current_hint">18 novos testes scalar-only refinam f28 + f11 em f6, valores, distâncias, contexto, cadence e controlos sem f11.</string>
+    <string name="diagnostics_hud_lab_catalog_calibration_hint">6 testes anteriores mais N17/N18 confirmados: número da velocidade com RIGHT/LEFT.</string>
     <string name="diagnostics_hud_lab_launcher_description">O laboratório compacto passo a passo abre separado do ecrã longo de diagnóstico.</string>
     <string name="diagnostics_hud_lab_open">Abrir</string>
     <string name="diagnostics_hud_lab_test_counter">Teste %1$d de %2$d</string>
@@ -1262,6 +1267,13 @@
     <string name="diagnostics_hud_lab_saw_eta">Hora de chegada visível</string>
     <string name="diagnostics_hud_lab_saw_progress">Progresso da rota visível</string>
     <string name="diagnostics_hud_lab_saw_speed_number">Número do limite visível</string>
+    <string name="diagnostics_hud_lab_saw_speed_outline">Círculo vazio visível, sem número</string>
+    <string name="diagnostics_hud_lab_saw_speed_number_with_maneuver">Número e seta visíveis</string>
+    <string name="diagnostics_hud_lab_saw_speed_outline_with_maneuver">Círculo vazio e seta visíveis</string>
+    <string name="diagnostics_hud_lab_saw_speed_maneuver_road">Número, seta e rua visíveis</string>
+    <string name="diagnostics_hud_lab_saw_speed_maneuver_eta">Número, seta e ETA visíveis</string>
+    <string name="diagnostics_hud_lab_saw_speed_maneuver_progress">Número, seta e progresso visíveis</string>
+    <string name="diagnostics_hud_lab_saw_full_scalar">Seta, número, rua, ETA e progresso visíveis</string>
     <string name="diagnostics_hud_lab_saw_speed_sign">Sinal de velocidade visível</string>
     <string name="diagnostics_hud_lab_saw_left_then_right">Esquerda, depois direita</string>
     <string name="diagnostics_hud_lab_saw_redrawn">Direita, CLEAR, direita novamente</string>

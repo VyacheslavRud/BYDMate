@@ -308,6 +308,40 @@ class HudProtobufBuilderTest {
             }
     }
 
+    @Test fun `HUD Lab can isolate donor render class six without PNG`() {
+        val spec = HudLabFrameSpec(
+            renderClass = 6,
+            distanceMeters = 50,
+            road = "",
+            speedLimit = 50,
+        )
+
+        val fields = unwrap(
+            HudProtobufBuilder.buildHudLabScenarioFrame(spec, null, null),
+        )
+
+        assertEquals(6L, fields[6]!!.single() as Long)
+        assertEquals(50L, fields[11]!!.single() as Long)
+        assertNull(fields[7])
+        assertNull(fields[8])
+    }
+
+    @Test fun `HUD Lab can encode bounded arrow-free f28 zero candidate`() {
+        val spec = HudLabFrameSpec(
+            renderClass = 6,
+            f28 = 0,
+            distanceMeters = 50,
+            road = "",
+            speedLimit = 50,
+        )
+
+        val fields = unwrap(HudProtobufBuilder.buildHudLabScenarioFrame(spec, null, null))
+
+        assertEquals(0L, fields[28]!!.single() as Long)
+        assertNull(fields[7])
+        assertNull(fields[8])
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun `HUD Lab live frame rejects maneuver outside calibration set`() {
         HudProtobufBuilder.buildHudLabLiveFrame(49, byteArrayOf(1))

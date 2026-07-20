@@ -46,6 +46,13 @@ enum class HudLabObserved {
     ETA_VISIBLE,
     PROGRESS_VISIBLE,
     SPEED_NUMBER_VISIBLE,
+    SPEED_SIGN_OUTLINE_VISIBLE,
+    SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
+    SPEED_OUTLINE_WITH_MANEUVER_VISIBLE,
+    SPEED_MANEUVER_ROAD_VISIBLE,
+    SPEED_MANEUVER_ETA_VISIBLE,
+    SPEED_MANEUVER_PROGRESS_VISIBLE,
+    FULL_SCALAR_VISIBLE,
     SPEED_SIGN_VISIBLE,
     LEFT_THEN_RIGHT,
     RIGHT_CLEARED_AND_REDRAWN,
@@ -145,17 +152,17 @@ object HudLabLogStore {
         scenario: HudLabScenario,
         nowMs: Long = System.currentTimeMillis(),
     ): HudLabRecord {
+        val sendSteps = scenario.steps.filterIsInstance<HudLabScenarioStep.Send>()
         val record = HudLabRecord(
             id = UUID.randomUUID().toString(),
             sessionId = UUID.randomUUID().toString(),
             requestedAtMs = nowMs,
             command = scenario.command,
-            rawF28 = scenario.command?.rawF28,
+            rawF28 = scenario.command?.rawF28
+                ?: sendSteps.mapNotNull { it.frame.f28 }.distinct().singleOrNull(),
             frameVariant = HudLabFrameVariant.SCENARIO_MATRIX,
-            includePng = scenario.steps.filterIsInstance<HudLabScenarioStep.Send>()
-                .any { it.frame.iconCode != null },
-            iconGaodeCode = scenario.steps.filterIsInstance<HudLabScenarioStep.Send>()
-                .mapNotNull { it.frame.iconCode }.firstOrNull(),
+            includePng = sendSteps.any { it.frame.iconCode != null },
+            iconGaodeCode = sendSteps.mapNotNull { it.frame.iconCode }.firstOrNull(),
             pngBytes = null,
             payloadBytes = 0,
             sendRc = null,

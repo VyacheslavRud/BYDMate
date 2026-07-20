@@ -601,17 +601,10 @@ class HudLabManager @Inject constructor(
                     clearConfirmed = clear.clearConfirmed
                     clearAttempted = true
                     check(clear.journalSucceeded) { "hud_lab_clear_journal_failed" }
-                    if (watchdogFailure != null) {
-                        checkNotNull(
-                            HudLabLogStore.completeDelivery(
-                                context,
-                                recordId,
-                                abortedFailure = "WATCHDOG_${watchdogFailure!!.name}",
-                            ),
-                        )
-                    } else {
-                        clear.record
-                    }
+                    // Delivery was already completed before the pending observation window began.
+                    // A later watchdog clear is a safety cleanup, not an aborted SEND sequence.
+                    // Keep the reason in the CLEAR event label/log without corrupting the verdict.
+                    clear.record
                 }
                 val updated = HudLabLogStore.records(context).firstOrNull { it.id == recordId }
                     ?: pending.record

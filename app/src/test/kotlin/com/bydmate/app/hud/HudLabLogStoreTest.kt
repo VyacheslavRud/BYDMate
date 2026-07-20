@@ -184,6 +184,16 @@ class HudLabLogStoreTest {
         assertTrue(report.contains("sha256=abc123"))
     }
 
+    @Test fun `scenario summary takes raw f28 from a commandless frame spec`() {
+        val scenario = requireNotNull(HudLabScenarioCatalog.byId("X01"))
+
+        val record = HudLabLogStore.beginScenario(context, scenario, nowMs = 1_000L)
+
+        assertEquals(null, record.command)
+        assertEquals(2, record.rawF28)
+        assertTrue(HudLabLogStore.renderDiagnosticSection(context).contains("rawF28=2"))
+    }
+
     @Test fun `guard rejection before transport is classified as not sent`() {
         val event = HudLabEvent(
             type = HudLabEventType.SEND,
