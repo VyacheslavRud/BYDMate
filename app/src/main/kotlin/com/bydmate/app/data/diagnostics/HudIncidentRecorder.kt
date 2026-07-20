@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.util.Log
 import com.bydmate.app.cluster.SteeringWheelKeyService
 import com.bydmate.app.hud.HudController
+import com.bydmate.app.hud.hasRenderableHudGuidance
 import com.bydmate.app.navdata.NavA11yFeed
 import com.bydmate.app.navdata.NavGuidanceHub
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -423,7 +424,7 @@ class HudIncidentRecorder @Inject constructor(
             routeAgeMs = age(route.lastUpdateMs.takeIf { it > 0L }),
             routeObservedAgeMs = age(route.lastRouteObservedMs.takeIf { it > 0L }),
             routeManeuverGaode = route.maneuverGaode,
-            routeRenderable = route.active && route.maneuverGaode > 0,
+            routeRenderable = hasRenderableHudGuidance(route),
             routeEndReason = routeDiagnostics.lastRouteEndReason,
             routeEndAgeMs = age(routeDiagnostics.lastRouteEndedAtMs),
             accessibilityConnected = SteeringWheelKeyService.isConnected,

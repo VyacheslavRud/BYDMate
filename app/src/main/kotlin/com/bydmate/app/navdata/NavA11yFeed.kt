@@ -293,16 +293,15 @@ object NavA11yFeed {
         lastMs: Long,
         allowWindowProbe: Boolean = false,
     ): Boolean {
-        val relevantType = eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
-            eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ||
-            eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
-            (eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED && allowWindowProbe)
-        if (!relevantType) return false
-        if (eventType != AccessibilityEvent.TYPE_WINDOWS_CHANGED &&
-            !NavPackages.isNavigationPackage(pkg)
-        ) {
-            return false
-        }
+        // Waze builds do not consistently use one accessibility event type for maneuver changes:
+        // on DiLink the same navigation bar can emit content, selection, scroll or announcement
+        // events. Accept every event from the exact Waze package and keep the existing 500 ms
+        // debounce. Package-less topology events remain restricted to an already active route.
+        val fromWaze = NavPackages.isNavigationPackage(pkg)
+        val activeWindowProbe = eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED &&
+            allowWindowProbe
+        if (!fromWaze && !activeWindowProbe) return false
+        if (eventType == 0) return false
         return lastMs == 0L || nowMs - lastMs >= DEBOUNCE_MS
     }
 }

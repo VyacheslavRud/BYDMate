@@ -18,6 +18,7 @@ import com.bydmate.app.data.vehicle.HelperBootstrap
 import com.bydmate.app.demo.DemoMode
 import com.bydmate.app.hud.HudController
 import com.bydmate.app.hud.HudSomeIpBridge
+import com.bydmate.app.hud.hasRenderableHudGuidance
 import com.bydmate.app.navdata.NavA11yFeed
 import com.bydmate.app.navdata.NavA11yExtractor
 import com.bydmate.app.navdata.NavGuidanceHub
@@ -209,7 +210,7 @@ class VehicleDiagnosticsCollector @Inject constructor(
             routeActive = route.active,
             routeSource = route.source?.name,
             routeManeuverGaode = route.maneuverGaode,
-            routeRenderable = route.active && route.maneuverGaode > 0,
+            routeRenderable = hasRenderableHudGuidance(route),
             routeLastUpdateAtMs = route.lastUpdateMs.takeIf { it > 0L },
             routeLastObservedAtMs = route.lastRouteObservedMs.takeIf { it > 0L },
             routeEndReason = routeDiagnostics.lastRouteEndReason?.name,

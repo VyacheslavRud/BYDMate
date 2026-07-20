@@ -13,10 +13,19 @@ import kotlinx.coroutines.launch
 
 enum class HudFrameKind { GUIDANCE, CLEAR }
 
-/** Factory HUD f28 maps unknown maneuver 0 to the same reference value as straight. Sending a
- * route with only distance/text would therefore manufacture a believable but unsafe direction. */
+/**
+ * Whether an active route has enough information to keep the factory navigation card alive.
+ *
+ * Some DiLink/Waze combinations expose an active maneuver widget whose localized description is
+ * not parseable yet, and a background/projected Waze window can temporarily hide every optional
+ * field. NavGuidanceHub only becomes active from positive route UI/notification evidence, so the
+ * active flag itself is the compatibility gate. The donor HUD protocol intentionally maps
+ * maneuver 0 to its neutral f28=1 state and omits the PNG icon. The previous hard requirement for
+ * maneuverGaode > 0 therefore turned a recoverable partial update into a complete HUD outage on
+ * the Sea Lion 07.
+ */
 internal fun hasRenderableHudGuidance(snapshot: NavGuidanceHub.Snapshot): Boolean =
-    snapshot.active && snapshot.maneuverGaode > 0
+    snapshot.active
 
 /** 300 ms push loop: NavGuidanceHub snapshot -> protobuf frame -> SOME/IP fireEvent.
  *  When guidance ends (hub goes inactive), a clear frame is retried up to a small fixed bound.
@@ -41,7 +50,6 @@ class HudPushLoop(
     private var job: Job? = null
     private var counter = 0   // clear frames only; guidance frames carry the constant 2 in f2
     private var pendingClearAttempts = if (initialClearPending) CLEAR_MAX_ATTEMPTS else 0
-    private var unrenderableReported = false
 
     fun start(scope: CoroutineScope, periodMs: Long = PERIOD_MS) {
         if (job?.isActive == true) return
@@ -68,7 +76,6 @@ class HudPushLoop(
         job?.cancel()
         job = null
         pendingClearAttempts = 0
-        unrenderableReported = false
     }
 
     /** One tick; returns whether guidance was active (input for the next tick). Clear retry state
@@ -76,10 +83,6 @@ class HudPushLoop(
     internal fun tick(wasActive: Boolean): Boolean {
         val s = NavGuidanceHub.snapshot(nowMsProvider())
         if (!hasRenderableHudGuidance(s)) {
-            if (s.active && !unrenderableReported) {
-                Log.w(TAG, "route active but no renderable maneuver; suppressing unsafe HUD frame")
-            }
-            unrenderableReported = s.active
             if (wasActive) pendingClearAttempts = CLEAR_MAX_ATTEMPTS
             if (pendingClearAttempts > 0) {
                 val rc = deliver(
@@ -101,7 +104,6 @@ class HudPushLoop(
             }
             return false
         }
-        unrenderableReported = false
         // A new active frame supersedes any clear that was waiting for a retry.
         pendingClearAttempts = 0
         val speedLimit = s.speedLimit.coerceIn(0, HudProtobufBuilder.MAX_SPEED_LIMIT)

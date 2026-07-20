@@ -35,6 +35,12 @@ class MediaSessionListenerService : NotificationListenerService() {
     companion object {
         private const val TAG = "WazeNotifListener"
 
+        /** Framework binding state. Secure-settings membership alone is not enough on DiLink:
+         * the vendor notification manager can retain the grant without reconnecting the service. */
+        @Volatile
+        var isConnected: Boolean = false
+            private set
+
         // Exact Waze 5.21 channel used by its Android Auto/Automotive navigation path.
         // Standalone Waze normally exposes only CLOSE_WAZE_CHANNEL, which is intentionally ignored.
         internal const val WAZE_NAVIGATION_CHANNEL = "Waze Navigation Instructions"
@@ -92,6 +98,7 @@ class MediaSessionListenerService : NotificationListenerService() {
      */
     override fun onListenerConnected() {
         super.onListenerConnected()
+        isConnected = true
         runCatching {
             val active = activeNotifications.orEmpty()
                 .filter(::isAcceptedNavigationNotification)
@@ -117,11 +124,17 @@ class MediaSessionListenerService : NotificationListenerService() {
     }
 
     override fun onListenerDisconnected() {
+        isConnected = false
         // A future connection rebuilds this map from activeNotifications. Do not clear route data
         // or declare route end: disconnect says nothing about Waze's actual navigation state.
         navigationNotifications.clear()
         Log.w(TAG, "listener disconnected; preserving last route until a source confirms its state")
         super.onListenerDisconnected()
+    }
+
+    override fun onDestroy() {
+        isConnected = false
+        super.onDestroy()
     }
 
     private fun processPosted(sbn: StatusBarNotification) {

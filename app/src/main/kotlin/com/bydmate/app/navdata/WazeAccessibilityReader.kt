@@ -244,7 +244,10 @@ object WazeAccessibilityReader {
 
     /** Compose-style test tags contain at least one underscore; LEFT and BRNO remain valid text. */
     private fun isUsefulDescription(value: String): Boolean =
-        value.isNotEmpty() && !COMPOSE_TEST_TAG.matches(value)
+        value.isNotEmpty() && (
+            !COMPOSE_TEST_TAG.matches(value) ||
+                NavManeuverCodes.fromInstructionText(value) != 0
+            )
 
     private fun recycle(node: AccessibilityNodeInfo) {
         @Suppress("DEPRECATION")

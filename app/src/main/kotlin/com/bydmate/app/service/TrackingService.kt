@@ -213,12 +213,30 @@ class TrackingService : Service(), LocationListener {
             name = "notification listener",
             isGranted = {
                 val component = ComponentName(this, com.bydmate.app.media.MediaSessionListenerService::class.java)
-                getSystemService(NotificationManager::class.java)
-                    ?.isNotificationListenerAccessGranted(component) == true
+                com.bydmate.app.media.MediaSessionListenerService.isConnected ||
+                    getSystemService(NotificationManager::class.java)
+                        ?.isNotificationListenerAccessGranted(component) == true
             },
             reassert = {
-                helperBootstrap.ensureRunning() &&
+                val granted = helperBootstrap.ensureRunning() &&
                     com.bydmate.app.media.MediaSessionGrant.ensureGranted(helperClient)
+                if (granted) {
+                    // DiLink can update enabled_notification_listeners yet leave the listener
+                    // unbound. Explicitly request the framework rebind after every successful
+                    // daemon grant; this is idempotent and does not change any vehicle setting.
+                    val component = ComponentName(
+                        this,
+                        com.bydmate.app.media.MediaSessionListenerService::class.java,
+                    )
+                    runCatching {
+                        android.service.notification.NotificationListenerService.requestRebind(
+                            component,
+                        )
+                    }.onFailure {
+                        Log.w(TAG, "notification listener rebind request failed", it)
+                    }
+                }
+                granted
             },
         )
     }

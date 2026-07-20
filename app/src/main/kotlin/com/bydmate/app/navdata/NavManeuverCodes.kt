@@ -5,6 +5,7 @@ package com.bydmate.app.navdata
  *  source and text recognizer are Waze-specific. */
 object NavManeuverCodes {
     private val WHITESPACE = Regex("""\s+""")
+    private val SYMBOLIC_TAG = Regex("""^[A-Za-z][A-Za-z0-9]*(?:[_-][A-Za-z0-9]+)+$""")
     const val GAODE_LEFT = 1
     const val GAODE_RIGHT = 2
     const val GAODE_SLIGHT_LEFT = 3
@@ -60,23 +61,24 @@ object NavManeuverCodes {
 
         add(GAODE_UTURN_RIGHT,
             "развернитесь направо", "разворот направо",
-            "make a u-turn to the right", "make a u turn to the right", "u-turn right", "u turn right")
+            "make a u-turn to the right", "make a u turn to the right", "u-turn right", "u turn right",
+            "向右掉头")
         add(GAODE_UTURN,
             "развернитесь налево", "разворот налево", "развернитесь", "разворот",
-            "make a u-turn", "make a u turn", "u-turn", "u turn")
+            "make a u-turn", "make a u turn", "u-turn", "u turn", "掉头")
         add(GAODE_HARD_LEFT, "резкий поворот налево", "резко налево", "sharp left")
         add(GAODE_HARD_RIGHT, "резкий поворот направо", "резко направо", "sharp right")
         add(GAODE_SLIGHT_LEFT,
             "плавный поворот налево", "плавно налево", "держитесь левее", "левее",
-            "slight left", "keep left", "bear left", "fork left")
+            "slight left", "keep left", "bear left", "fork left", "靠左")
         add(GAODE_SLIGHT_RIGHT,
             "плавный поворот направо", "плавно направо", "держитесь правее", "правее",
-            "slight right", "keep right", "bear right", "fork right")
+            "slight right", "keep right", "bear right", "fork right", "靠右")
         add(GAODE_ROUNDABOUT_EXIT,
             "выезд с кольца", "съезд с кольца", "съезжайте с кольца", "выезжайте из кольца",
             "exit the roundabout", "leave the roundabout")
         add(GAODE_ROUNDABOUT_ENTER,
-            "кольцевое", "круговое", "въезжайте на кольцо", "войдите в кольцо", "кольцо", "roundabout")
+            "кольцевое", "круговое", "въезжайте на кольцо", "войдите в кольцо", "кольцо", "roundabout", "环岛")
         add(GAODE_FERRY, "въезд на паром", "board the ferry", "паром")
         add(GAODE_STRAIGHT, "съезд с парома", "выезд с парома", "leave the ferry")
         add(GAODE_WAYPOINT, "промежуточная точка")
@@ -87,23 +89,30 @@ object NavManeuverCodes {
         add(GAODE_TUNNEL, "тоннель", "туннель", "tunnel")
         add(GAODE_LEFT,
             "поверните налево", "поворот налево", "съезд налево", "налево",
-            "take the left", "turn left", "exit left")
+            "take the left", "turn left", "exit left", "向左转", "左转")
         add(GAODE_RIGHT,
             "поверните направо", "поворот направо", "съезд направо", "направо",
-            "take the right", "turn right", "exit right")
+            "take the right", "turn right", "exit right", "向右转", "右转")
         add(GAODE_STRAIGHT,
             "продолжайте прямо", "двигайтесь прямо", "продолжайте", "двигайтесь", "прямо",
-            "keep straight", "continue straight", "continue", "straight")
+            "keep straight", "continue straight", "continue", "straight", "直行")
     }
 
     fun parseInstructionText(text: String?): ParseResult {
         if (text.isNullOrBlank()) return ParseResult(0, emptyList())
         if (text.trim() == ">>>") return ParseResult(GAODE_STRAIGHT, listOf(GAODE_STRAIGHT))
-        // Normalize invisible spacing and typographic hyphens before matching.
-        val normalized = text.lowercase().trim()
+        val trimmed = text.trim()
+        val symbolicTag = SYMBOLIC_TAG.matches(trimmed)
+        // Waze sometimes exposes the arrow as a resource/test tag such as TURN_RIGHT instead of
+        // localized spoken text. Treat only a compact resource-style tag as symbolic; underscores
+        // in ordinary street text must not become direction instructions.
+        val normalized = trimmed.lowercase()
             .replace('\u00A0', ' ')
             .replace('\u202F', ' ')
             .replace('\u2011', '-')
+            .let { value ->
+                if (symbolicTag) value.replace('_', ' ').replace('-', ' ') else value
+            }
             .replace(WHITESPACE, " ")
 
         // Waze 5.x sometimes exposes only a short accessibility description for the arrow.
@@ -134,6 +143,12 @@ object NavManeuverCodes {
         collectNumberedExit(RU_NUMBERED_EXIT_RE, rank = -1)
         MANEUVER_PATTERNS.forEachIndexed { index, pattern ->
             collect(pattern.regex, pattern.code, rank = index)
+        }
+        if (symbolicTag) {
+            // Bare direction words are accepted only inside an explicit symbolic tag. In normal
+            // prose they would misread road names such as "Left Bank Road" as a maneuver.
+            collect(literalRegex("left"), GAODE_LEFT, rank = MANEUVER_PATTERNS.size)
+            collect(literalRegex("right"), GAODE_RIGHT, rank = MANEUVER_PATTERNS.size + 1)
         }
 
         // Specific overlapping phrases win ("slight right" over "right"). Non-overlapping

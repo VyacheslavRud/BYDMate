@@ -53,7 +53,7 @@ class HudPushLoopTest {
         assertArrayEquals(expected, sink.events.single().second)
     }
 
-    @Test fun `active route without maneuver never manufactures straight HUD frame`() {
+    @Test fun `active route with distance but temporarily missing maneuver keeps HUD alive`() {
         NavGuidanceHub.update(
             NavGuidance(road = "A", distanceMeters = 250),
             NavGuidanceHub.Source.A11Y,
@@ -61,31 +61,55 @@ class HudPushLoopTest {
         )
         val snapshot = NavGuidanceHub.snapshot(1000L)
         assertTrue(snapshot.active)
-        assertFalse(hasRenderableHudGuidance(snapshot))
+        assertTrue(hasRenderableHudGuidance(snapshot))
         val sink = FakeSink()
         val loop = HudPushLoop(sink, nowMsProvider = { 1000L })
 
-        assertFalse(loop.tick(wasActive = false))
+        assertTrue(loop.tick(wasActive = false))
 
-        assertTrue(sink.events.isEmpty())
+        val expected = HudProtobufBuilder.buildFrameSafe(
+            maneuverGaode = 0,
+            distanceMeters = 250,
+            road = "A",
+            etaString = null,
+            totalDistMeters = 0,
+            speedLimit = 0,
+            maneuverIconPng = null,
+            speedSignPng = null,
+        )
+        assertArrayEquals(expected, sink.events.single().second)
     }
 
-    @Test fun `loss of renderable maneuver clears previous HUD frame`() {
+    @Test fun `unparsed active maneuver does not clear previous HUD frame`() {
         activeHub(nowMs = 1000L)
         val sink = FakeSink()
         val loop = HudPushLoop(sink, nowMsProvider = { 1000L })
         assertTrue(loop.tick(wasActive = false))
         NavGuidanceHub.reset()
         NavGuidanceHub.update(
-            NavGuidance(road = "A", distanceMeters = 250),
+            // The maneuver description was present in Waze but could not be mapped; another
+            // route field is what makes this a positive active-route update in NavGuidanceHub.
+            NavGuidance(arrivalTime = "10:30"),
             NavGuidanceHub.Source.A11Y,
             nowMs = 1000L,
         )
 
-        assertFalse(loop.tick(wasActive = true))
+        assertTrue(loop.tick(wasActive = true))
 
         assertEquals(2, sink.events.size)
-        assertArrayEquals(HudProtobufBuilder.buildClearFrame(0), sink.events.last().second)
+        assertArrayEquals(
+            HudProtobufBuilder.buildFrameSafe(
+                maneuverGaode = 0,
+                distanceMeters = 0,
+                road = "",
+                etaString = "10:30",
+                totalDistMeters = 0,
+                speedLimit = 0,
+                maneuverIconPng = null,
+                speedSignPng = null,
+            ),
+            sink.events.last().second,
+        )
     }
 
     @Test fun `guidance end sends single clear frame`() {

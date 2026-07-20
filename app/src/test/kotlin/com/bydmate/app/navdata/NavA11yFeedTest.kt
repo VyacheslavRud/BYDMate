@@ -24,8 +24,9 @@ class NavA11yFeedTest {
         assertFalse(NavA11yFeed.shouldProcess(null, contentChanged, nowMs = 1000, lastMs = 0))
     }
 
-    @Test fun `irrelevant event types filtered`() {
-        assertFalse(NavA11yFeed.shouldProcess("com.waze", clicked, nowMs = 1000, lastMs = 0))
+    @Test fun `all Waze event types can refresh vendor-specific route widgets`() {
+        assertTrue(NavA11yFeed.shouldProcess("com.waze", clicked, nowMs = 1000, lastMs = 0))
+        assertFalse(NavA11yFeed.shouldProcess("com.waze", 0, nowMs = 1000, lastMs = 0))
     }
 
     @Test fun `window topology change probes only while route is already active`() {

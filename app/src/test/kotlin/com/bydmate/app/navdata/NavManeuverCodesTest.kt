@@ -70,6 +70,24 @@ class NavManeuverCodesTest {
         assertEquals(2, gaode("RIGHT"))
     }
 
+    @Test fun `symbolic Waze arrow tags are parsed without accepting road prose`() {
+        assertEquals(2, gaode("TURN_RIGHT"))
+        assertEquals(1, gaode("NAVIGATION_TURN_LEFT"))
+        assertEquals(4, gaode("KEEP_RIGHT"))
+        assertEquals(2, gaode("ic_turn_right_24"))
+        assertEquals(2, gaode("TURN_RIGHT_THEN_LEFT"))
+        assertEquals(0, gaode("Left Bank Road"))
+    }
+
+    @Test fun `Chinese Waze direction descriptions map to HUD codes`() {
+        assertEquals(1, gaode("向左转"))
+        assertEquals(2, gaode("向右转"))
+        assertEquals(3, gaode("靠左"))
+        assertEquals(4, gaode("靠右"))
+        assertEquals(11, gaode("直行"))
+        assertEquals(9, gaode("掉头"))
+    }
+
     @Test fun `compound instruction selects first maneuver by textual position`() {
         assertEquals(2, gaode("Turn right, then turn left"))
         assertEquals(1, gaode("Turn left, then turn right"))
