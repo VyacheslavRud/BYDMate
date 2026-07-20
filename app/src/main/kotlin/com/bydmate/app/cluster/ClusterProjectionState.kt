@@ -10,6 +10,21 @@ const val NAVI_PACKAGE = WazeNavigation.PACKAGE_NAME
 /** Cluster projection state (OFF / FULLSCREEN). */
 enum class ClusterMode { OFF, FULLSCREEN }
 
+/** Opaque in-process ownership token for one parked Instrument Cluster Lab session. */
+internal class ClusterLabProjectionLease internal constructor(val token: String)
+
+/** Terminal result of one synchronous lab transition through the production projection path. */
+internal data class ClusterLabProjectionTransitionResult(
+    val requestedMode: ClusterMode,
+    val resultingMode: ClusterMode,
+    val phase: ClusterProjectionPhase,
+    val success: Boolean,
+    val failure: String?,
+    val selectedDisplay: ClusterDisplayDiagnostic?,
+    val attemptStartedAtMs: Long?,
+    val attemptFinishedAtMs: Long?,
+)
+
 /** Fine-grained state retained for the diagnostics screen even after a failed attempt falls back
  * to [ClusterMode.OFF]. */
 enum class ClusterProjectionPhase { OFF, STARTING, WAITING_FOR_DISPLAY, ACTIVE, FAILED }
@@ -37,6 +52,22 @@ data class ClusterProjectionDiagnosticState(
     val lastFailure: String? = null,
     val lastSuccessAtMs: Long? = null,
 )
+
+/** Shared production/lab display priority: named `_1`, then any named projection display, then id 2. */
+internal fun preferredClusterDisplayId(displays: List<Pair<Int, String>>): Int? {
+    val projectionDisplays = displays.filter {
+        it.second.contains("XDJAScreenProjection", ignoreCase = true)
+    }
+    return projectionDisplays.firstOrNull { it.second.endsWith("_1") }?.first
+        ?: projectionDisplays.firstOrNull()?.first
+        ?: displays.firstOrNull { it.first == 2 }?.first
+}
+
+/** Lab transitions pass false, so a concurrently changed preference can never power hardware. */
+internal fun shouldUseAutoContainer(
+    allowAutoContainerCommands: Boolean,
+    preferenceEnabled: Boolean,
+): Boolean = allowAutoContainerCommands && preferenceEnabled
 
 /** Where Navi renders on the cluster overlay. VirtualDisplay size == SurfaceView size (1:1). */
 data class ClusterGeometry(val width: Int, val height: Int, val xOffset: Int, val yOffset: Int)

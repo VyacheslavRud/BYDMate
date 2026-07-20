@@ -157,6 +157,33 @@ class HudPushLoopTest {
         assertEquals(1, sink.events.size)
     }
 
+    @Test fun `atomic HUD Lab gate does not report delivery or consume a clear retry`() {
+        activeHub(nowMs = 1000L)
+        val sink = FakeSink(
+            results = listOf(0, HudPushLoop.RESULT_OUTPUT_SUSPENDED, 0),
+        )
+        val results = mutableListOf<Int>()
+        val attempts = mutableListOf<Pair<HudFrameKind, Int>>()
+        val loop = HudPushLoop(
+            sink,
+            nowMsProvider = { 1000L },
+            onDeliveryResult = results::add,
+            onDeliveryAttempt = { kind, rc -> attempts += kind to rc },
+        )
+
+        assertTrue(loop.tick(wasActive = false))
+        NavGuidanceHub.reset()
+        assertFalse(loop.tick(wasActive = true)) // suppressed by the late atomic gate
+        assertFalse(loop.tick(wasActive = false)) // same pending clear is accepted
+
+        assertEquals(listOf(0, 0), results)
+        assertEquals(
+            listOf(HudFrameKind.GUIDANCE to 0, HudFrameKind.CLEAR to 0),
+            attempts,
+        )
+        assertEquals(3, sink.events.size)
+    }
+
     @Test fun `rejected clear frame retries until accepted`() {
         activeHub(nowMs = 1000L)
         val sink = FakeSink(results = listOf(0, -7, -7, 0))
@@ -186,6 +213,24 @@ class HudPushLoopTest {
         repeat(HudPushLoop.CLEAR_MAX_ATTEMPTS + 2) {
             assertFalse(loop.tick(wasActive = false))
         }
+        assertEquals(1 + HudPushLoop.CLEAR_MAX_ATTEMPTS, sink.events.size)
+    }
+
+    @Test fun `positive remote clear code is unconfirmed and exhausts bounded retries`() {
+        activeHub(nowMs = 1000L)
+        val sink = FakeSink(results = listOf(0, 1, 1, 1))
+        val exhausted = mutableListOf<Int>()
+        val loop = HudPushLoop(
+            sink,
+            nowMsProvider = { 1000L },
+            onClearExhausted = exhausted::add,
+        )
+
+        assertTrue(loop.tick(wasActive = false))
+        NavGuidanceHub.reset()
+        repeat(HudPushLoop.CLEAR_MAX_ATTEMPTS) { loop.tick(wasActive = it == 0) }
+
+        assertEquals(listOf(1), exhausted)
         assertEquals(1 + HudPushLoop.CLEAR_MAX_ATTEMPTS, sink.events.size)
     }
 
@@ -233,6 +278,57 @@ class HudPushLoopTest {
 
         assertEquals(1, sink.events.size)
         assertArrayEquals(HudProtobufBuilder.buildClearFrame(0), sink.events.single().second)
+    }
+
+    @Test fun `recovery clear precedes active Waze guidance after process death`() {
+        activeHub(nowMs = 1000L)
+        val sink = FakeSink(result = 0)
+        val attempts = mutableListOf<Pair<HudFrameKind, Int>>()
+        val loop = HudPushLoop(
+            sink = sink,
+            nowMsProvider = { 1000L },
+            initialClearPending = true,
+            onDeliveryAttempt = { kind, rc -> attempts += kind to rc },
+        )
+
+        assertFalse(loop.tick(wasActive = false))
+        assertArrayEquals(HudProtobufBuilder.buildClearFrame(0), sink.events.single().second)
+        assertEquals(listOf(HudFrameKind.CLEAR to 0), attempts)
+
+        assertTrue(loop.tick(wasActive = false))
+        assertEquals(2, sink.events.size)
+        assertEquals(
+            listOf(HudFrameKind.CLEAR to 0, HudFrameKind.GUIDANCE to 0),
+            attempts,
+        )
+    }
+
+    @Test fun `rejected recovery clear is bounded and never bypassed by active guidance`() {
+        activeHub(nowMs = 1000L)
+        val sink = FakeSink(result = 1)
+        val attempts = mutableListOf<Pair<HudFrameKind, Int>>()
+        val exhausted = mutableListOf<Int>()
+        val loop = HudPushLoop(
+            sink = sink,
+            nowMsProvider = { 1000L },
+            initialClearPending = true,
+            onDeliveryAttempt = { kind, rc -> attempts += kind to rc },
+            onClearExhausted = exhausted::add,
+        )
+
+        repeat(HudPushLoop.CLEAR_MAX_ATTEMPTS) {
+            assertFalse(loop.tick(wasActive = false))
+        }
+
+        assertEquals(
+            List(HudPushLoop.CLEAR_MAX_ATTEMPTS) { HudFrameKind.CLEAR to 1 },
+            attempts,
+        )
+        assertEquals(listOf(1), exhausted)
+        assertEquals(HudPushLoop.CLEAR_MAX_ATTEMPTS, sink.events.size)
+        sink.events.forEachIndexed { index, event ->
+            assertArrayEquals(HudProtobufBuilder.buildClearFrame(index), event.second)
+        }
     }
 
     @Test fun `speed sign toggle off builds frame without sign`() {

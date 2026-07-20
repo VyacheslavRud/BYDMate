@@ -172,6 +172,47 @@ class HudProtobufBuilderTest {
         HudProtobufBuilder.buildHudLabFrame(255)
     }
 
+    @Test fun `HUD Lab live frames include exact f8 icons and matching donor metadata`() {
+        mapOf(1 to 3L, 2 to 2L, 9 to 9L, 11 to 1L).forEach { (gaode, rawF28) ->
+            val icon = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, gaode.toByte())
+
+            val fields = unwrap(HudProtobufBuilder.buildHudLabLiveFrame(gaode, icon))
+
+            assertTrue((fields[8]!![0] as ByteArray).contentEquals(icon))
+            assertEquals(rawF28, fields[28]!![0] as Long)
+            assertEquals(100L, fields[9]!![0] as Long)
+            assertEquals(1L, fields[6]!![0] as Long)
+            assertNull(fields[7])
+        }
+    }
+
+    @Test fun `every HUD Lab matrix frame encodes only bounded donor fields`() {
+        val allowedFields = setOf(2, 6, 7, 8, 9, 10, 11, 16, 26, 28, 33)
+        HudLabScenarioCatalog.all
+            .flatMap { it.steps }
+            .filterIsInstance<HudLabScenarioStep.Send>()
+            .forEach { step ->
+                val icon = step.frame.iconCode?.let { byteArrayOf(0x01, it.toByte()) }
+                val sign = if (step.frame.includeSpeedSign) byteArrayOf(0x02, 0x3c) else null
+
+                val fields = unwrap(
+                    HudProtobufBuilder.buildHudLabScenarioFrame(step.frame, icon, sign),
+                )
+
+                assertTrue("${step.label}: ${fields.keys}", fields.keys.all { it in allowedFields })
+                assertEquals(2L, fields[2]!!.single() as Long)
+                assertEquals(2L, fields[16]!!.single() as Long)
+                assertEquals(step.frame.iconCode != null, fields[8] != null)
+                assertEquals(step.frame.includeSpeedSign, fields[7] != null)
+                assertEquals(step.frame.f28?.toLong(), fields[28]?.singleOrNull() as Long?)
+            }
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `HUD Lab live frame rejects maneuver outside calibration set`() {
+        HudProtobufBuilder.buildHudLabLiveFrame(49, byteArrayOf(1))
+    }
+
     @Test fun `oversize payload drops speed sign but never maneuver icon`() {
         val bigIcon = ByteArray(40_000) { 1 }
         val bigSign = ByteArray(40_000) { 2 }

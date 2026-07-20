@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import com.bydmate.app.BuildConfig
+import com.bydmate.app.cluster.ClusterLabLogStore
 import com.bydmate.app.data.vehicle.VehicleProfile
 import java.io.File
 import java.text.SimpleDateFormat
@@ -13,23 +14,91 @@ import java.util.UUID
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Raw native-arrow commands offered by the dev-only HUD calibration screen. */
-enum class HudLabCommand(val rawF28: Int, val expected: HudLabObserved) {
-    STRAIGHT(1, HudLabObserved.STRAIGHT),
-    RIGHT(2, HudLabObserved.RIGHT),
-    LEFT(3, HudLabObserved.LEFT),
-    UTURN(9, HudLabObserved.UTURN),
+/** Maneuvers offered by the dev-only HUD calibration screen. */
+enum class HudLabCommand(
+    val gaodeCode: Int,
+    val rawF28: Int,
+    val expected: HudLabObserved,
+) {
+    STRAIGHT(11, 1, HudLabObserved.STRAIGHT),
+    RIGHT(2, 2, HudLabObserved.RIGHT),
+    LEFT(1, 3, HudLabObserved.LEFT),
+    UTURN(9, 9, HudLabObserved.UTURN),
 }
 
+/** Kept for decoding calibration journals written by dev builds 3.6.8 and 3.6.9. */
+enum class HudLabFrameVariant { RAW_F28_ONLY, LIVE_PNG_F8, SCENARIO_MATRIX }
+
 /** What the driver actually saw in the factory windshield HUD. */
-enum class HudLabObserved { LEFT, RIGHT, STRAIGHT, UTURN, NOTHING, OTHER, NOT_REPORTED }
+enum class HudLabObserved {
+    LEFT,
+    RIGHT,
+    STRAIGHT,
+    UTURN,
+    NOTHING,
+    FLASHED,
+    INFO_VISIBLE,
+    DISTANCE_VISIBLE,
+    ROAD_VISIBLE,
+    ETA_VISIBLE,
+    PROGRESS_VISIBLE,
+    SPEED_NUMBER_VISIBLE,
+    SPEED_SIGN_VISIBLE,
+    LEFT_THEN_RIGHT,
+    RIGHT_CLEARED_AND_REDRAWN,
+    CLEAR_NOT_VISIBLE,
+    REVERSED_SEQUENCE,
+    FIRST_PHASE_ONLY,
+    SECOND_PHASE_ONLY,
+    OTHER,
+    NOT_REPORTED,
+}
+
+enum class HudLabEventType { SEND, CLEAR }
+
+/** INTENT is committed before touching the native transport; RESULT closes the same attempt. */
+enum class HudLabEventPhase { INTENT, RESULT }
+
+/** Raw gateway codes are deliberately not described as visual success until Sea Lion confirms it. */
+enum class HudLabRemoteResult { REMOTE_ZERO, REMOTE_NONZERO_UNCONFIRMED, LOCAL_ERROR, NOT_SENT }
+
+data class HudLabEvent(
+    val type: HudLabEventType,
+    val stepIndex: Int,
+    val label: String,
+    val pushIndex: Int,
+    val atMs: Long,
+    val elapsedMs: Long,
+    val payloadBytes: Int = 0,
+    val payloadSha256: String? = null,
+    val fieldManifest: String? = null,
+    val rc: Int? = null,
+    val failure: String? = null,
+    val gear: Int? = null,
+    val speedKmh: Int? = null,
+    val phase: HudLabEventPhase = HudLabEventPhase.RESULT,
+    val attemptId: String? = null,
+    val outputMayBeOwned: Boolean? = null,
+) {
+    val remoteResult: HudLabRemoteResult
+        get() = when {
+            rc == null -> HudLabRemoteResult.NOT_SENT
+            rc < 0 -> HudLabRemoteResult.LOCAL_ERROR
+            rc == 0 -> HudLabRemoteResult.REMOTE_ZERO
+            rc > 0 -> HudLabRemoteResult.REMOTE_NONZERO_UNCONFIRMED
+            else -> HudLabRemoteResult.NOT_SENT
+        }
+}
 
 data class HudLabRecord(
     val id: String,
     val requestedAtMs: Long,
-    val command: HudLabCommand,
-    val rawF28: Int,
+    val command: HudLabCommand?,
+    val rawF28: Int?,
+    val frameVariant: HudLabFrameVariant,
     val includePng: Boolean,
+    val iconGaodeCode: Int?,
+    val pngBytes: Int?,
     val payloadBytes: Int,
     val sendRc: Int?,
     val sendFailure: String?,
@@ -40,14 +109,27 @@ data class HudLabRecord(
     val autoCleared: Boolean = false,
     val observed: HudLabObserved? = null,
     val observedAtMs: Long? = null,
+    val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
+    val sessionId: String = id,
+    val scenarioId: String? = null,
+    val scenarioTitle: String? = null,
+    val scenarioSummary: String? = null,
+    val expected: HudLabObserved = command?.expected ?: HudLabObserved.NOTHING,
+    val events: List<HudLabEvent> = emptyList(),
+    val deliveryCompletedAtMs: Long? = null,
+    val abortedFailure: String? = null,
     val appVersion: String = BuildConfig.VERSION_NAME,
     val appVersionCode: Int = BuildConfig.VERSION_CODE,
     val buildFingerprint: String = Build.FINGERPRINT,
-)
+) {
+    companion object {
+        const val CURRENT_SCHEMA_VERSION = 3
+    }
+}
 
 /**
- * Small privacy-safe persistent journal for HUD Lab. It stores only calibration codes, transport
- * results and the user's visual answer: no Waze text, route, street or location is retained.
+ * Privacy-safe durable HUD Lab journal. Every transport mutation is committed synchronously so an
+ * app/service restart still leaves enough evidence to reconstruct the exact series.
  */
 object HudLabLogStore {
     private const val PREFS_NAME = "hud_lab_log"
@@ -55,9 +137,75 @@ object HudLabLogStore {
     private const val MAX_RECORDS = 100
 
     @Synchronized
+    fun beginScenario(
+        context: Context,
+        scenario: HudLabScenario,
+        nowMs: Long = System.currentTimeMillis(),
+    ): HudLabRecord {
+        val record = HudLabRecord(
+            id = UUID.randomUUID().toString(),
+            sessionId = UUID.randomUUID().toString(),
+            requestedAtMs = nowMs,
+            command = scenario.command,
+            rawF28 = scenario.command?.rawF28,
+            frameVariant = HudLabFrameVariant.SCENARIO_MATRIX,
+            includePng = scenario.steps.filterIsInstance<HudLabScenarioStep.Send>()
+                .any { it.frame.iconCode != null },
+            iconGaodeCode = scenario.steps.filterIsInstance<HudLabScenarioStep.Send>()
+                .mapNotNull { it.frame.iconCode }.firstOrNull(),
+            pngBytes = null,
+            payloadBytes = 0,
+            sendRc = null,
+            sendFailure = null,
+            gear = null,
+            speedKmh = null,
+            scenarioId = scenario.id,
+            scenarioTitle = scenario.title,
+            scenarioSummary = scenario.summary,
+            expected = scenario.expected,
+        )
+        persist(context, (records(context) + record).takeLast(MAX_RECORDS))
+        return record
+    }
+
+    @Synchronized
+    fun appendEvent(context: Context, id: String, event: HudLabEvent): HudLabRecord? =
+        update(context, id) { record ->
+            val isResult = event.phase == HudLabEventPhase.RESULT
+            val isSend = isResult && event.type == HudLabEventType.SEND
+            val isConfirmedClear = isResult && event.type == HudLabEventType.CLEAR && event.rc == 0
+            val isClearResult = isResult && event.type == HudLabEventType.CLEAR
+            record.copy(
+                events = record.events + event,
+                payloadBytes = if (isSend) maxOf(record.payloadBytes, event.payloadBytes)
+                    else record.payloadBytes,
+                sendRc = if (isSend) event.rc else record.sendRc,
+                sendFailure = if (isSend) event.failure else record.sendFailure,
+                gear = event.gear ?: record.gear,
+                speedKmh = event.speedKmh ?: record.speedKmh,
+                clearedAtMs = if (isConfirmedClear) event.atMs else record.clearedAtMs,
+                clearRc = if (isClearResult) event.rc else record.clearRc,
+            )
+        }
+
+    @Synchronized
+    fun completeDelivery(
+        context: Context,
+        id: String,
+        abortedFailure: String? = null,
+        nowMs: Long = System.currentTimeMillis(),
+    ): HudLabRecord? = update(context, id) {
+        it.copy(deliveryCompletedAtMs = nowMs, abortedFailure = abortedFailure)
+    }
+
+    /** Compatibility entry point used by old tests and old single-frame journal migration. */
+    @Synchronized
     fun createAttempt(
         context: Context,
         command: HudLabCommand,
+        frameVariant: HudLabFrameVariant = HudLabFrameVariant.RAW_F28_ONLY,
+        iconGaodeCode: Int? = null,
+        pngBytes: Int? = null,
         payloadBytes: Int,
         sendRc: Int?,
         sendFailure: String?,
@@ -65,20 +213,38 @@ object HudLabLogStore {
         speedKmh: Int?,
         nowMs: Long = System.currentTimeMillis(),
     ): HudLabRecord {
+        val event = HudLabEvent(
+            type = HudLabEventType.SEND,
+            stepIndex = 0,
+            label = "legacy_single",
+            pushIndex = 0,
+            atMs = nowMs,
+            elapsedMs = 0,
+            payloadBytes = payloadBytes,
+            rc = sendRc,
+            failure = sendFailure,
+            gear = gear,
+            speedKmh = speedKmh,
+        )
         val record = HudLabRecord(
             id = UUID.randomUUID().toString(),
             requestedAtMs = nowMs,
             command = command,
             rawF28 = command.rawF28,
-            includePng = false,
+            frameVariant = frameVariant,
+            includePng = frameVariant == HudLabFrameVariant.LIVE_PNG_F8 &&
+                pngBytes != null && pngBytes > 0,
+            iconGaodeCode = iconGaodeCode,
+            pngBytes = pngBytes,
             payloadBytes = payloadBytes,
             sendRc = sendRc,
             sendFailure = sendFailure,
             gear = gear,
             speedKmh = speedKmh,
+            events = listOf(event),
+            deliveryCompletedAtMs = nowMs,
         )
-        val updated = (records(context) + record).takeLast(MAX_RECORDS)
-        persist(context, updated)
+        persist(context, (records(context) + record).takeLast(MAX_RECORDS))
         return record
     }
 
@@ -88,9 +254,14 @@ object HudLabLogStore {
         id: String,
         clearRc: Int,
         autoCleared: Boolean,
+        clearConfirmed: Boolean = clearRc == 0,
         nowMs: Long = System.currentTimeMillis(),
     ): HudLabRecord? = update(context, id) {
-        it.copy(clearedAtMs = nowMs, clearRc = clearRc, autoCleared = autoCleared)
+        it.copy(
+            clearedAtMs = if (clearConfirmed) nowMs else it.clearedAtMs,
+            clearRc = clearRc,
+            autoCleared = autoCleared && clearConfirmed,
+        )
     }
 
     @Synchronized
@@ -106,8 +277,7 @@ object HudLabLogStore {
     @Synchronized
     fun records(context: Context): List<HudLabRecord> {
         val raw = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(KEY_RECORDS, null)
-            ?: return emptyList()
+            .getString(KEY_RECORDS, null) ?: return emptyList()
         return runCatching {
             val array = JSONArray(raw)
             buildList {
@@ -120,10 +290,13 @@ object HudLabLogStore {
 
     fun renderDiagnosticSection(context: Context): String = buildString {
         val records = records(context)
-        appendLine("--- HUD Lab calibration ---")
+        appendLine("--- windshield SOME/IP HUD Lab ---")
+        appendLine("schema: ${HudLabRecord.CURRENT_SCHEMA_VERSION}")
+        appendLine("runtime_output_may_be_owned: ${HudLabRuntimeState.outputMayBeOwned(context)}")
         appendLine("saved_tests: ${records.size}")
         records.forEachIndexed { index, record ->
             appendLine("  #${index + 1} ${recordLine(record)}")
+            record.events.forEach { event -> appendLine("    ${eventLine(event)}") }
         }
     }
 
@@ -149,7 +322,8 @@ object HudLabLogStore {
             appendLine("fingerprint: ${Build.FINGERPRINT}")
             appendLine("vehicle: ${VehicleProfile.CURRENT.model} ${VehicleProfile.CURRENT.trim}")
             append(renderDiagnosticSection(context))
-            appendLine("===============================")
+            append(ClusterLabLogStore.renderDiagnosticSection(context))
+            appendLine("==============================")
         }
         target.writeText(report, Charsets.UTF_8)
         return target
@@ -179,18 +353,21 @@ object HudLabLogStore {
         records.forEach { array.put(encode(it)) }
         check(
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_RECORDS, array.toString())
-                .commit(),
+                .edit().putString(KEY_RECORDS, array.toString()).commit(),
         ) { "hud_lab_log_persist_failed" }
     }
 
     private fun encode(record: HudLabRecord): JSONObject = JSONObject().apply {
+        put("schemaVersion", record.schemaVersion)
         put("id", record.id)
+        put("sessionId", record.sessionId)
         put("requestedAtMs", record.requestedAtMs)
-        put("command", record.command.name)
-        put("rawF28", record.rawF28)
+        putNullable("command", record.command?.name)
+        putNullable("rawF28", record.rawF28)
+        put("frameVariant", record.frameVariant.name)
         put("includePng", record.includePng)
+        putNullable("iconGaodeCode", record.iconGaodeCode)
+        putNullable("pngBytes", record.pngBytes)
         put("payloadBytes", record.payloadBytes)
         putNullable("sendRc", record.sendRc)
         putNullable("sendFailure", record.sendFailure)
@@ -201,19 +378,61 @@ object HudLabLogStore {
         put("autoCleared", record.autoCleared)
         putNullable("observed", record.observed?.name)
         putNullable("observedAtMs", record.observedAtMs)
+        putNullable("scenarioId", record.scenarioId)
+        putNullable("scenarioTitle", record.scenarioTitle)
+        putNullable("scenarioSummary", record.scenarioSummary)
+        put("expected", record.expected.name)
+        put("events", JSONArray().apply { record.events.forEach { put(encodeEvent(it)) } })
+        putNullable("deliveryCompletedAtMs", record.deliveryCompletedAtMs)
+        putNullable("abortedFailure", record.abortedFailure)
         put("appVersion", record.appVersion)
         put("appVersionCode", record.appVersionCode)
         put("buildFingerprint", record.buildFingerprint)
     }
 
+    private fun encodeEvent(event: HudLabEvent): JSONObject = JSONObject().apply {
+        put("type", event.type.name)
+        put("stepIndex", event.stepIndex)
+        put("label", event.label)
+        put("pushIndex", event.pushIndex)
+        put("atMs", event.atMs)
+        put("elapsedMs", event.elapsedMs)
+        put("payloadBytes", event.payloadBytes)
+        putNullable("payloadSha256", event.payloadSha256)
+        putNullable("fieldManifest", event.fieldManifest)
+        putNullable("rc", event.rc)
+        putNullable("failure", event.failure)
+        putNullable("gear", event.gear)
+        putNullable("speedKmh", event.speedKmh)
+        put("phase", event.phase.name)
+        putNullable("attemptId", event.attemptId)
+        putNullable("outputMayBeOwned", event.outputMayBeOwned)
+    }
+
     private fun decode(json: JSONObject): HudLabRecord? = runCatching {
-        val command = HudLabCommand.valueOf(json.getString("command"))
+        val command = json.optNullableString("command")?.let(HudLabCommand::valueOf)
+        val includePng = json.optBoolean("includePng", false)
+        val frameVariant = json.optNullableString("frameVariant")
+            ?.let(HudLabFrameVariant::valueOf)
+            ?: if (includePng) HudLabFrameVariant.LIVE_PNG_F8
+            else HudLabFrameVariant.RAW_F28_ONLY
+        val events = json.optJSONArray("events")?.let { array ->
+            buildList {
+                for (index in 0 until array.length()) {
+                    decodeEvent(array.optJSONObject(index) ?: continue)?.let(::add)
+                }
+            }
+        }.orEmpty()
         HudLabRecord(
             id = json.getString("id"),
+            sessionId = json.optString("sessionId", json.getString("id")),
             requestedAtMs = json.getLong("requestedAtMs"),
             command = command,
-            rawF28 = json.optInt("rawF28", command.rawF28),
-            includePng = json.optBoolean("includePng", false),
+            rawF28 = json.optNullableInt("rawF28") ?: command?.rawF28,
+            frameVariant = frameVariant,
+            includePng = includePng,
+            iconGaodeCode = json.optNullableInt("iconGaodeCode"),
+            pngBytes = json.optNullableInt("pngBytes"),
             payloadBytes = json.optInt("payloadBytes", 0),
             sendRc = json.optNullableInt("sendRc"),
             sendFailure = json.optNullableString("sendFailure"),
@@ -224,33 +443,101 @@ object HudLabLogStore {
             autoCleared = json.optBoolean("autoCleared", false),
             observed = json.optNullableString("observed")?.let(HudLabObserved::valueOf),
             observedAtMs = json.optNullableLong("observedAtMs"),
+            schemaVersion = json.optInt("schemaVersion", 1),
+            scenarioId = json.optNullableString("scenarioId"),
+            scenarioTitle = json.optNullableString("scenarioTitle"),
+            scenarioSummary = json.optNullableString("scenarioSummary"),
+            expected = json.optNullableString("expected")?.let(HudLabObserved::valueOf)
+                ?: command?.expected ?: HudLabObserved.NOTHING,
+            events = events,
+            deliveryCompletedAtMs = json.optNullableLong("deliveryCompletedAtMs"),
+            abortedFailure = json.optNullableString("abortedFailure"),
             appVersion = json.optString("appVersion", "?"),
             appVersionCode = json.optInt("appVersionCode", 0),
             buildFingerprint = json.optString("buildFingerprint", "?"),
         )
     }.getOrNull()
 
+    private fun decodeEvent(json: JSONObject): HudLabEvent? = runCatching {
+        HudLabEvent(
+            type = HudLabEventType.valueOf(json.getString("type")),
+            stepIndex = json.optInt("stepIndex", 0),
+            label = json.optString("label", "?"),
+            pushIndex = json.optInt("pushIndex", 0),
+            atMs = json.optLong("atMs", 0L),
+            elapsedMs = json.optLong("elapsedMs", 0L),
+            payloadBytes = json.optInt("payloadBytes", 0),
+            payloadSha256 = json.optNullableString("payloadSha256"),
+            fieldManifest = json.optNullableString("fieldManifest"),
+            rc = json.optNullableInt("rc"),
+            failure = json.optNullableString("failure"),
+            gear = json.optNullableInt("gear"),
+            speedKmh = json.optNullableInt("speedKmh"),
+            phase = json.optNullableString("phase")?.let(HudLabEventPhase::valueOf)
+                ?: HudLabEventPhase.RESULT,
+            attemptId = json.optNullableString("attemptId"),
+            outputMayBeOwned = json.optNullableBoolean("outputMayBeOwned"),
+        )
+    }.getOrNull()
+
     private fun recordLine(record: HudLabRecord): String {
-        val expected = record.command.expected.name
         val observed = record.observed?.name ?: "PENDING"
+        val intents = record.events.filter { it.phase == HudLabEventPhase.INTENT }
+        val results = record.events.filter { it.phase == HudLabEventPhase.RESULT }
+        val sends = results.filter { it.type == HudLabEventType.SEND }
+        val clears = results.filter { it.type == HudLabEventType.CLEAR }
+        val intentAttemptIds = intents.mapNotNull { it.attemptId }.toSet()
+        val completedAttemptIds = results.mapNotNull { it.attemptId }.toSet()
+        val interruptedAttempts = intents.count { it.attemptId !in completedAttemptIds }
+        val orphanResults = results.count {
+            it.attemptId != null && it.attemptId !in intentAttemptIds
+        }
+        val latestClearStep = clears.maxOfOrNull { it.stepIndex }
+        val latestClears = clears.filter { it.stepIndex == latestClearStep }
+        val latestClearUnconfirmed = latestClears.isNotEmpty() && latestClears.none { it.rc == 0 }
+        val modernScenarioInterrupted = record.schemaVersion >= 2 &&
+            record.scenarioId != null && record.deliveryCompletedAtMs == null
+        val rcHistogram = (sends + clears).groupingBy { it.rc?.toString() ?: "none" }
+            .eachCount().entries.sortedBy { it.key }.joinToString(",") { "${it.key}:${it.value}" }
         val verdict = when {
-            record.sendFailure != null || (record.sendRc ?: -1) < 0 -> "SEND_FAILED"
+            orphanResults > 0 -> "JOURNAL_GAP"
+            modernScenarioInterrupted || interruptedAttempts > 0 -> "INTERRUPTED"
+            record.abortedFailure != null || record.sendFailure != null ||
+                (record.sendRc != null && record.sendRc < 0) ||
+                sends.any { it.remoteResult == HudLabRemoteResult.LOCAL_ERROR } ->
+                "DELIVERY_ABORTED"
+            latestClearUnconfirmed -> "CLEAR_UNCONFIRMED"
             record.observed == null -> "PENDING"
             record.observed == HudLabObserved.NOT_REPORTED -> "NOT_REPORTED"
-            record.observed == record.command.expected -> "MATCH"
+            record.observed == record.expected -> "MATCH"
             record.observed == HudLabObserved.NOTHING -> "NO_OUTPUT"
             else -> "MISMATCH"
         }
-        return "id=${record.id} requestedAtMs=${record.requestedAtMs} " +
-            "command=${record.command} rawF28=${record.rawF28} expected=$expected " +
-            "includePng=${record.includePng} payloadBytes=${record.payloadBytes} " +
-            "sendRc=${record.sendRc} sendFailure=${record.sendFailure} " +
-            "gear=${record.gear} speedKmh=${record.speedKmh} " +
-            "clearedAtMs=${record.clearedAtMs} clearRc=${record.clearRc} " +
-            "autoCleared=${record.autoCleared} observed=$observed " +
-            "observedAtMs=${record.observedAtMs} verdict=$verdict " +
-            "app=${record.appVersion}(${record.appVersionCode}) fingerprint=${record.buildFingerprint}"
+        return "id=${record.id} session=${record.sessionId} schema=${record.schemaVersion} " +
+            "requestedAtMs=${record.requestedAtMs} scenario=${record.scenarioId ?: "LEGACY"} " +
+            "title=${quoted(record.scenarioTitle)} command=${record.command} rawF28=${record.rawF28} " +
+            "expected=${record.expected} frameVariant=${record.frameVariant} includePng=${record.includePng} " +
+            "iconGaodeCode=${record.iconGaodeCode} pngBytes=${record.pngBytes} " +
+            "payloadMaxBytes=${record.payloadBytes} intents=${intents.size} sends=${sends.size} " +
+            "clears=${clears.size} interruptedAttempts=$interruptedAttempts " +
+            "orphanResults=$orphanResults " +
+            "rcHistogram=[$rcHistogram] sendRc=${record.sendRc} sendFailure=${record.sendFailure} " +
+            "gear=${record.gear} speedKmh=${record.speedKmh} clearedAtMs=${record.clearedAtMs} " +
+            "clearRc=${record.clearRc} autoCleared=${record.autoCleared} observed=$observed " +
+            "observedAtMs=${record.observedAtMs} completedAtMs=${record.deliveryCompletedAtMs} " +
+            "abortedFailure=${record.abortedFailure} verdict=$verdict summary=${quoted(record.scenarioSummary)} " +
+            "app=${record.appVersion}(${record.appVersionCode}) fingerprint=${quoted(record.buildFingerprint)}"
     }
+
+    private fun eventLine(event: HudLabEvent): String =
+        "event=${event.type} phase=${event.phase} attempt=${event.attemptId} " +
+            "step=${event.stepIndex} label=${event.label} push=${event.pushIndex} " +
+            "atMs=${event.atMs} elapsedMs=${event.elapsedMs} payloadBytes=${event.payloadBytes} " +
+            "sha256=${event.payloadSha256} fields=${quoted(event.fieldManifest)} rc=${event.rc} " +
+            "remoteResult=${event.remoteResult} failure=${event.failure} gear=${event.gear} " +
+            "speedKmh=${event.speedKmh} outputMayBeOwned=${event.outputMayBeOwned}"
+
+    private fun quoted(value: String?): String = value?.replace(' ', '_') ?: "null"
 
     private fun JSONObject.putNullable(key: String, value: Any?) {
         put(key, value ?: JSONObject.NULL)
@@ -264,4 +551,7 @@ object HudLabLogStore {
 
     private fun JSONObject.optNullableLong(key: String): Long? =
         takeUnless { isNull(key) }?.optLong(key)
+
+    private fun JSONObject.optNullableBoolean(key: String): Boolean? =
+        takeUnless { isNull(key) }?.optBoolean(key)
 }

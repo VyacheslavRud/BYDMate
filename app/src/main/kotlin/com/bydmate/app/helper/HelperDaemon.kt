@@ -159,6 +159,53 @@ fun main(args: Array<String>) {
                     true
                 }.getOrElse { reply?.writeInt(-1); reply?.writeInt(0); true }
 
+                HelperBinderProtocol.TX_GET_TASK_PROJECTION_STATE -> runCatching {
+                    val pkg = data.readString() ?: ""
+                    val result = getTaskProjectionStateCore(pkg) { packageName ->
+                        when (val task = findTaskIdResult(packageName)) {
+                            is TaskIdQueryResult.Found -> {
+                                val mode = taskModeState(task.taskId)
+                                if (mode == null) {
+                                    DaemonTaskProjectionQueryResult.Unavailable
+                                } else {
+                                    DaemonTaskProjectionQueryResult.Found(
+                                        DaemonTaskProjectionState(
+                                            taskId = task.taskId,
+                                            displayId = mode.displayId,
+                                            windowingMode = mode.windowingMode,
+                                        ),
+                                    )
+                                }
+                            }
+                            TaskIdQueryResult.NotRunning ->
+                                DaemonTaskProjectionQueryResult.NotRunning
+                            TaskIdQueryResult.Unavailable ->
+                                DaemonTaskProjectionQueryResult.Unavailable
+                        }
+                    }
+                    when (result) {
+                        is DaemonTaskProjectionQueryResult.Found -> {
+                            reply?.writeInt(HelperBinderProtocol.TASK_PROJECTION_FOUND)
+                            reply?.writeInt(result.state.taskId)
+                            reply?.writeInt(result.state.displayId)
+                            reply?.writeInt(result.state.windowingMode)
+                        }
+                        DaemonTaskProjectionQueryResult.NotRunning -> {
+                            reply?.writeInt(HelperBinderProtocol.TASK_PROJECTION_NOT_RUNNING)
+                            repeat(3) { reply?.writeInt(-1) }
+                        }
+                        DaemonTaskProjectionQueryResult.Unavailable -> {
+                            reply?.writeInt(HelperBinderProtocol.TASK_PROJECTION_UNAVAILABLE)
+                            repeat(3) { reply?.writeInt(-1) }
+                        }
+                    }
+                    true
+                }.getOrElse {
+                    reply?.writeInt(HelperBinderProtocol.TASK_PROJECTION_UNAVAILABLE)
+                    repeat(3) { reply?.writeInt(-1) }
+                    true
+                }
+
                 HelperBinderProtocol.TX_MOVE_TASK_TO_DISPLAY -> runCatching {
                     val taskId = data.readInt(); val displayId = data.readInt()
                     moveTaskToDisplayReflect(taskId, displayId)
@@ -464,31 +511,55 @@ private fun fieldByName(target: Any, name: String): java.lang.reflect.Field? {
 /**
  * Finds the running task id of [packageName]. Reconstructed from CarControlImpl.getTopActivityPackage:
  * iAtm.getTasks(maxNum, false, false) -> List<RunningTaskInfo>; match topActivity/baseActivity package;
- * read int field "taskId" (fallback "id"). Returns -1 when not found.
+ * read int field "taskId" (fallback "id"). The legacy wrapper returns -1 when the task is absent
+ * or ATMS is unavailable; TX_GET_TASK_PROJECTION_STATE uses the explicit result instead.
  * NOTE: field names validated on-car in Phase 2.
  */
-private fun findTaskId(packageName: String): Int {
-    val iAtm = activityTaskManager()
-    val getTasks = iAtm.javaClass.getMethod(
-        "getTasks", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType, Boolean::class.javaPrimitiveType,
-    )
-    val tasks = getTasks.invoke(iAtm, 100, false, false) as? List<*> ?: return -1
-    for (task in tasks) {
-        if (task == null) continue
-        val pkg = listOf("topActivity", "baseActivity").firstNotNullOfOrNull { fieldName ->
-            fieldByName(task, fieldName)?.let { f ->
-                f.isAccessible = true
-                (f.get(task) as? android.content.ComponentName)?.packageName
+private sealed interface TaskIdQueryResult {
+    data class Found(val taskId: Int) : TaskIdQueryResult
+    data object NotRunning : TaskIdQueryResult
+    data object Unavailable : TaskIdQueryResult
+}
+
+private fun findTaskIdResult(packageName: String): TaskIdQueryResult {
+    return try {
+        val iAtm = activityTaskManager()
+        val getTasks = iAtm.javaClass.getMethod(
+            "getTasks",
+            Int::class.javaPrimitiveType,
+            Boolean::class.javaPrimitiveType,
+            Boolean::class.javaPrimitiveType,
+        )
+        val tasks = getTasks.invoke(iAtm, 100, false, false) as? List<*>
+            ?: return TaskIdQueryResult.Unavailable
+        for (task in tasks) {
+            if (task == null) continue
+            val pkg = listOf("topActivity", "baseActivity").firstNotNullOfOrNull { fieldName ->
+                fieldByName(task, fieldName)?.let { field ->
+                    field.isAccessible = true
+                    (field.get(task) as? android.content.ComponentName)?.packageName
+                }
+            }
+            if (pkg == packageName) {
+                val idField = fieldByName(task, "taskId") ?: fieldByName(task, "id")
+                    ?: return TaskIdQueryResult.Unavailable
+                idField.isAccessible = true
+                val taskId = idField.getInt(task)
+                return if (taskId > 0) {
+                    TaskIdQueryResult.Found(taskId)
+                } else {
+                    TaskIdQueryResult.Unavailable
+                }
             }
         }
-        if (pkg == packageName) {
-            val idField = fieldByName(task, "taskId") ?: fieldByName(task, "id") ?: continue
-            idField.isAccessible = true
-            return idField.getInt(task)
-        }
+        TaskIdQueryResult.NotRunning
+    } catch (_: Throwable) {
+        TaskIdQueryResult.Unavailable
     }
-    return -1
 }
+
+private fun findTaskId(packageName: String): Int =
+    (findTaskIdResult(packageName) as? TaskIdQueryResult.Found)?.taskId ?: -1
 
 /** Inverse of [findTaskId]: the package owning [taskId], or null when the task is not listed. */
 private fun packageForTask(taskId: Int): String? = runCatching {
@@ -541,6 +612,48 @@ private fun taskModeState(taskId: Int): TaskModeState? = runCatching {
     }
     null
 }.getOrNull()
+
+/** Full task placement returned by the narrow read-only projection-state transaction. */
+internal data class DaemonTaskProjectionState(
+    val taskId: Int,
+    val displayId: Int,
+    val windowingMode: Int,
+)
+
+internal sealed interface DaemonTaskProjectionQueryResult {
+    data class Found(val state: DaemonTaskProjectionState) : DaemonTaskProjectionQueryResult
+    data object NotRunning : DaemonTaskProjectionQueryResult
+    data object Unavailable : DaemonTaskProjectionQueryResult
+}
+
+/**
+ * Privilege boundary for TX_GET_TASK_PROJECTION_STATE. This deliberately has no configurable or
+ * generic package mode: BYDMate's only navigation target is Waze, and diagnostics never needs to
+ * enumerate another app's tasks. [lookup] is injected so the whitelist is unit-testable without
+ * Android's hidden ActivityTaskManager API.
+ */
+internal fun getTaskProjectionStateCore(
+    packageName: String,
+    lookup: (String) -> DaemonTaskProjectionQueryResult,
+): DaemonTaskProjectionQueryResult {
+    if (packageName != com.bydmate.app.navigation.WazeNavigation.PACKAGE_NAME) {
+        return DaemonTaskProjectionQueryResult.Unavailable
+    }
+    return when (val result = lookup(packageName)) {
+        is DaemonTaskProjectionQueryResult.Found -> {
+            if (result.state.taskId > 0 &&
+                result.state.displayId >= 0 &&
+                result.state.windowingMode > 0
+            ) {
+                result
+            } else {
+                DaemonTaskProjectionQueryResult.Unavailable
+            }
+        }
+        DaemonTaskProjectionQueryResult.NotRunning -> result
+        DaemonTaskProjectionQueryResult.Unavailable -> result
+    }
+}
 
 /** moveRootTaskToDisplay(int,int) preferred, fallback moveTaskToDisplay(int,int). */
 private fun moveTaskToDisplayReflect(taskId: Int, displayId: Int) {

@@ -19,6 +19,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -58,6 +62,7 @@ class HudControllerTest {
     @Before fun reset() {
         NavGuidanceHub.reset()
         NavA11yFeed.disable()
+        HudLabRuntimeState.clearForTest(context)
         context.getSharedPreferences(HudController.PREFS_NAME, Context.MODE_PRIVATE)
             .edit().clear().commit()
     }
@@ -128,6 +133,73 @@ class HudControllerTest {
         c.setEnabled(false)
     }
 
+    @Test fun `HUD Lab keeps production suspended until zero clear and increments counters`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val payloads = mutableListOf<ByteArray>()
+        val bridge = connectedBridge()
+        every { bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, capture(payloads)) } returnsMany
+            listOf(0, 1, 0)
+        val c = controller(bridge)
+        c.hudLabVehicleSnapshot = { diParsData(speed = 0, gear = 1) }
+        c.setEnabled(true)
+
+        assertTrue(
+            c.sendHudLabFrame(
+                HudProtobufBuilder.buildHudLabFrame(2),
+                parkConfirmedByUser = true,
+            ).accepted,
+        )
+        assertTrue(c.isHudLabOutputSuspendedForTest())
+        assertTrue(HudLabRuntimeState.outputMayBeOwned(context))
+        assertEquals(1, c.clearHudLabFrame())
+        assertTrue(c.isHudLabOutputSuspendedForTest())
+        assertTrue(HudLabRuntimeState.outputMayBeOwned(context))
+        assertEquals(0, c.clearHudLabFrame())
+        assertFalse(c.isHudLabOutputSuspendedForTest())
+        assertFalse(HudLabRuntimeState.outputMayBeOwned(context))
+        assertArrayEquals(HudProtobufBuilder.buildClearFrame(0), payloads[1])
+        assertArrayEquals(HudProtobufBuilder.buildClearFrame(1), payloads[2])
+        c.setEnabled(false)
+    }
+
+    @Test fun `process death marker makes startup clear before normal output`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val payloads = mutableListOf<ByteArray>()
+        val bridge = connectedBridge()
+        every { bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, capture(payloads)) } returns 0
+        assertTrue(HudLabRuntimeState.markOutputMayBeOwned(context, true))
+        val c = controller(bridge)
+
+        c.setEnabled(true)
+
+        assertTrue(payloads.isNotEmpty())
+        assertArrayEquals(HudProtobufBuilder.buildClearFrame(0), payloads.first())
+        assertFalse(HudLabRuntimeState.outputMayBeOwned(context))
+        c.setEnabled(false)
+    }
+
+    @Test fun `positive remote guidance code is failure rather than success evidence`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        every { bridge.fireEvent(any(), any()) } returns 1
+        NavGuidanceHub.update(
+            com.bydmate.app.navdata.NavGuidance(maneuverGaode = 2, distanceMeters = 250),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = System.currentTimeMillis(),
+        )
+        val c = controller(bridge)
+
+        c.setEnabled(true)
+
+        assertEquals(HudController.Status.SEND_FAILED, c.status.value)
+        assertEquals(1, c.deliveryDiagnostics.value.lastResultCode)
+        assertEquals(null, c.deliveryDiagnostics.value.lastFrameSuccessAtMs)
+        c.setEnabled(false)
+    }
+
     @Test fun `HUD Lab cannot overwrite an active Waze route`() {
         installSomeIp()
         coEvery { helperBootstrap.ensureRunning() } returns true
@@ -148,6 +220,188 @@ class HudControllerTest {
         assertEquals(HudLabSendFailure.ROUTE_ACTIVE, result.failure)
         assertFalse(result.accepted)
         c.setEnabled(false)
+    }
+
+    @Test fun `HUD Lab pre-transport rejection has no remote result or ownership`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        val c = controller(bridge)
+        c.hudLabVehicleSnapshot = { diParsData(speed = 0, gear = 1) }
+        c.setEnabled(true)
+
+        val result = c.sendHudLabFrame(ByteArray(0), parkConfirmedByUser = true)
+
+        assertEquals(HudLabSendFailure.INVALID_PAYLOAD, result.failure)
+        assertEquals(null, result.rc)
+        assertFalse(result.outputMayBeOwned)
+        assertFalse(result.accepted)
+        assertFalse(c.isHudLabOutputSuspendedForTest())
+        verify(exactly = 0) { bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, any()) }
+        c.setEnabled(false)
+    }
+
+    @Test fun `HUD Lab rechecks vehicle state after durable marker and before transport`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        val c = controller(bridge)
+        var reads = 0
+        c.hudLabVehicleSnapshot = {
+            if (reads++ == 0) diParsData(speed = 0, gear = 1)
+            else diParsData(speed = 2, gear = 4)
+        }
+        c.setEnabled(true)
+
+        val result = c.sendHudLabFrame(
+            HudProtobufBuilder.buildHudLabFrame(2),
+            parkConfirmedByUser = true,
+        )
+
+        assertEquals(HudLabSendFailure.VEHICLE_MOVING, result.failure)
+        assertEquals(null, result.rc)
+        assertFalse(HudLabRuntimeState.outputMayBeOwned(context))
+        verify(exactly = 0) { bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, any()) }
+        c.setEnabled(false)
+    }
+
+    @Test fun `later burst guard failure preserves ownership from an earlier synthetic frame`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        every { bridge.fireEvent(any(), any()) } returns 0
+        val c = controller(bridge)
+        var reads = 0
+        c.hudLabVehicleSnapshot = {
+            reads++
+            if (reads < 4) diParsData(speed = 0, gear = 1)
+            else diParsData(speed = 2, gear = 4)
+        }
+        c.setEnabled(true)
+
+        val first = c.sendHudLabFrame(
+            HudProtobufBuilder.buildHudLabFrame(2),
+            parkConfirmedByUser = true,
+        )
+        val second = c.sendHudLabFrame(
+            HudProtobufBuilder.buildHudLabFrame(2),
+            parkConfirmedByUser = true,
+        )
+
+        assertTrue(first.accepted)
+        assertEquals(HudLabSendFailure.VEHICLE_MOVING, second.failure)
+        assertEquals(null, second.rc)
+        assertTrue(second.outputMayBeOwned)
+        assertTrue(c.isHudLabOutputSuspendedForTest())
+        assertTrue(HudLabRuntimeState.outputMayBeOwned(context))
+        verify(exactly = 1) { bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, any()) }
+        assertEquals(0, c.clearHudLabFrame())
+        assertFalse(HudLabRuntimeState.outputMayBeOwned(context))
+        c.setEnabled(false)
+    }
+
+    @Test fun `atomic production gate drains in-flight delivery before lab and suppresses later frames`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        every { bridge.fireEvent(any(), any()) } returns 0
+        val c = controller(bridge)
+        c.hudLabVehicleSnapshot = { diParsData(speed = 0, gear = 1) }
+        c.setEnabled(true)
+        val productionEntered = CountDownLatch(1)
+        val releaseProduction = CountDownLatch(1)
+        val blockingProduction = object : HudEventSink {
+            override fun fireEvent(topic: Long, payload: ByteArray): Int {
+                productionEntered.countDown()
+                assertTrue(releaseProduction.await(2, TimeUnit.SECONDS))
+                return 0
+            }
+        }
+        val productionRc = AtomicReference<Int>()
+        val labResult = AtomicReference<HudLabTransportResult>()
+
+        val productionThread = Thread {
+            productionRc.set(
+                c.fireProductionFrame(
+                    blockingProduction,
+                    HudSomeIpBridge.TOPIC_NAVI,
+                    byteArrayOf(1),
+                ),
+            )
+        }.apply { start() }
+        assertTrue(productionEntered.await(2, TimeUnit.SECONDS))
+        val labThread = Thread {
+            labResult.set(
+                c.sendHudLabFrame(
+                    HudProtobufBuilder.buildHudLabFrame(2),
+                    parkConfirmedByUser = true,
+                ),
+            )
+        }.apply { start() }
+
+        releaseProduction.countDown()
+        productionThread.join(2_000L)
+        labThread.join(2_000L)
+
+        assertEquals(0, productionRc.get())
+        assertTrue(checkNotNull(labResult.get()).accepted)
+        assertTrue(HudLabRuntimeState.outputMayBeOwned(context))
+        // The callback belonging to the older production frame must not erase lab ownership.
+        c.clearRuntimeOwnershipAfterProductionAcceptance()
+        assertTrue(HudLabRuntimeState.outputMayBeOwned(context))
+        assertEquals(
+            HudPushLoop.RESULT_OUTPUT_SUSPENDED,
+            c.fireProductionFrame(
+                bridge,
+                HudSomeIpBridge.TOPIC_NAVI,
+                byteArrayOf(2),
+            ),
+        )
+        verify(exactly = 1) { bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, any()) }
+        assertEquals(0, c.clearHudLabFrame())
+        c.setEnabled(false)
+    }
+
+    @Test fun `stop waits for in-flight lab frame and leaves confirmed clear last`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        val payloads = mutableListOf<ByteArray>()
+        val labEntered = CountDownLatch(1)
+        val releaseLab = CountDownLatch(1)
+        every { bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, any()) } answers {
+            val payload = secondArg<ByteArray>()
+            synchronized(payloads) { payloads += payload.copyOf() }
+            if (labEntered.count == 1L) {
+                labEntered.countDown()
+                assertTrue(releaseLab.await(2, TimeUnit.SECONDS))
+            }
+            0
+        }
+        val c = controller(bridge)
+        c.hudLabVehicleSnapshot = { diParsData(speed = 0, gear = 1) }
+        c.setEnabled(true)
+        val labResult = AtomicReference<HudLabTransportResult>()
+        val labThread = Thread {
+            labResult.set(
+                c.sendHudLabFrame(
+                    HudProtobufBuilder.buildHudLabFrame(2),
+                    parkConfirmedByUser = true,
+                ),
+            )
+        }.apply { start() }
+        assertTrue(labEntered.await(2, TimeUnit.SECONDS))
+        val stopThread = Thread { c.setEnabled(false) }.apply { start() }
+
+        releaseLab.countDown()
+        labThread.join(2_000L)
+        stopThread.join(2_000L)
+
+        assertTrue(checkNotNull(labResult.get()).accepted)
+        val finalPayload = synchronized(payloads) { payloads.last().copyOf() }
+        assertArrayEquals(HudProtobufBuilder.buildClearFrame(0), finalPayload)
+        assertFalse(HudLabRuntimeState.outputMayBeOwned(context))
+        assertEquals(HudController.Status.OFF, c.status.value)
     }
 
     @Test fun `HUD Lab rejects moving or unavailable vehicle safety data`() {

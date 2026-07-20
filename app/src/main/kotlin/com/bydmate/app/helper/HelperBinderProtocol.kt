@@ -38,6 +38,10 @@ import com.bydmate.app.BuildConfig
  *   TX_ENABLE_NOTIFICATION_LISTENER : (no args)           -> reply: writeInt(status), writeInt(0)  // status 0 = our listener stub enabled
  *   TX_SET_CLUSTER_MODE: [int on(0|1)] -> [int status]; status 0 = ok.
  *   TX_LAUNCH_WAZE_DEEP_LINK: [String officialHttpsUri] -> [int status, int 0].
+ *   TX_GET_TASK_PROJECTION_STATE: [String packageName]
+ *       -> [int status, int taskId, int displayId, int windowingMode].
+ *       The daemon accepts only the exact Waze package. Status is one of
+ *       TASK_PROJECTION_FOUND, TASK_PROJECTION_NOT_RUNNING or TASK_PROJECTION_UNAVAILABLE.
  *
  * Projection status: 0 = success, <0 = error/unavailable. Surface is written LAST so a
  * marshalling test can assert the scalar args without round-tripping the Surface.
@@ -114,6 +118,19 @@ object HelperBinderProtocol {
     /** Narrow shell-uid Waze deep-link delivery. The daemon validates scheme, host, path and
      *  query keys before invoking `am start`; this is not a generic URI/shell passthrough. */
     val TX_LAUNCH_WAZE_DEEP_LINK: Int = IBinder.FIRST_CALL_TRANSACTION + 24    // 25
+
+    /** Read-only projection snapshot for the exact Waze task. The daemon rejects every other
+     *  package and reads ATMS state in-process; no generic task query or shell passthrough. */
+    val TX_GET_TASK_PROJECTION_STATE: Int = IBinder.FIRST_CALL_TRANSACTION + 25 // 26
+
+    /** TX_GET_TASK_PROJECTION_STATE found a structurally valid live Waze task. */
+    const val TASK_PROJECTION_FOUND: Int = 0
+
+    /** The helper answered authoritatively and Waze has no live task. */
+    const val TASK_PROJECTION_NOT_RUNNING: Int = 1
+
+    /** The query itself was rejected, unsupported, failed, or returned invalid ATMS state. */
+    const val TASK_PROJECTION_UNAVAILABLE: Int = -1
 
     /** Hard cap on items per TX_READ_BATCH call (FidMap is 58 today; 128 leaves headroom). */
     const val MAX_BATCH_ITEMS: Int = 128

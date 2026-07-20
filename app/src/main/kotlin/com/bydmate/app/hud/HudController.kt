@@ -36,7 +36,10 @@ enum class HudLabSendFailure {
     ROUTE_ACTIVE,
     HUD_DISABLED,
     HUD_NOT_READY,
+    HUD_SEND_FAILED,
     INVALID_PAYLOAD,
+    HUD_ICON_UNAVAILABLE,
+    HUD_CLEAR_FAILED,
     JOURNAL_WRITE_FAILED,
 }
 
@@ -45,7 +48,9 @@ internal data class HudLabTransportResult(
     val failure: HudLabSendFailure? = null,
     val gear: Int? = null,
     val speedKmh: Int? = null,
+    val outputMayBeOwned: Boolean = false,
 ) {
+    /** A non-local response keeps a diagnostic burst running; only rc==0 is visual confirmation. */
     val accepted: Boolean get() = failure == null && (rc ?: -1) >= 0
 }
 
@@ -128,6 +133,7 @@ class HudController @Inject constructor(
     @Volatile private var loop: HudPushLoop? = null
     @Volatile private var lastDeliveryPersistElapsedMs = 0L
     @Volatile private var hudLabOutputSuspended = false
+    private var hudLabClearCounter = 0
     private val hudLabLock = Any()
     internal var hudLabVehicleSnapshot = { VehicleSafetySnapshot.current() }
 
@@ -201,68 +207,171 @@ class HudController @Inject constructor(
         payload: ByteArray,
         parkConfirmedByUser: Boolean,
     ): HudLabTransportResult = synchronized(hudLabLock) {
-        val vehicle = hudLabVehicleSnapshot()
-        val gear = vehicle?.gear
-        val speed = vehicle?.speed
-        fun rejected(failure: HudLabSendFailure) = HudLabTransportResult(
-            failure = failure,
-            gear = gear,
-            speedKmh = speed,
+        fun HudLabTransportResult.withCurrentOwnership() = copy(
+            outputMayBeOwned = hudLabOutputSuspended ||
+                HudLabRuntimeState.outputMayBeOwned(context),
         )
+        val safety = hudLabSafetyResult(parkConfirmedByUser)
+        if (safety.failure != null) return@synchronized safety.withCurrentOwnership()
+        val gear = safety.gear
+        val speed = safety.speedKmh
+        val currentBridge = checkNotNull(bridge)
 
-        if (!BuildConfig.DEBUG) return@synchronized rejected(HudLabSendFailure.DEV_BUILD_REQUIRED)
-        if (!parkConfirmedByUser) {
-            return@synchronized rejected(HudLabSendFailure.PARK_CONFIRMATION_REQUIRED)
-        }
-        if (NavGuidanceHub.snapshot().active) {
-            return@synchronized rejected(HudLabSendFailure.ROUTE_ACTIVE)
-        }
-        if (vehicle == null || speed == null || gear == null) {
-            return@synchronized rejected(HudLabSendFailure.VEHICLE_DATA_UNAVAILABLE)
-        }
-        if (speed > 0) return@synchronized rejected(HudLabSendFailure.VEHICLE_MOVING)
-        if (gear != 1) return@synchronized rejected(HudLabSendFailure.PARK_GEAR_REQUIRED)
-        if (!isEnabled()) return@synchronized rejected(HudLabSendFailure.HUD_DISABLED)
-        val currentBridge = bridge
-        if (_status.value != Status.ON || currentBridge?.isConnected() != true) {
-            return@synchronized rejected(HudLabSendFailure.HUD_NOT_READY)
-        }
         if (payload.isEmpty() || payload.size > HudProtobufBuilder.MAX_PAYLOAD_BYTES) {
-            return@synchronized rejected(HudLabSendFailure.INVALID_PAYLOAD)
+            return@synchronized safety.copy(failure = HudLabSendFailure.INVALID_PAYLOAD)
+                .withCurrentOwnership()
         }
 
+        val outputWasAlreadyOwned = hudLabOutputSuspended ||
+            HudLabRuntimeState.outputMayBeOwned(context)
+        if (!HudLabRuntimeState.markOutputMayBeOwned(context, true)) {
+            return@synchronized safety.copy(failure = HudLabSendFailure.JOURNAL_WRITE_FAILED)
+                .withCurrentOwnership()
+        }
         hudLabOutputSuspended = true
-        // Close the narrow race between the first route check and suspension of the normal loop.
-        if (NavGuidanceHub.snapshot().active) {
-            hudLabOutputSuspended = false
-            return@synchronized rejected(HudLabSendFailure.ROUTE_ACTIVE)
+        // The durable marker commit is intentionally synchronous and can take long enough for P,
+        // speed or route state to change. Re-run the complete guard immediately before fireEvent.
+        val finalSafety = hudLabSafetyResult(parkConfirmedByUser)
+        if (finalSafety.failure != null) {
+            if (!outputWasAlreadyOwned) {
+                hudLabOutputSuspended = false
+                HudLabRuntimeState.markOutputMayBeOwned(context, false)
+            }
+            return@synchronized finalSafety.withCurrentOwnership()
         }
         val rc = runCatching { currentBridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, payload) }
             .getOrDefault(HudSomeIpBridge.RESULT_LOCAL_ERROR)
-        if (rc < 0) hudLabOutputSuspended = false
         Log.i(
             TAG,
             "HUD Lab frame raw payloadBytes=${payload.size} rc=$rc gear=$gear speed=$speed",
         )
-        HudLabTransportResult(rc = rc, gear = gear, speedKmh = speed)
+        finalSafety.copy(rc = rc, outputMayBeOwned = true)
     }
 
-    /** Always releases normal HUD output, even when the native clear transaction fails. */
+    /** Read-only guard used before every packet in a burst and by the post-send watchdog. */
+    internal fun checkHudLabSafety(
+        parkConfirmedByUser: Boolean,
+    ): HudLabTransportResult = synchronized(hudLabLock) {
+        hudLabSafetyResult(parkConfirmedByUser)
+    }
+
+    /** Re-checks parked/route safety atomically with a scenario CLEAR transaction. */
+    internal fun clearHudLabFrameSafely(
+        parkConfirmedByUser: Boolean,
+    ): HudLabTransportResult = synchronized(hudLabLock) {
+        val safety = hudLabSafetyResult(parkConfirmedByUser)
+        if (safety.failure != null) return@synchronized safety
+        val rc = clearHudLabFrameLocked()
+        safety.copy(
+            rc = rc,
+            outputMayBeOwned = hudLabOutputSuspended ||
+                HudLabRuntimeState.outputMayBeOwned(context),
+        )
+    }
+
+    private fun hudLabSafetyResult(parkConfirmedByUser: Boolean): HudLabTransportResult {
+        val vehicle = hudLabVehicleSnapshot()
+        val gear = vehicle?.gear
+        val speed = vehicle?.speed
+        val currentOwnership = hudLabOutputSuspended ||
+            HudLabRuntimeState.outputMayBeOwned(context)
+        fun rejected(failure: HudLabSendFailure) = HudLabTransportResult(
+            failure = failure,
+            gear = gear,
+            speedKmh = speed,
+            outputMayBeOwned = currentOwnership,
+        )
+
+        if (!BuildConfig.DEBUG) return rejected(HudLabSendFailure.DEV_BUILD_REQUIRED)
+        if (!parkConfirmedByUser) {
+            return rejected(HudLabSendFailure.PARK_CONFIRMATION_REQUIRED)
+        }
+        if (NavGuidanceHub.snapshot().active) {
+            return rejected(HudLabSendFailure.ROUTE_ACTIVE)
+        }
+        if (vehicle == null || speed == null || gear == null) {
+            return rejected(HudLabSendFailure.VEHICLE_DATA_UNAVAILABLE)
+        }
+        if (speed > 0) return rejected(HudLabSendFailure.VEHICLE_MOVING)
+        if (gear != 1) return rejected(HudLabSendFailure.PARK_GEAR_REQUIRED)
+        if (!isEnabled()) return rejected(HudLabSendFailure.HUD_DISABLED)
+        val currentBridge = bridge
+        if (_status.value != Status.ON || currentBridge?.isConnected() != true) {
+            return rejected(HudLabSendFailure.HUD_NOT_READY)
+        }
+        return HudLabTransportResult(
+            gear = gear,
+            speedKmh = speed,
+            outputMayBeOwned = currentOwnership,
+        )
+    }
+
+    /**
+     * Sends one lab clear. Normal output is released only by the gateway's confirmed-zero result;
+     * a non-zero/negative result keeps a possibly visible synthetic frame protected from races.
+     */
     internal fun clearHudLabFrame(): Int = synchronized(hudLabLock) {
+        clearHudLabFrameLocked()
+    }
+
+    private fun clearHudLabFrameLocked(): Int {
         val currentBridge = bridge
         val rc = if (_status.value == Status.ON && currentBridge?.isConnected() == true) {
             runCatching {
                 currentBridge.fireEvent(
                     HudSomeIpBridge.TOPIC_NAVI,
-                    HudProtobufBuilder.buildClearFrame(0),
+                    HudProtobufBuilder.buildClearFrame(hudLabClearCounter++),
                 )
             }.getOrDefault(HudSomeIpBridge.RESULT_LOCAL_ERROR)
         } else {
             HudSomeIpBridge.RESULT_NOT_CONNECTED
         }
-        hudLabOutputSuspended = false
-        Log.i(TAG, "HUD Lab clear rc=$rc; normal HUD output resumed")
-        rc
+        if (rc == 0) {
+            hudLabOutputSuspended = false
+            HudLabRuntimeState.markOutputMayBeOwned(context, false)
+        }
+        Log.i(TAG, "HUD Lab clear rc=$rc; outputSuspended=$hudLabOutputSuspended")
+        return rc
+    }
+
+    /** Rebinds the channel and makes its first production mutation a bounded clear sequence. */
+    internal fun recoverHudLabAfterFailedClear(reason: String) {
+        synchronized(hudLabLock) {
+            pendingClearAfterReconnect = true
+            hudLabOutputSuspended = true
+            HudLabRuntimeState.markOutputMayBeOwned(context, true)
+        }
+        Log.w(TAG, "HUD Lab clear unconfirmed; scheduling channel recovery ($reason)")
+        scope.launch { rebuildChannel("hud_lab_clear_unconfirmed:$reason") }
+    }
+
+    internal fun isHudLabOutputSuspendedForTest(): Boolean = hudLabOutputSuspended
+
+    /**
+     * Serializes a production mutation with HUD Lab ownership. [HudPushLoop] performs an early
+     * suspension check, but a lab session can start after that check while the production frame is
+     * still being encoded. Holding the same lock as [sendHudLabFrame] closes that TOCTOU window:
+     * either the production transaction finishes first, or it is skipped before touching SOME/IP.
+     */
+    private fun productionSink(sink: HudEventSink): HudEventSink = object : HudEventSink {
+        override fun fireEvent(topic: Long, payload: ByteArray): Int =
+            fireProductionFrame(sink, topic, payload)
+    }
+
+    internal fun fireProductionFrame(sink: HudEventSink, topic: Long, payload: ByteArray): Int =
+        synchronized(hudLabLock) {
+            if (hudLabOutputSuspended) {
+                HudPushLoop.RESULT_OUTPUT_SUSPENDED
+            } else {
+                sink.fireEvent(topic, payload)
+            }
+        }
+
+    /** A completed production callback may arrive after HUD Lab acquired the shared lock. */
+    internal fun clearRuntimeOwnershipAfterProductionAcceptance() = synchronized(hudLabLock) {
+        if (!hudLabOutputSuspended) {
+            HudLabRuntimeState.markOutputMayBeOwned(context, false)
+        }
     }
 
     /** TrackingService.onCreate hook. */
@@ -365,6 +474,11 @@ class HudController @Inject constructor(
                 bridge = b
                 NavA11yFeed.enable()
                 _status.value = Status.ON
+                pendingClearAfterReconnect = pendingClearAfterReconnect ||
+                    HudLabRuntimeState.outputMayBeOwned(context)
+                // A failed lab clear can request a reconnect while holding the old loop. The new
+                // loop must be allowed to emit its initialClearPending frame.
+                synchronized(hudLabLock) { hudLabOutputSuspended = false }
                 // A successful bind/startService proves only control-channel availability. After
                 // a send/clear failure, keep exponential backoff state until an actual HUD frame
                 // is accepted; otherwise a gateway that rejects every clear loops at 5 s forever.
@@ -391,7 +505,7 @@ class HudController @Inject constructor(
                     },
                 )
                 loop = HudPushLoop(
-                    b,
+                    productionSink(b),
                     speedSignEnabled = { isSpeedSignEnabled() },
                     onDeliveryAttempt = { kind, rc ->
                         val now = System.currentTimeMillis()
@@ -399,13 +513,14 @@ class HudController @Inject constructor(
                         val wasSendFailed = _status.value == Status.SEND_FAILED
                         val wasReconnecting = reconnectAttempt > 0
                         if (kind == HudFrameKind.CLEAR) {
-                            pendingClearAfterReconnect = rc < 0
-                        } else if (rc >= 0) {
+                            pendingClearAfterReconnect = rc != 0
+                        } else if (rc == 0) {
                             // A current guidance frame supersedes any stale HUD contents just as a
                             // clear would, so no deferred clear is needed after channel recovery.
                             pendingClearAfterReconnect = false
                         }
-                        if (rc < 0) {
+                        if (rc == 0) clearRuntimeOwnershipAfterProductionAcceptance()
+                        if (rc != 0) {
                             consecutiveSendFailures++
                             if (!wasSendFailed) {
                                 Log.w(TAG, "HUD frame rejected by SOME/IP gateway rc=$rc")
@@ -418,18 +533,18 @@ class HudController @Inject constructor(
                         } else {
                             consecutiveSendFailures = 0
                         }
-                        if (rc >= 0) reconnectAttempt = 0
+                        if (rc == 0) reconnectAttempt = 0
 
                         // Keep every live result in memory, but persist only periodically or on a
                         // failure/recovery edge. HudPushLoop calls this roughly every 300 ms; writing
                         // SharedPreferences on every accepted frame caused continuous flash churn.
                         val forcePersist = when {
-                            rc < 0 -> !wasSendFailed || previous.lastResultCode != rc
+                            rc != 0 -> !wasSendFailed || previous.lastResultCode != rc
                             else -> wasSendFailed
                         }
                         val persisted = kind == HudFrameKind.GUIDANCE &&
                             persistDeliveryResult(now, rc, forcePersist)
-                        if (kind == HudFrameKind.GUIDANCE && rc >= 0 && persisted) {
+                        if (kind == HudFrameKind.GUIDANCE && rc == 0 && persisted) {
                             DiagnosticEvidenceStore.record(
                                 context,
                                 DiagnosticEvidenceStore.Evidence.FACTORY_HUD_FRAME,
@@ -438,34 +553,34 @@ class HudController @Inject constructor(
                         }
                         _deliveryDiagnostics.value = previous.copy(
                             lastFrameAttemptAtMs = now,
-                            lastFrameSuccessAtMs = now.takeIf { rc >= 0 }
+                            lastFrameSuccessAtMs = now.takeIf { rc == 0 }
                                 ?: previous.lastFrameSuccessAtMs,
                             lastGuidanceFrameSuccessAtMs = now.takeIf {
-                                kind == HudFrameKind.GUIDANCE && rc >= 0
+                                kind == HudFrameKind.GUIDANCE && rc == 0
                             } ?: previous.lastGuidanceFrameSuccessAtMs,
                             lastClearAttemptAtMs = now.takeIf { kind == HudFrameKind.CLEAR }
                                 ?: previous.lastClearAttemptAtMs,
                             lastClearSuccessAtMs = now.takeIf {
-                                kind == HudFrameKind.CLEAR && rc >= 0
+                                kind == HudFrameKind.CLEAR && rc == 0
                             } ?: previous.lastClearSuccessAtMs,
                             lastDeliveryKind = kind,
                             lastResultCode = rc,
                             reconnectAttempt = reconnectAttempt,
                             nextReconnectAtMs = null,
                             lastFailure = when {
-                                rc < 0 && kind == HudFrameKind.CLEAR -> "clear_frame_rejected"
-                                rc < 0 -> "frame_rejected"
+                                rc != 0 && kind == HudFrameKind.CLEAR -> "clear_frame_rejected"
+                                rc != 0 -> "frame_rejected"
                                 kind == HudFrameKind.CLEAR &&
                                     previous.lastFailure == "clear_frame_rejected" -> null
                                 kind == HudFrameKind.CLEAR -> previous.lastFailure
                                 else -> null
                             },
                             lastRecoveredAtMs = now.takeIf {
-                                rc >= 0 && (wasSendFailed || wasReconnecting)
+                                rc == 0 && (wasSendFailed || wasReconnecting)
                             }
                                 ?: previous.lastRecoveredAtMs,
                         )
-                        if (rc < 0 &&
+                        if (rc != 0 &&
                             shouldReconnectAfterSendFailures(consecutiveSendFailures)
                         ) {
                             consecutiveSendFailures = 0
@@ -501,7 +616,7 @@ class HudController @Inject constructor(
     /** Gateway binding died (crash/update). Clean up and reconnect automatically; waiting for the
      * next ignition left an otherwise healthy Waze route without HUD for the rest of the drive. */
     private fun onBindingLost(reason: String) {
-        hudLabOutputSuspended = false
+        synchronized(hudLabLock) { hudLabOutputSuspended = false }
         NavA11yFeed.disable()
         _status.value = Status.BIND_FAILED
         _deliveryDiagnostics.value = _deliveryDiagnostics.value.copy(
@@ -513,7 +628,7 @@ class HudController @Inject constructor(
     private suspend fun rebuildChannel(reason: String) {
         var shouldRetry = false
         mutex.withLock {
-            hudLabOutputSuspended = false
+            synchronized(hudLabLock) { hudLabOutputSuspended = false }
             if (!lifecycleActive || !isEnabled()) return@withLock
             if (reconnectJob?.isActive == true) return@withLock
             // Once a live channel is rebuilt, its last on-glass contents are unknown. Require an
@@ -576,7 +691,7 @@ class HudController @Inject constructor(
                 .putLong(diagnosticPrefKey(KEY_LAST_FRAME_ATTEMPT_AT), atMs)
                 .putInt(diagnosticPrefKey(KEY_LAST_FRAME_RC), rc)
                 .apply {
-                    if (rc >= 0) {
+                    if (rc == 0) {
                         putLong(diagnosticPrefKey(KEY_LAST_FRAME_SUCCESS_AT), atMs)
                         putLong(diagnosticPrefKey(KEY_LAST_GUIDANCE_FRAME_SUCCESS_AT), atMs)
                     }
@@ -593,7 +708,6 @@ class HudController @Inject constructor(
     private suspend fun stopSequence() {
         NavA11yFeed.disable()
         mutex.withLock {
-            hudLabOutputSuspended = false
             reconnectJob?.let { it.cancel(); it.join() }
             reconnectJob = null
             startJob?.let { it.cancel(); it.join() }
@@ -603,6 +717,10 @@ class HudController @Inject constructor(
             NavA11yFeed.disable()
             loop?.stop()
             loop = null
+            // The enabled preference is already false. Taking the lab lock after stopping the
+            // loop drains any synthetic transaction that passed its final safety check; every
+            // teardown CLEAR below is therefore ordered after it.
+            synchronized(hudLabLock) { hudLabOutputSuspended = false }
             bridge?.let {
                 // Leave the HUD clean before tearing the channel down. A gateway can reject the
                 // first transaction while waking up, so retry a bounded number of times; never
@@ -627,10 +745,12 @@ class HudController @Inject constructor(
     private suspend fun sendClearBeforeStop(sink: HudEventSink) {
         repeat(HudPushLoop.CLEAR_MAX_ATTEMPTS) { attempt ->
             val rc = try {
-                sink.fireEvent(
-                    HudSomeIpBridge.TOPIC_NAVI,
-                    HudProtobufBuilder.buildClearFrame(attempt),
-                )
+                synchronized(hudLabLock) {
+                    sink.fireEvent(
+                        HudSomeIpBridge.TOPIC_NAVI,
+                        HudProtobufBuilder.buildClearFrame(attempt),
+                    )
+                }
             } catch (ce: CancellationException) {
                 throw ce
             } catch (error: Exception) {
@@ -638,7 +758,10 @@ class HudController @Inject constructor(
                 HudSomeIpBridge.RESULT_LOCAL_ERROR
             }
             recordTeardownClearResult(System.currentTimeMillis(), rc)
-            if (rc >= 0) return
+            if (rc == 0) {
+                HudLabRuntimeState.markOutputMayBeOwned(context, false)
+                return
+            }
             if (attempt + 1 < HudPushLoop.CLEAR_MAX_ATTEMPTS) delay(100L)
         }
         Log.w(TAG, "HUD clear was not accepted before transport teardown")
@@ -648,13 +771,13 @@ class HudController @Inject constructor(
         val previous = _deliveryDiagnostics.value
         _deliveryDiagnostics.value = previous.copy(
             lastFrameAttemptAtMs = atMs,
-            lastFrameSuccessAtMs = atMs.takeIf { rc >= 0 } ?: previous.lastFrameSuccessAtMs,
+            lastFrameSuccessAtMs = atMs.takeIf { rc == 0 } ?: previous.lastFrameSuccessAtMs,
             lastClearAttemptAtMs = atMs,
-            lastClearSuccessAtMs = atMs.takeIf { rc >= 0 } ?: previous.lastClearSuccessAtMs,
+            lastClearSuccessAtMs = atMs.takeIf { rc == 0 } ?: previous.lastClearSuccessAtMs,
             lastDeliveryKind = HudFrameKind.CLEAR,
             lastResultCode = rc,
             lastFailure = when {
-                rc < 0 -> "teardown_clear_rejected"
+                rc != 0 -> "teardown_clear_rejected"
                 previous.lastFailure == "teardown_clear_rejected" -> null
                 else -> previous.lastFailure
             },

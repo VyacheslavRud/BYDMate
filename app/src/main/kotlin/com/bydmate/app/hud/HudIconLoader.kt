@@ -44,5 +44,8 @@ object HudIconLoader {
 
     fun iconFor(gaode: Int): ByteArray? = if (gaode <= 0) null else icons[gaode]
 
+    /** Dev-only HUD Lab access also permits the donor 0x0 blank/control asset. */
+    internal fun labIconFor(code: Int): ByteArray? = if (code < 0) null else icons[code]
+
     fun loadedCount(): Int = icons.size
 }

@@ -535,13 +535,15 @@ class TrackingService : Service(), LocationListener {
                         helperClient.setAppHidden("com.byd.autovoice", pref == "true")
                     }
                 }
-                // Power down a cluster compositor left "on" by a car shutdown mid-projection —
-                // otherwise the cluster boots black (projection mode, nobody drawing). Runs even
-                // when the bootstrap above failed: it retries ensureRunning itself, and on failure
-                // keeps the marker so the next service start tries again.
+                // Recover every crash-persisted cluster ownership kind: compositor power, a
+                // direct/freeform task, and daemon VirtualDisplays. Each path rechecks the helper
+                // and keeps its marker on any unconfirmed operation so the next service start can
+                // retry; VD recovery is Waze-only and never sends auto_container commands.
                 com.bydmate.app.cluster.ClusterProjectionManager.recoverStaleCompositor(
                     this@TrackingService, helperClient, helperBootstrap)
                 com.bydmate.app.cluster.ClusterProjectionManager.recoverStaleDirectTask(
+                    this@TrackingService, helperClient, helperBootstrap)
+                com.bydmate.app.cluster.ClusterProjectionManager.recoverStaleVirtualDisplays(
                     this@TrackingService, helperClient, helperBootstrap)
             } catch (e: Exception) {
                 Log.w(TAG, "HelperBootstrap.ensureRunning failed: ${e.message}")

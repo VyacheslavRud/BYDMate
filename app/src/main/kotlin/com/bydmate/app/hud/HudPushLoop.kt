@@ -46,11 +46,16 @@ class HudPushLoop(
         private const val TAG = "HudPushLoop"
         const val PERIOD_MS = 300L
         internal const val CLEAR_MAX_ATTEMPTS = 3
+        /** Local sentinel: the shared native topic is currently owned by parked HUD Lab. */
+        internal const val RESULT_OUTPUT_SUSPENDED = Int.MIN_VALUE
     }
 
     private var job: Job? = null
     private var counter = 0   // clear frames only; guidance frames carry the constant 2 in f2
-    private var pendingClearAttempts = if (initialClearPending) CLEAR_MAX_ATTEMPTS else 0
+    /** Recovery/process-death clear is independent from a route-end clear and always runs first. */
+    private var recoveryClearAttempts = if (initialClearPending) CLEAR_MAX_ATTEMPTS else 0
+    private var pendingClearAttempts = 0
+    private var refreshClearAttempts = 0
     private var lastRefreshGeneration: Long? = null
 
     fun start(scope: CoroutineScope, periodMs: Long = PERIOD_MS) {
@@ -77,7 +82,9 @@ class HudPushLoop(
     fun stop() {
         job?.cancel()
         job = null
+        recoveryClearAttempts = 0
         pendingClearAttempts = 0
+        refreshClearAttempts = 0
         lastRefreshGeneration = null
     }
 
@@ -87,20 +94,41 @@ class HudPushLoop(
         // HUD Lab owns the same native topic for a bounded parked calibration. Keep the normal
         // loop's state intact and do not overwrite its raw f28 frame before the user can see it.
         if (outputSuspended()) return wasActive
+        // A persisted HUD Lab marker means the on-glass contents are unknown. This clear must win
+        // even when Waze already has an active route: a rejected guidance frame does not supersede
+        // a stale synthetic arrow. Guidance resumes only on a later tick after zero confirmation.
+        if (recoveryClearAttempts > 0) {
+            val rc = deliver(
+                HudFrameKind.CLEAR,
+                HudProtobufBuilder.buildClearFrame(counter++),
+            ) ?: return wasActive
+            recoveryClearAttempts--
+            if (rc == 0) {
+                recoveryClearAttempts = 0
+                Log.i(TAG, "recovery clear frame accepted; guidance redraw pending")
+            } else if (recoveryClearAttempts > 0) {
+                Log.w(TAG, "recovery clear frame rejected rc=$rc; retry pending")
+            } else {
+                Log.e(TAG, "recovery clear frame rejected rc=$rc after $CLEAR_MAX_ATTEMPTS attempts")
+                onClearExhausted(rc)
+            }
+            return wasActive
+        }
         val s = NavGuidanceHub.snapshot(nowMsProvider())
         val previousRefreshGeneration = lastRefreshGeneration
         lastRefreshGeneration = s.hudRefreshGeneration
         if (!hasRenderableHudGuidance(s)) {
+            refreshClearAttempts = 0
             if (wasActive) pendingClearAttempts = CLEAR_MAX_ATTEMPTS
             if (pendingClearAttempts > 0) {
                 val rc = deliver(
                     HudFrameKind.CLEAR,
                     HudProtobufBuilder.buildClearFrame(counter++),
-                )
+                ) ?: return false
                 // Decrement after every attempted transaction, including a throwing sink. Without
                 // this guarantee a local Binder wrapper exception retries forever at 300 ms.
                 pendingClearAttempts--
-                if (rc >= 0) {
+                if (rc == 0) {
                     pendingClearAttempts = 0
                     Log.i(TAG, "guidance ended, clear frame accepted")
                 } else if (pendingClearAttempts > 0) {
@@ -115,17 +143,29 @@ class HudPushLoop(
         if (wasActive && previousRefreshGeneration != null &&
             previousRefreshGeneration != s.hudRefreshGeneration
         ) {
+            refreshClearAttempts = CLEAR_MAX_ATTEMPTS
+        }
+        if (refreshClearAttempts > 0) {
             val rc = deliver(
                 HudFrameKind.CLEAR,
                 HudProtobufBuilder.buildClearFrame(counter++),
-            )
-            if (rc >= 0) {
+            ) ?: return true
+            refreshClearAttempts--
+            if (rc == 0) {
+                refreshClearAttempts = 0
                 // Guidance is sent on the next 300 ms tick. A small gap is intentional: sending
                 // clear+guidance back-to-back is coalesced by the Sea Lion gateway and does not
                 // restore the card erased by the system notification overlay.
                 Log.i(TAG, "HUD overlay recovery clear accepted; guidance redraw pending")
                 return true
             }
+            if (refreshClearAttempts > 0) {
+                Log.w(TAG, "HUD overlay recovery clear unconfirmed rc=$rc; retry pending")
+            } else {
+                Log.e(TAG, "HUD overlay recovery clear failed rc=$rc after $CLEAR_MAX_ATTEMPTS attempts")
+                onClearExhausted(rc)
+            }
+            return true
         }
         // A new active frame supersedes any clear that was waiting for a retry.
         pendingClearAttempts = 0
@@ -149,7 +189,8 @@ class HudPushLoop(
         return true
     }
 
-    private fun deliver(kind: HudFrameKind, payload: ByteArray): Int {
+    /** Null means the atomic controller gate suppressed the transaction for HUD Lab ownership. */
+    private fun deliver(kind: HudFrameKind, payload: ByteArray): Int? {
         var failure: Throwable? = null
         val rc = try {
             sink.fireEvent(HudSomeIpBridge.TOPIC_NAVI, payload)
@@ -158,6 +199,7 @@ class HudPushLoop(
             failure = t
             HudSomeIpBridge.RESULT_LOCAL_ERROR
         }
+        if (rc == RESULT_OUTPUT_SUSPENDED) return null
         onDeliveryResult(rc)
         onDeliveryAttempt(kind, rc)
         failure?.let {

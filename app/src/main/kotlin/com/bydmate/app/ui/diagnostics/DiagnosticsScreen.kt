@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -30,6 +31,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,6 +55,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.bydmate.app.R
 import com.bydmate.app.BuildConfig
+import com.bydmate.app.cluster.ClusterLabObservation
+import com.bydmate.app.cluster.ClusterLabOutcomeType
+import com.bydmate.app.cluster.ClusterLabScenario
+import com.bydmate.app.cluster.ClusterLabScenarioCatalog
+import com.bydmate.app.cluster.ClusterLabState
 import com.bydmate.app.data.diagnostics.CapabilityAssessment
 import com.bydmate.app.data.diagnostics.CapabilityId
 import com.bydmate.app.data.diagnostics.CapabilityState
@@ -66,10 +73,12 @@ import com.bydmate.app.data.diagnostics.HudIncidentCause
 import com.bydmate.app.data.diagnostics.VehicleDiagnosticsSnapshot
 import com.bydmate.app.data.diagnostics.WazeWindowState
 import com.bydmate.app.data.vehicle.VehicleProfile
-import com.bydmate.app.hud.HudLabCommand
 import com.bydmate.app.hud.HudLabObserved
 import com.bydmate.app.hud.HudLabOutcome
 import com.bydmate.app.hud.HudLabOutcomeType
+import com.bydmate.app.hud.HudLabScenario
+import com.bydmate.app.hud.HudLabScenarioCatalog
+import com.bydmate.app.hud.HudLabScenarioGroup
 import com.bydmate.app.hud.HudLabSendFailure
 import com.bydmate.app.hud.HudLabState
 import com.bydmate.app.ui.theme.AccentBlue
@@ -95,6 +104,7 @@ fun DiagnosticsScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val hudLabState by viewModel.hudLabState.collectAsStateWithLifecycle()
+    val clusterLabState by viewModel.clusterLabState.collectAsStateWithLifecycle()
     val snapshot = state.snapshot
     val evaluation = state.evaluation
 
@@ -154,9 +164,21 @@ fun DiagnosticsScreen(
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         HudLabCard(
                             state = hudLabState,
-                            onSend = viewModel::sendHudLabCommand,
+                            externalLabBusy = clusterLabState.busy ||
+                                clusterLabState.pendingObservationRecordId != null,
+                            onSend = viewModel::sendHudLabScenario,
                             onObserved = viewModel::recordHudLabObservation,
                             onClear = viewModel::clearHudLab,
+                            onExport = viewModel::exportHudLab,
+                        )
+                    }
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        ClusterLabCard(
+                            state = clusterLabState,
+                            exportState = hudLabState,
+                            onRun = viewModel::runClusterLabScenario,
+                            onObserved = viewModel::recordClusterLabObservation,
+                            onCancel = viewModel::cancelClusterLab,
                             onExport = viewModel::exportHudLab,
                         )
                     }
@@ -176,14 +198,15 @@ fun DiagnosticsScreen(
 @Composable
 private fun HudLabCard(
     state: HudLabState,
-    onSend: (HudLabCommand, Boolean) -> Unit,
+    externalLabBusy: Boolean,
+    onSend: (String, Boolean) -> Unit,
     onObserved: (HudLabObserved) -> Unit,
     onClear: () -> Unit,
     onExport: () -> Unit,
 ) {
     var parkConfirmed by remember { mutableStateOf(false) }
     val pending = state.pending
-    val canSend = parkConfirmed && !state.busy && pending == null
+    val canSend = parkConfirmed && !state.busy && pending == null && !externalLabBusy
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = AccentBlue.copy(alpha = 0.09f)),
@@ -214,7 +237,7 @@ private fun HudLabCard(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(enabled = !state.busy && pending == null) {
+                    .clickable(enabled = !state.busy && pending == null && !externalLabBusy) {
                         parkConfirmed = !parkConfirmed
                     }
                     .padding(top = 9.dp, bottom = 6.dp),
@@ -223,7 +246,7 @@ private fun HudLabCard(
                 Checkbox(
                     checked = parkConfirmed,
                     onCheckedChange = { parkConfirmed = it },
-                    enabled = !state.busy && pending == null,
+                    enabled = !state.busy && pending == null && !externalLabBusy,
                 )
                 Text(
                     stringResource(R.string.diagnostics_hud_lab_park_confirmation),
@@ -233,18 +256,23 @@ private fun HudLabCard(
                 )
             }
 
-            HudLabCommandRow(
-                first = HudLabCommand.LEFT,
-                second = HudLabCommand.RIGHT,
-                enabled = canSend,
-                onSend = { onSend(it, parkConfirmed) },
-            )
-            HudLabCommandRow(
-                first = HudLabCommand.STRAIGHT,
-                second = HudLabCommand.UTURN,
-                enabled = canSend,
-                onSend = { onSend(it, parkConfirmed) },
-            )
+            HudLabScenarioGroup.entries.forEach { group ->
+                val scenarios = HudLabScenarioCatalog.all.filter { it.group == group }
+                Text(
+                    hudLabGroupText(group),
+                    color = AccentBlue,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+                )
+                scenarios.chunked(2).forEach { row ->
+                    HudLabScenarioRow(
+                        scenarios = row,
+                        enabled = canSend,
+                        onSend = { onSend(it.id, parkConfirmed) },
+                    )
+                }
+            }
 
             Text(
                 stringResource(R.string.diagnostics_hud_lab_auto_clear),
@@ -259,15 +287,21 @@ private fun HudLabCard(
                     modifier = Modifier.padding(vertical = 10.dp),
                 )
                 Text(
-                    stringResource(
-                        R.string.diagnostics_hud_lab_pending,
-                        hudLabCommandText(pending.record.command),
-                        pending.record.rawF28,
-                    ),
+                    "${pending.record.scenarioId ?: "LEGACY"} · " +
+                        (pending.record.scenarioTitle ?: pending.record.command?.name ?: "HUD Lab"),
                     color = TextPrimary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                 )
+                pending.record.scenarioSummary?.let {
+                    Text(
+                        it,
+                        color = TextMuted,
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp,
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
+                }
                 if (pending.autoCleared) {
                     Text(
                         stringResource(R.string.diagnostics_hud_lab_already_cleared),
@@ -282,23 +316,106 @@ private fun HudLabCard(
                     fontSize = 12.sp,
                     modifier = Modifier.padding(top = 8.dp, bottom = 5.dp),
                 )
+                when (pending.record.scenarioId) {
+                    "W24" -> {
+                        HudLabObservedRow(
+                            HudLabObserved.LEFT_THEN_RIGHT,
+                            HudLabObserved.REVERSED_SEQUENCE,
+                            !state.busy,
+                            onObserved,
+                        )
+                        HudLabObservedRow(
+                            HudLabObserved.FIRST_PHASE_ONLY,
+                            HudLabObserved.SECOND_PHASE_ONLY,
+                            !state.busy,
+                            onObserved,
+                        )
+                        HudLabObservedRow(
+                            HudLabObserved.NOTHING,
+                            HudLabObserved.FLASHED,
+                            !state.busy,
+                            onObserved,
+                        )
+                    }
+                    "W25" -> {
+                        HudLabObservedRow(
+                            HudLabObserved.RIGHT_CLEARED_AND_REDRAWN,
+                            HudLabObserved.CLEAR_NOT_VISIBLE,
+                            !state.busy,
+                            onObserved,
+                        )
+                        HudLabObservedRow(
+                            HudLabObserved.FIRST_PHASE_ONLY,
+                            HudLabObserved.SECOND_PHASE_ONLY,
+                            !state.busy,
+                            onObserved,
+                        )
+                        HudLabObservedRow(
+                            HudLabObserved.NOTHING,
+                            HudLabObserved.FLASHED,
+                            !state.busy,
+                            onObserved,
+                        )
+                    }
+                    "W26", "W27", "W28", "W29", "W30", "W31" -> {
+                        val expected = HudLabScenarioCatalog.byId(
+                            requireNotNull(pending.record.scenarioId),
+                        )?.expected ?: HudLabObserved.INFO_VISIBLE
+                        HudLabObservedRow(
+                            expected,
+                            HudLabObserved.INFO_VISIBLE,
+                            !state.busy,
+                            onObserved,
+                        )
+                        HudLabObservedRow(
+                            HudLabObserved.NOTHING,
+                            HudLabObserved.FLASHED,
+                            !state.busy,
+                            onObserved,
+                        )
+                    }
+                    else -> {
+                        HudLabObservedRow(
+                            HudLabObserved.LEFT,
+                            HudLabObserved.RIGHT,
+                            !state.busy,
+                            onObserved,
+                        )
+                        HudLabObservedRow(
+                            HudLabObserved.STRAIGHT,
+                            HudLabObserved.UTURN,
+                            !state.busy,
+                            onObserved,
+                        )
+                        HudLabObservedRow(
+                            HudLabObserved.NOTHING,
+                            HudLabObserved.FLASHED,
+                            !state.busy,
+                            onObserved,
+                        )
+                        HudLabObservedRow(
+                            HudLabObserved.INFO_VISIBLE,
+                            HudLabObserved.SPEED_SIGN_VISIBLE,
+                            !state.busy,
+                            onObserved,
+                        )
+                    }
+                }
                 HudLabObservedRow(
-                    first = HudLabObserved.LEFT,
-                    second = HudLabObserved.RIGHT,
+                    first = HudLabObserved.OTHER,
+                    second = HudLabObserved.NOT_REPORTED,
                     enabled = !state.busy,
                     onObserved = onObserved,
                 )
-                HudLabObservedRow(
-                    first = HudLabObserved.STRAIGHT,
-                    second = HudLabObserved.UTURN,
-                    enabled = !state.busy,
-                    onObserved = onObserved,
-                )
-                HudLabObservedRow(
-                    first = HudLabObserved.NOTHING,
-                    second = HudLabObserved.OTHER,
-                    enabled = !state.busy,
-                    onObserved = onObserved,
+            }
+
+            if (state.busy && state.currentScenarioId != null) {
+                Text(
+                    "${state.currentScenarioId}: step ${state.currentStep}/${state.totalSteps}, " +
+                        "push ${state.currentPush}/${state.totalPushes}",
+                    color = AccentOrange,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 7.dp),
                 )
             }
 
@@ -351,29 +468,275 @@ private fun HudLabCard(
 }
 
 @Composable
-private fun HudLabCommandRow(
-    first: HudLabCommand,
-    second: HudLabCommand,
+private fun ClusterLabCard(
+    state: ClusterLabState,
+    exportState: HudLabState,
+    onRun: (String, Boolean) -> Unit,
+    onObserved: (ClusterLabObservation) -> Unit,
+    onCancel: () -> Unit,
+    onExport: () -> Unit,
+) {
+    var parkConfirmed by remember { mutableStateOf(false) }
+    val pending = state.pendingObservationRecordId != null
+    val canRun = parkConfirmed && !state.busy && !pending &&
+        !exportState.busy && exportState.pending == null
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = AccentOrange.copy(alpha = 0.08f)),
+        border = BorderStroke(1.dp, AccentOrange.copy(alpha = 0.42f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+            Text(
+                stringResource(R.string.diagnostics_cluster_lab_title),
+                color = TextPrimary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                stringResource(R.string.diagnostics_cluster_lab_description),
+                color = TextSecondary,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Text(
+                stringResource(R.string.diagnostics_cluster_lab_safety_hint),
+                color = AccentOrange,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                modifier = Modifier.padding(top = 5.dp),
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !state.busy && !pending) {
+                        parkConfirmed = !parkConfirmed
+                    }
+                    .padding(top = 9.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(
+                    checked = parkConfirmed,
+                    onCheckedChange = { parkConfirmed = it },
+                    enabled = !state.busy && !pending,
+                )
+                Text(
+                    stringResource(R.string.diagnostics_hud_lab_park_confirmation),
+                    color = TextPrimary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
+
+            ClusterLabScenarioCatalog.all.chunked(2).forEach { row ->
+                ClusterLabScenarioRow(
+                    scenarios = row,
+                    enabled = canRun,
+                    onRun = { onRun(it.id, parkConfirmed) },
+                )
+            }
+
+            if (state.busy) {
+                LinearProgressIndicator(
+                    progress = { state.progress },
+                    modifier = Modifier.fillMaxWidth().padding(top = 9.dp),
+                    color = AccentOrange,
+                    trackColor = CardBorder.copy(alpha = 0.45f),
+                )
+                Text(
+                    "${state.currentScenarioId ?: "?"}: ${state.currentStep ?: "starting"}",
+                    color = AccentOrange,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+
+            if (pending) {
+                HorizontalDivider(
+                    color = CardBorder.copy(alpha = 0.55f),
+                    modifier = Modifier.padding(vertical = 10.dp),
+                )
+                Text(
+                    stringResource(
+                        R.string.diagnostics_cluster_lab_what_seen,
+                        state.pendingObservationScenarioId ?: "?",
+                    ),
+                    color = TextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(bottom = 5.dp),
+                )
+                ClusterLabObservedRow(
+                    ClusterLabObservation.VISIBLE,
+                    ClusterLabObservation.NOTHING,
+                    onObserved,
+                )
+                ClusterLabObservedRow(
+                    ClusterLabObservation.BLACK_SCREEN,
+                    ClusterLabObservation.FLICKERED,
+                    onObserved,
+                )
+                ClusterLabObservedRow(
+                    ClusterLabObservation.WRONG_GEOMETRY,
+                    ClusterLabObservation.MAIN_DISPLAY_ONLY,
+                    onObserved,
+                )
+                ClusterLabObservedRow(
+                    ClusterLabObservation.OTHER,
+                    ClusterLabObservation.NOT_REPORTED,
+                    onObserved,
+                )
+            }
+
+            state.lastOutcome?.let { outcome ->
+                val success = outcome.type == ClusterLabOutcomeType.COMPLETED ||
+                    outcome.type == ClusterLabOutcomeType.OBSERVATION_SAVED
+                Text(
+                    buildString {
+                        append(outcome.scenarioId ?: "Cluster Lab")
+                        append(": ").append(outcome.type)
+                        outcome.failure?.let { append(" · ").append(it) }
+                        outcome.cleanupConfirmed?.let { append(" · cleanup=").append(it) }
+                    },
+                    color = if (success) AccentGreen else SocRed,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onCancel,
+                    enabled = state.busy,
+                    modifier = Modifier.weight(1f).heightIn(min = 46.dp),
+                    border = BorderStroke(1.dp, CardBorder),
+                ) {
+                    Text(stringResource(R.string.diagnostics_cluster_lab_cancel))
+                }
+                Button(
+                    onClick = onExport,
+                    enabled = !state.busy && !exportState.busy,
+                    modifier = Modifier.weight(1f).heightIn(min = 46.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentGreen,
+                        contentColor = NavyDark,
+                    ),
+                ) {
+                    Text(stringResource(R.string.diagnostics_cluster_lab_export_all))
+                }
+            }
+            exportState.lastOutcome?.takeIf {
+                it.type == HudLabOutcomeType.EXPORTED || it.type == HudLabOutcomeType.EXPORT_FAILED
+            }?.let {
+                Text(
+                    hudLabOutcomeText(it),
+                    color = if (it.type == HudLabOutcomeType.EXPORTED) AccentGreen else SocRed,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 5.dp),
+                )
+            }
+            Text(
+                stringResource(R.string.diagnostics_cluster_lab_saved_count, state.recordsCount),
+                color = TextMuted,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 5.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ClusterLabScenarioRow(
+    scenarios: List<ClusterLabScenario>,
     enabled: Boolean,
-    onSend: (HudLabCommand) -> Unit,
+    onRun: (ClusterLabScenario) -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        listOf(first, second).forEach { command ->
+        scenarios.forEach { scenario ->
             Button(
-                onClick = { onSend(command) },
+                onClick = { onRun(scenario) },
+                enabled = enabled,
+                modifier = Modifier.weight(1f).heightIn(min = 52.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AccentOrange.copy(alpha = 0.78f),
+                    contentColor = NavyDark,
+                ),
+            ) {
+                Text("${scenario.id} · ${scenario.title}", fontSize = 11.sp, maxLines = 3)
+            }
+        }
+        if (scenarios.size == 1) Spacer(modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun ClusterLabObservedRow(
+    first: ClusterLabObservation,
+    second: ClusterLabObservation,
+    onObserved: (ClusterLabObservation) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        listOf(first, second).forEach { observed ->
+            OutlinedButton(
+                onClick = { onObserved(observed) },
+                modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                border = BorderStroke(1.dp, AccentOrange.copy(alpha = 0.55f)),
+            ) {
+                Text(clusterLabObservedText(observed), fontSize = 11.sp, maxLines = 2)
+            }
+        }
+    }
+}
+
+@Composable
+private fun clusterLabObservedText(observed: ClusterLabObservation): String = stringResource(
+    when (observed) {
+        ClusterLabObservation.VISIBLE -> R.string.diagnostics_cluster_lab_seen_visible
+        ClusterLabObservation.NOTHING -> R.string.diagnostics_hud_lab_saw_nothing
+        ClusterLabObservation.BLACK_SCREEN -> R.string.diagnostics_cluster_lab_seen_black
+        ClusterLabObservation.FLICKERED -> R.string.diagnostics_cluster_lab_seen_flickered
+        ClusterLabObservation.WRONG_GEOMETRY -> R.string.diagnostics_cluster_lab_seen_geometry
+        ClusterLabObservation.MAIN_DISPLAY_ONLY -> R.string.diagnostics_cluster_lab_seen_main_only
+        ClusterLabObservation.OTHER -> R.string.diagnostics_hud_lab_saw_other
+        ClusterLabObservation.NOT_REPORTED -> R.string.diagnostics_hud_lab_not_reported
+    },
+)
+
+@Composable
+private fun HudLabScenarioRow(
+    scenarios: List<HudLabScenario>,
+    enabled: Boolean,
+    onSend: (HudLabScenario) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        scenarios.forEach { scenario ->
+            Button(
+                onClick = { onSend(scenario) },
                 enabled = enabled,
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = AccentBlue.copy(alpha = 0.82f),
                     contentColor = TextPrimary,
                 ),
-            ) {
-                Text("${hudLabCommandText(command)} · f28=${command.rawF28}", maxLines = 2)
+                ) {
+                Text("${scenario.id} · ${scenario.title}", maxLines = 3, fontSize = 11.sp)
             }
         }
+        if (scenarios.size == 1) Spacer(modifier = Modifier.weight(1f))
     }
 }
 
@@ -402,14 +765,16 @@ private fun HudLabObservedRow(
 }
 
 @Composable
-private fun hudLabCommandText(command: HudLabCommand): String = stringResource(
-    when (command) {
-        HudLabCommand.LEFT -> R.string.diagnostics_hud_lab_left
-        HudLabCommand.RIGHT -> R.string.diagnostics_hud_lab_right
-        HudLabCommand.STRAIGHT -> R.string.diagnostics_hud_lab_straight
-        HudLabCommand.UTURN -> R.string.diagnostics_hud_lab_uturn
-    },
-)
+private fun hudLabGroupText(group: HudLabScenarioGroup): String = when (group) {
+    HudLabScenarioGroup.CONTROL -> "Control / CLEAR"
+    HudLabScenarioGroup.RAW_F28 -> "Native metadata f28"
+    HudLabScenarioGroup.PNG_F8 -> "Donor PNG f8"
+    HudLabScenarioGroup.MATCHED -> "Matched f8 + f28"
+    HudLabScenarioGroup.CROSSED -> "Conflict: f8 vs f28"
+    HudLabScenarioGroup.FULL -> "Full frame / transitions"
+    HudLabScenarioGroup.FIELD_ISOLATION -> "Field isolation: f9/f10/f26/f33/f7/f11"
+    HudLabScenarioGroup.TIMING -> "Delivery timing / cadence"
+}
 
 @Composable
 private fun hudLabObservedText(observed: HudLabObserved): String = stringResource(
@@ -419,6 +784,20 @@ private fun hudLabObservedText(observed: HudLabObserved): String = stringResourc
         HudLabObserved.STRAIGHT -> R.string.diagnostics_hud_lab_saw_straight
         HudLabObserved.UTURN -> R.string.diagnostics_hud_lab_saw_uturn
         HudLabObserved.NOTHING -> R.string.diagnostics_hud_lab_saw_nothing
+        HudLabObserved.FLASHED -> R.string.diagnostics_hud_lab_saw_flashed
+        HudLabObserved.INFO_VISIBLE -> R.string.diagnostics_hud_lab_saw_info
+        HudLabObserved.DISTANCE_VISIBLE -> R.string.diagnostics_hud_lab_saw_distance
+        HudLabObserved.ROAD_VISIBLE -> R.string.diagnostics_hud_lab_saw_road
+        HudLabObserved.ETA_VISIBLE -> R.string.diagnostics_hud_lab_saw_eta
+        HudLabObserved.PROGRESS_VISIBLE -> R.string.diagnostics_hud_lab_saw_progress
+        HudLabObserved.SPEED_NUMBER_VISIBLE -> R.string.diagnostics_hud_lab_saw_speed_number
+        HudLabObserved.SPEED_SIGN_VISIBLE -> R.string.diagnostics_hud_lab_saw_speed_sign
+        HudLabObserved.LEFT_THEN_RIGHT -> R.string.diagnostics_hud_lab_saw_left_then_right
+        HudLabObserved.RIGHT_CLEARED_AND_REDRAWN -> R.string.diagnostics_hud_lab_saw_redrawn
+        HudLabObserved.CLEAR_NOT_VISIBLE -> R.string.diagnostics_hud_lab_saw_clear_not_visible
+        HudLabObserved.REVERSED_SEQUENCE -> R.string.diagnostics_hud_lab_saw_reversed_sequence
+        HudLabObserved.FIRST_PHASE_ONLY -> R.string.diagnostics_hud_lab_saw_first_only
+        HudLabObserved.SECOND_PHASE_ONLY -> R.string.diagnostics_hud_lab_saw_second_only
         HudLabObserved.OTHER -> R.string.diagnostics_hud_lab_saw_other
         HudLabObserved.NOT_REPORTED -> R.string.diagnostics_hud_lab_not_reported
     },
@@ -460,7 +839,10 @@ private fun hudLabFailureText(failure: HudLabSendFailure): String = stringResour
         HudLabSendFailure.ROUTE_ACTIVE -> R.string.diagnostics_hud_lab_failure_route
         HudLabSendFailure.HUD_DISABLED -> R.string.diagnostics_hud_lab_failure_disabled
         HudLabSendFailure.HUD_NOT_READY -> R.string.diagnostics_hud_lab_failure_not_ready
+        HudLabSendFailure.HUD_SEND_FAILED -> R.string.diagnostics_hud_lab_failure_send
         HudLabSendFailure.INVALID_PAYLOAD -> R.string.diagnostics_hud_lab_failure_payload
+        HudLabSendFailure.HUD_ICON_UNAVAILABLE -> R.string.diagnostics_hud_lab_failure_icon
+        HudLabSendFailure.HUD_CLEAR_FAILED -> R.string.diagnostics_hud_lab_failure_clear
         HudLabSendFailure.JOURNAL_WRITE_FAILED -> R.string.diagnostics_hud_lab_failure_journal
     },
 )

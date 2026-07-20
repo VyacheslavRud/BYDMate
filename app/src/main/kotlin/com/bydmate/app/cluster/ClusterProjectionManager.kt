@@ -26,6 +26,8 @@ import com.bydmate.app.data.vehicle.HelperClient
 import com.bydmate.app.data.vehicle.VehicleProfile
 import com.bydmate.app.navigation.WazeNavigation
 import com.bydmate.app.ui.overlay.OverlayNotificationManager
+import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -132,6 +134,11 @@ object ClusterProjectionManager {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val mutex = Mutex()
 
+    /** In-process exclusive lease for the parked Cluster Lab. Production toggle/reproject calls
+     * are ignored while it is held, so an external star/voice event cannot be mistaken for a lab
+     * transition or enqueue a projection after the lab has already reported cleanup. */
+    private var clusterLabLeaseToken: String? = null
+
     private val _diagnosticState = MutableStateFlow(ClusterProjectionDiagnosticState())
     val diagnosticState: StateFlow<ClusterProjectionDiagnosticState> = _diagnosticState.asStateFlow()
 
@@ -174,6 +181,10 @@ object ClusterProjectionManager {
         val appContext = context.applicationContext
         scope.launch {
             mutex.withLock {
+                if (clusterLabLeaseToken != null) {
+                    Log.i(TAG, "setMode($mode) ignored while Cluster Lab owns projection")
+                    return@withLock
+                }
                 if (mode == currentMode) return@withLock
                 if (mode == ClusterMode.FULLSCREEN) {
                     _diagnosticState.update {
@@ -191,6 +202,95 @@ object ClusterProjectionManager {
                 applyModeLocked(appContext, mode, helper, bootstrap)
             }
         }
+    }
+
+    /**
+     * Acquires exclusive ownership for a parked Cluster Lab session. Unlike [setMode], lab
+     * transitions below are suspend/awaitable: when they return, the requested transition and its
+     * teardown are no longer queued work. The lease never survives process death.
+     */
+    internal suspend fun acquireClusterLabLease(): ClusterLabProjectionLease? = mutex.withLock {
+        if (clusterLabLeaseToken != null || currentMode != ClusterMode.OFF) return@withLock null
+        ClusterLabProjectionLease(UUID.randomUUID().toString()).also {
+            clusterLabLeaseToken = it.token
+            Log.i(TAG, "Cluster Lab lease acquired")
+        }
+    }
+
+    /**
+     * Runs the normal projection pipeline synchronously under the shared projection mutex, but
+     * hard-disables auto_container regardless of its live preference value and pins the exact
+     * caller-supplied package (Waze for C04/C05).
+     */
+    internal suspend fun setModeForClusterLab(
+        context: Context,
+        mode: ClusterMode,
+        helper: HelperClient,
+        bootstrap: HelperBootstrap,
+        lease: ClusterLabProjectionLease,
+        targetPackage: String = NAVI_PACKAGE,
+    ): ClusterLabProjectionTransitionResult = mutex.withLock {
+        if (clusterLabLeaseToken != lease.token) {
+            return@withLock clusterLabTransitionResult(
+                requestedMode = mode,
+                failureOverride = "lab_lease_not_owned",
+            )
+        }
+        if (mode == ClusterMode.FULLSCREEN) {
+            _diagnosticState.update {
+                it.copy(
+                    phase = ClusterProjectionPhase.STARTING,
+                    attemptStartedAtMs = System.currentTimeMillis(),
+                    attemptFinishedAtMs = null,
+                    displaySearchElapsedMs = null,
+                    selectedDisplay = null,
+                    lastFailure = null,
+                )
+            }
+        }
+        Log.i(TAG, "Cluster Lab setMode: $currentMode -> $mode target=$targetPackage")
+        applyModeLocked(
+            context = context.applicationContext,
+            mode = mode,
+            helper = helper,
+            bootstrap = bootstrap,
+            allowAutoContainerCommands = false,
+            targetPackageOverride = targetPackage,
+        )
+        clusterLabTransitionResult(requestedMode = mode)
+    }
+
+    /** Releases only the matching owner. Returns true when the session left projection OFF. */
+    internal suspend fun releaseClusterLabLease(lease: ClusterLabProjectionLease): Boolean =
+        mutex.withLock {
+            if (clusterLabLeaseToken != lease.token) return@withLock false
+            val clean = currentMode == ClusterMode.OFF
+            clusterLabLeaseToken = null
+            Log.i(TAG, "Cluster Lab lease released clean=$clean")
+            clean
+        }
+
+    private fun clusterLabTransitionResult(
+        requestedMode: ClusterMode,
+        failureOverride: String? = null,
+    ): ClusterLabProjectionTransitionResult {
+        val diagnostics = _diagnosticState.value
+        val success = failureOverride == null && when (requestedMode) {
+            ClusterMode.FULLSCREEN ->
+                currentMode == ClusterMode.FULLSCREEN && diagnostics.phase == ClusterProjectionPhase.ACTIVE
+            ClusterMode.OFF ->
+                currentMode == ClusterMode.OFF && diagnostics.phase == ClusterProjectionPhase.OFF
+        }
+        return ClusterLabProjectionTransitionResult(
+            requestedMode = requestedMode,
+            resultingMode = currentMode,
+            phase = diagnostics.phase,
+            success = success,
+            failure = failureOverride ?: diagnostics.lastFailure ?: lastFailure,
+            selectedDisplay = diagnostics.selectedDisplay,
+            attemptStartedAtMs = diagnostics.attemptStartedAtMs,
+            attemptFinishedAtMs = diagnostics.attemptFinishedAtMs,
+        )
     }
 
     /**
@@ -228,6 +328,10 @@ object ClusterProjectionManager {
         val appContext = context.applicationContext
         scope.launch {
             mutex.withLock {
+                if (clusterLabLeaseToken != null) {
+                    Log.i(TAG, "reproject ignored while Cluster Lab owns projection")
+                    return@withLock
+                }
                 if (currentMode != ClusterMode.FULLSCREEN) return@withLock
                 Log.i(TAG, "reproject: in-place resize")
                 if (!swapToNewSize(appContext, helper, bootstrap)) {
@@ -467,7 +571,7 @@ object ClusterProjectionManager {
         }
     }
 
-    private suspend fun clearReleasedVdId(context: Context, id: Int) {
+    private suspend fun clearReleasedVdId(context: Context, id: Int): Boolean {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val remaining = persistedVdIds(prefs).toMutableSet().apply { remove(id) }
         val cleared = withContext(Dispatchers.IO) {
@@ -480,6 +584,7 @@ object ClusterProjectionManager {
             // The daemon release itself is idempotent, so a surviving marker is safe to retry.
             Log.w(TAG, "confirmed VirtualDisplay release marker was not persisted for id=$id")
         }
+        return cleared
     }
 
     private fun persistedVdIds(prefs: android.content.SharedPreferences): Set<Int> = buildSet {
@@ -512,11 +617,18 @@ object ClusterProjectionManager {
     /** Caller MUST hold [mutex]. Sets currentMode = mode only on full success, else OFF. */
     private suspend fun applyModeLocked(
         context: Context, mode: ClusterMode, helper: HelperClient, bootstrap: HelperBootstrap,
+        allowAutoContainerCommands: Boolean = true,
+        targetPackageOverride: String? = null,
     ) {
         when (mode) {
             ClusterMode.OFF -> {
                 stopDisplayHealthMonitor()
-                pullBackToMain(context, helper, focus = true)
+                pullBackToMain(
+                    context,
+                    helper,
+                    focus = true,
+                    packageOverride = targetPackageOverride,
+                )
                 hideOverlay(context, helper)
                 projectedPackage = null
                 projectionDisplayId = -1
@@ -526,12 +638,20 @@ object ClusterProjectionManager {
                     it.copy(
                         phase = ClusterProjectionPhase.OFF,
                         attemptFinishedAtMs = System.currentTimeMillis(),
+                        lastFailure = null,
                     )
                 }
-                powerDownOwnedCompositor(context, helper)
+                if (allowAutoContainerCommands) powerDownOwnedCompositor(context, helper)
             }
             ClusterMode.FULLSCREEN -> {
-                val failure = project(context, mode, helper, bootstrap)
+                val failure = project(
+                    context,
+                    mode,
+                    helper,
+                    bootstrap,
+                    allowAutoContainerCommands,
+                    targetPackageOverride,
+                )
                 if (failure == null) {
                     currentMode = mode
                     startDisplayHealthMonitor(context, helper, projectionDisplayId)
@@ -555,7 +675,12 @@ object ClusterProjectionManager {
                     // overlay/VD on its failure paths; make sure Navi is back on the main screen.
                     Log.e(TAG, "projection failed; falling back to OFF")
                     stopDisplayHealthMonitor()
-                    pullBackToMain(context, helper, focus = true)
+                    pullBackToMain(
+                        context,
+                        helper,
+                        focus = true,
+                        packageOverride = targetPackageOverride,
+                    )
                     projectedPackage = null
                     projectionDisplayId = -1
                     currentMode = ClusterMode.OFF
@@ -567,7 +692,7 @@ object ClusterProjectionManager {
                             lastFailure = failure,
                         )
                     }
-                    powerDownOwnedCompositor(context, helper)
+                    if (allowAutoContainerCommands) powerDownOwnedCompositor(context, helper)
                 }
             }
         }
@@ -701,18 +826,97 @@ object ClusterProjectionManager {
         }
     }
 
+    /**
+     * Startup recovery for VirtualDisplay fallback ownership left by a dead app process.
+     *
+     * Only the exact Waze task is queried. Every persisted daemon display remains owned until
+     * Waze is verifiably back on display 0 in fullscreen (or authoritatively NOT_RUNNING), and
+     * each marker is cleared only after that exact display returns a confirmed release status.
+     * No compositor/auto_container command is used here.
+     */
+    fun recoverStaleVirtualDisplays(
+        context: Context,
+        helper: HelperClient,
+        bootstrap: HelperBootstrap,
+    ) {
+        val appContext = context.applicationContext
+        scope.launch {
+            mutex.withLock {
+                val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val ownedIds = persistedVdIds(prefs)
+                if (!shouldRecoverStaleVirtualDisplays(
+                        ownedDisplayIds = ownedIds,
+                        mode = currentMode,
+                        liveDisplayId = remoteDisplayId,
+                        clusterLabLeaseActive = clusterLabLeaseToken != null,
+                    )
+                ) {
+                    return@withLock
+                }
+                val daemonReady = try {
+                    bootstrap.ensureRunning()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    false
+                }
+                if (!daemonReady) {
+                    Log.w(TAG, "recoverStaleVirtualDisplays: daemon unreachable; keeping $ownedIds")
+                    return@withLock
+                }
+
+                Log.i(
+                    TAG,
+                    "recoverStaleVirtualDisplays: reclaiming exact Waze task before releasing $ownedIds",
+                )
+                val result = recoverPersistedVirtualDisplays(
+                    ownedDisplayIds = ownedIds,
+                    queryWazeTask = { helper.getTaskProjectionState(NAVI_PACKAGE) },
+                    setTaskFullscreen = { taskId ->
+                        helper.setTaskWindowingMode(taskId, WINDOWING_MODE_FULLSCREEN)
+                    },
+                    moveTaskToMain = { taskId ->
+                        helper.moveTaskToDisplay(taskId, 0)
+                    },
+                    releaseVirtualDisplay = { displayId ->
+                        helper.releaseVirtualDisplay(displayId)
+                    },
+                    clearReleasedMarker = { displayId ->
+                        clearReleasedVdId(appContext, displayId)
+                    },
+                )
+                if (!result.taskRecoveryConfirmed) {
+                    Log.w(
+                        TAG,
+                        "recoverStaleVirtualDisplays: Waze state/reclaim unavailable; keeping $ownedIds",
+                    )
+                    return@withLock
+                }
+
+                val retained = ownedIds - result.markerClearedIds
+                Log.i(
+                    TAG,
+                    "recoverStaleVirtualDisplays: releases=${result.releaseConfirmedIds} " +
+                        "markersCleared=${result.markerClearedIds} retained=$retained",
+                )
+            }
+        }
+    }
+
     /** Returns null only when the overlay is up, the VirtualDisplay exists, and Navi is pinned;
      *  otherwise a failure reason ("daemon" = helper daemon unreachable, "projection" = anything
      *  else) so [applyModeLocked] can report an honest [lastFailure]. */
     private suspend fun project(
         context: Context, mode: ClusterMode, helper: HelperClient, bootstrap: HelperBootstrap,
+        allowAutoContainerCommands: Boolean,
+        targetPackageOverride: String?,
     ): String? {
         projectionDisplayId = -1
         if (!bootstrap.ensureRunning()) {
             Log.e(TAG, "helper daemon not running; aborting projection"); return "daemon"
         }
         recoverStaleDirectDensity(context, helper)
-        if (autoContainerEnabled(context)) {
+        if (shouldUseAutoContainer(allowAutoContainerCommands, autoContainerEnabled(context))) {
             // Wave P: power the cluster compositor up before projecting; replaces the manual
             // "star key -> Navi mode" step. Fail-soft: projection proceeds even if this call
             // fails (the compositor may already be on). The marker is persisted even on failure —
@@ -757,7 +961,8 @@ object ClusterProjectionManager {
         // one reboot) or anything fails. Skip orphan release when a live member handle is
         // present — it is our own VD retry handle, not an orphan.
         if (remoteDisplayId == -1) releaseOrphanedDisplays(context, helper)
-        if (tryDirectProjection(context, helper, display, geo, plan)) return null
+        val requestedPackage = targetPackageOverride ?: targetPackage(context)
+        if (tryDirectProjection(context, helper, display, geo, plan, requestedPackage)) return null
 
         return try {
             val surface = withTimeoutOrNull(SURFACE_TIMEOUT_MS) {
@@ -794,7 +999,7 @@ object ClusterProjectionManager {
                 hideOverlay(context, helper)
                 return "virtual_display_marker"
             }
-            val pkg = targetPackage(context)
+            val pkg = requestedPackage
             Log.i(TAG, "VirtualDisplay id=$id ${plan.bufferWidth}x${plan.bufferHeight}@${plan.densityDpi}; launchAndForce $pkg")
             val ok = helper.launchAndForce(pkg, id, plan.bufferWidth, plan.bufferHeight)
             if (!ok) {
@@ -817,11 +1022,12 @@ object ClusterProjectionManager {
      */
     private suspend fun tryDirectProjection(
         context: Context, helper: HelperClient, display: Display, geo: ClusterGeometry, plan: RenderPlan,
+        packageName: String,
     ): Boolean {
         // Persist the freeform flag on every attempt: the framework reads it once at boot, so
         // writing it now arms the NEXT ignition cycle even when this attempt still falls back.
         runCatching { helper.putGlobalSetting("enable_freeform_support", 1) }
-        val pkg = targetPackage(context)
+        val pkg = packageName
         val bounds = freeformBounds(geo)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         // Write-ahead marker (mirrors KEY_COMPOSITOR_POWERED): persisted BEFORE the daemon call,
@@ -1091,12 +1297,10 @@ object ClusterProjectionManager {
     private fun resolveClusterDisplay(context: Context): Display? {
         val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         val allDisplays = dm.displays.toList()
-        val projectionDisplays = allDisplays.filter {
-            it.name.contains("XDJAScreenProjection", ignoreCase = true)
-        }
-        val match = projectionDisplays.firstOrNull { it.name.endsWith("_1") }
-            ?: projectionDisplays.firstOrNull()
-            ?: allDisplays.firstOrNull { it.displayId == DEFAULT_CLUSTER_DISPLAY_ID }
+        val selectedId = preferredClusterDisplayId(
+            allDisplays.map { it.displayId to it.name.orEmpty() },
+        )
+        val match = allDisplays.firstOrNull { it.displayId == selectedId }
         _diagnosticState.update {
             it.copy(
                 visibleDisplays = allDisplays.map(::displayDiagnostic),
@@ -1210,9 +1414,17 @@ object ClusterProjectionManager {
      * up; marker cleared only when BOTH the density reset and the task reclaim are confirmed
      * (or the task is gone).
      */
-    private suspend fun pullBackToMain(context: Context, helper: HelperClient, focus: Boolean) {
-        val pkg = projectedPackage ?: targetPackage(context)
+    private suspend fun pullBackToMain(
+        context: Context,
+        helper: HelperClient,
+        focus: Boolean,
+        packageOverride: String? = null,
+    ) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val pkg = projectedPackage
+            ?: prefs.getString(KEY_DIRECT_PACKAGE, null)?.takeIf(String::isNotBlank)
+            ?: packageOverride
+            ?: targetPackage(context)
         // Member first, persisted marker second: the marker survives an app-process restart, so
         // a fresh process can still restore windowing mode / drop the density override after a
         // crash mid-direct-mode.

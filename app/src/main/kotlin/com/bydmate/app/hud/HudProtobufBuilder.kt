@@ -14,7 +14,7 @@ object HudProtobufBuilder {
     const val MAX_ETA_CHARS = 16
     const val MAX_SPEED_LIMIT = 250
 
-    /** GAODE maneuver -> f28 reference arrow: 0=unknown, 3=left, 2=right, 9=uturn. */
+    /** GAODE maneuver -> donor f28 maneuver metadata. It is not the f8 PNG arrow itself. */
     fun gaodeToF28(gaode: Int): Int = when (gaode) {
         0 -> 0
         1, 3, 7 -> 3
@@ -61,6 +61,79 @@ object HudProtobufBuilder {
         )
     }
 
+    /**
+     * Reproduces the live maneuver part of a guidance frame for parked calibration: the exact
+     * bundled donor icon in f8 plus the matching donor metadata in f28. Speed-sign f7 is omitted
+     * so only the maneuver path is under test.
+     */
+    fun buildHudLabLiveFrame(gaodeCode: Int, maneuverIconPng: ByteArray): ByteArray {
+        require(gaodeCode in setOf(1, 2, 9, 11)) {
+            "unsupported HUD Lab gaode=$gaodeCode"
+        }
+        require(maneuverIconPng.isNotEmpty()) { "HUD Lab f8 PNG is empty" }
+        return buildFrameWithRawF28(
+            rawF28 = gaodeToF28(gaodeCode),
+            distanceMeters = 100,
+            road = "HUD LAB f8=0x${gaodeCode.toString(16)}",
+            etaString = null,
+            totalDistMeters = 0,
+            speedLimit = 0,
+            maneuverIconPng = maneuverIconPng,
+            speedSignPng = null,
+        )
+    }
+
+    /**
+     * Exact bounded builder for the parked scenario matrix. [HudLabFrameSpec] exposes only fields
+     * already present in the donor guidance frames; arbitrary protobuf fields cannot be injected.
+     */
+    fun buildHudLabScenarioFrame(
+        spec: HudLabFrameSpec,
+        maneuverIconPng: ByteArray?,
+        speedSignPng: ByteArray?,
+    ): ByteArray {
+        require(spec.f28 == null || spec.f28 in setOf(1, 2, 3, 9)) {
+            "unsupported HUD Lab f28=${spec.f28}"
+        }
+        require(spec.iconCode == null || spec.iconCode in setOf(0, 1, 2, 9, 11)) {
+            "unsupported HUD Lab icon=${spec.iconCode}"
+        }
+        require((spec.iconCode != null) == (maneuverIconPng != null)) {
+            "HUD Lab maneuver asset does not match frame spec"
+        }
+        require(!spec.includeSpeedSign || speedSignPng != null) {
+            "HUD Lab speed-sign asset unavailable"
+        }
+        require(maneuverIconPng == null || maneuverIconPng.isNotEmpty()) {
+            "HUD Lab f8 PNG is empty"
+        }
+        require(speedSignPng == null || speedSignPng.isNotEmpty()) {
+            "HUD Lab f7 PNG is empty"
+        }
+        require(spec.distanceMeters >= 0 && spec.totalDistanceMeters >= 0) {
+            "HUD Lab distances must be non-negative"
+        }
+        require(spec.speedLimit in 0..MAX_SPEED_LIMIT) {
+            "HUD Lab speed limit out of range"
+        }
+        require(spec.road.length <= MAX_ROAD_CHARS) { "HUD Lab road text too long" }
+        require(spec.etaString == null || spec.etaString.length <= MAX_ETA_CHARS) {
+            "HUD Lab ETA text too long"
+        }
+        val payload = buildFrameWithRawF28(
+            rawF28 = spec.f28,
+            distanceMeters = spec.distanceMeters,
+            road = spec.road,
+            etaString = spec.etaString,
+            totalDistMeters = spec.totalDistanceMeters,
+            speedLimit = spec.speedLimit,
+            maneuverIconPng = maneuverIconPng,
+            speedSignPng = speedSignPng.takeIf { spec.includeSpeedSign },
+        )
+        require(payload.size <= MAX_PAYLOAD_BYTES) { "HUD Lab payload exceeds safe limit" }
+        return payload
+    }
+
     private fun buildFrameWithRawF28(
         rawF28: Int?,
         distanceMeters: Int,
@@ -83,17 +156,16 @@ object HudProtobufBuilder {
         if (speedLimit > 0) writeVarintField(inner, 11, speedLimit.toLong())
         writeVarintField(inner, 16, 2L)
         if (etaString != null) writeBytesField(inner, 26, etaString.toByteArray(Charsets.UTF_8))
-        // Do not manufacture f28=1 for an unknown Waze maneuver. On the Sea Lion 07 that
-        // fallback is rendered as a LEFT arrow, which is actively misleading on right turns.
-        // The route card remains visible and a later parsed A11Y/notification update adds f28.
+        // Do not manufacture donor metadata for an unknown Waze maneuver. The route card remains
+        // visible and a later parsed A11Y/notification update adds both exact f8 and f28 values.
         rawF28?.let { writeVarintField(inner, 28, it.toLong()) }
         writeFixed64Field(inner, 33, progress(distanceMeters, totalDistMeters).toRawBits())
         return wrap(inner.toByteArray())
     }
 
     /** Bounded frame builder. The optional speed-sign PNG is dropped first. A corrupt/foreign
-     * maneuver asset larger than Binder's safe payload is dropped only as a final fallback; f28
-     * still carries the reference direction, which is safer than rejecting every HUD frame. */
+     * maneuver asset larger than Binder's safe payload is dropped only as a final fallback; donor
+     * f28 metadata remains so the rest of the guidance frame can still be delivered. */
     fun buildFrameSafe(
         maneuverGaode: Int,
         distanceMeters: Int,

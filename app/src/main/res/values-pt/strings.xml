@@ -1231,15 +1231,15 @@
 
     <!-- Dev-only factory HUD calibration -->
     <string name="diagnostics_hud_lab_title">HUD Lab — calibração das setas originais</string>
-    <string name="diagnostics_hud_lab_description">Mostra uma seta de teste no HUD do para-brisa com o carro parado e registra o que o firmware BYD realmente exibiu.</string>
-    <string name="diagnostics_hud_lab_native_hint">Apenas raw f28 é enviado, sem PNG. A navegação normal é pausada por no máximo 8 segundos.</string>
+    <string name="diagnostics_hud_lab_description">36 cenários limitados testam CLEAR, setas, campos isolados, frames completos, transições e cadência no HUD do para-brisa.</string>
+    <string name="diagnostics_hud_lab_native_hint">Os cenários usam frames únicos e séries limitadas de 100/300/500 ms. A exportação registra todos os pacotes, códigos SOME/IP, campos e hashes.</string>
     <string name="diagnostics_hud_lab_park_confirmation">O veículo está parado e a marcha P está selecionada</string>
     <string name="diagnostics_hud_lab_left">Esperado: esquerda</string>
     <string name="diagnostics_hud_lab_right">Esperado: direita</string>
     <string name="diagnostics_hud_lab_straight">Esperado: em frente</string>
     <string name="diagnostics_hud_lab_uturn">Esperado: retorno</string>
     <string name="diagnostics_hud_lab_auto_clear">O frame é limpo após 8 segundos. O teste é bloqueado em movimento ou com rota ativa.</string>
-    <string name="diagnostics_hud_lab_pending">Enviado: %1$s, raw f28=%2$d</string>
+    <string name="diagnostics_hud_lab_pending">Frame live enviado: %1$s, PNG 0x%2$s, f28=%3$d</string>
     <string name="diagnostics_hud_lab_already_cleared">O tempo terminou e o HUD foi limpo. Ainda é possível salvar o resultado.</string>
     <string name="diagnostics_hud_lab_what_seen">O que apareceu no HUD do para-brisa?</string>
     <string name="diagnostics_hud_lab_saw_left">Vi esquerda</string>
@@ -1247,12 +1247,26 @@
     <string name="diagnostics_hud_lab_saw_straight">Vi em frente</string>
     <string name="diagnostics_hud_lab_saw_uturn">Vi retorno</string>
     <string name="diagnostics_hud_lab_saw_nothing">Nada apareceu</string>
+    <string name="diagnostics_hud_lab_saw_flashed">Apareceu e desapareceu</string>
+    <string name="diagnostics_hud_lab_saw_info">Distância/texto visível</string>
+    <string name="diagnostics_hud_lab_saw_distance">Distância visível</string>
+    <string name="diagnostics_hud_lab_saw_road">Texto da via visível</string>
+    <string name="diagnostics_hud_lab_saw_eta">Hora de chegada visível</string>
+    <string name="diagnostics_hud_lab_saw_progress">Progresso da rota visível</string>
+    <string name="diagnostics_hud_lab_saw_speed_number">Número do limite visível</string>
+    <string name="diagnostics_hud_lab_saw_speed_sign">Sinal de velocidade visível</string>
+    <string name="diagnostics_hud_lab_saw_left_then_right">Esquerda, depois direita</string>
+    <string name="diagnostics_hud_lab_saw_redrawn">Direita, CLEAR, direita novamente</string>
+    <string name="diagnostics_hud_lab_saw_clear_not_visible">A seta ficou contínua; CLEAR não ficou visível</string>
+    <string name="diagnostics_hud_lab_saw_reversed_sequence">Primeiro direita, depois esquerda</string>
+    <string name="diagnostics_hud_lab_saw_first_only">Apenas a primeira fase</string>
+    <string name="diagnostics_hud_lab_saw_second_only">Apenas a segunda fase</string>
     <string name="diagnostics_hud_lab_saw_other">Outro símbolo</string>
     <string name="diagnostics_hud_lab_not_reported">Não informado</string>
     <string name="diagnostics_hud_lab_clear">Limpar HUD</string>
     <string name="diagnostics_hud_lab_export">Exportar</string>
     <string name="diagnostics_hud_lab_saved_count">Testes salvos: %1$d</string>
-    <string name="diagnostics_hud_lab_frame_sent">SOME/IP aceitou o frame de teste (rc=%1$d). Verifique o para-brisa.</string>
+    <string name="diagnostics_hud_lab_frame_sent">Série enviada; última resposta SOME/IP rc=%1$d. Registre o resultado visual.</string>
     <string name="diagnostics_hud_lab_send_rejected">Frame de teste rejeitado (rc=%1$d).</string>
     <string name="diagnostics_hud_lab_clear_result">Comando de limpeza concluído (rc=%1$d).</string>
     <string name="diagnostics_hud_lab_observation_saved">Resultado salvo no diário do HUD Lab.</string>
@@ -1267,7 +1281,22 @@
     <string name="diagnostics_hud_lab_failure_disabled">Ative primeiro a saída do HUD original nas configurações do BYDMate.</string>
     <string name="diagnostics_hud_lab_failure_not_ready">O canal SOME/IP do HUD ainda não está conectado.</string>
     <string name="diagnostics_hud_lab_failure_payload">O payload de teste falhou na validação interna.</string>
+    <string name="diagnostics_hud_lab_failure_icon">Não foi possível carregar o ícone PNG de manobra incluído.</string>
+    <string name="diagnostics_hud_lab_failure_clear">Nenhuma das três chamadas CLEAR recebeu confirmação rc=0; a limpeza visual não foi confirmada.</string>
     <string name="diagnostics_hud_lab_failure_journal">Não foi possível salvar o teste. O HUD foi limpo com segurança; tente novamente.</string>
+    <string name="diagnostics_hud_lab_failure_send">O quadro de teste não recebeu confirmação rc=0. O resultado foi registrado e foi feita uma tentativa segura de limpeza.</string>
+    <string name="diagnostics_cluster_lab_title">Instrument Cluster Lab</string>
+    <string name="diagnostics_cluster_lab_description">Testa separadamente o segundo ecrã: inventário, estado da projeção, grelha e dois ciclos limitados do Waze.</string>
+    <string name="diagnostics_cluster_lab_safety_hint">Para C03–C05 abra manualmente o modo Navi/projeção original. O laboratório não usa auto_container não validado e restaura OFF.</string>
+    <string name="diagnostics_cluster_lab_what_seen">O que aconteceu no painel durante %1$s?</string>
+    <string name="diagnostics_cluster_lab_cancel">Parar e limpar</string>
+    <string name="diagnostics_cluster_lab_export_all">Exportar ambos os HUD</string>
+    <string name="diagnostics_cluster_lab_saved_count">Testes do painel guardados: %1$d</string>
+    <string name="diagnostics_cluster_lab_seen_visible">Exibido corretamente</string>
+    <string name="diagnostics_cluster_lab_seen_black">Ecrã preto</string>
+    <string name="diagnostics_cluster_lab_seen_flickered">Piscou/desapareceu</string>
+    <string name="diagnostics_cluster_lab_seen_geometry">Tamanho/posição incorretos</string>
+    <string name="diagnostics_cluster_lab_seen_main_only">Apenas no ecrã principal</string>
 
     <!-- Dev demo environment -->
     <string name="settings_section_developer_title">DEV</string>

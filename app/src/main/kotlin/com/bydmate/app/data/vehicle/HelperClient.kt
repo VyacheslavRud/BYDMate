@@ -6,6 +6,7 @@ import android.os.Parcel
 import android.util.Log
 import android.view.Surface
 import com.bydmate.app.helper.HelperBinderProtocol
+import com.bydmate.app.navigation.WazeNavigation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -19,6 +20,20 @@ data class BatchReadItem(val tx: Int, val dev: Int, val fid: Int)
 
 /** Result of the daemon's direct freeform launch (TX_LAUNCH_FREEFORM). */
 enum class FreeformLaunchResult { OK, UNAVAILABLE, FAILED }
+
+/** Read-only ATMS snapshot of Waze's current task placement. */
+data class TaskProjectionState(
+    val taskId: Int,
+    val displayId: Int,
+    val windowingMode: Int,
+)
+
+/** Explicit result of the narrow Waze task-placement query. */
+sealed interface TaskProjectionQueryResult {
+    data class Found(val state: TaskProjectionState) : TaskProjectionQueryResult
+    data object NotRunning : TaskProjectionQueryResult
+    data object Unavailable : TaskProjectionQueryResult
+}
 
 /**
  * Client for the in-vehicle helper daemon registered as the `bydmate_helper`
@@ -59,6 +74,9 @@ interface HelperClient {
     suspend fun launchWazeDeepLink(uri: String): Boolean
     /** Task id of [packageName]'s running task, or null if not running / channel unavailable. */
     suspend fun getTaskId(packageName: String): Int?
+    /** Explicit live Waze task-placement result. The client and daemon both reject every package
+     *  except [WazeNavigation.PACKAGE_NAME]; rejection and transport failure are [TaskProjectionQueryResult.Unavailable]. */
+    suspend fun getTaskProjectionState(packageName: String): TaskProjectionQueryResult
     suspend fun moveTaskToDisplay(taskId: Int, displayId: Int): Boolean
     suspend fun setTaskBounds(taskId: Int, left: Int, top: Int, right: Int, bottom: Int): Boolean
     suspend fun setFocusedTask(taskId: Int): Boolean
@@ -189,6 +207,41 @@ open class HelperClientImpl @Inject constructor() : HelperClient {
     override suspend fun getTaskId(packageName: String): Int? =
         transact(HelperBinderProtocol.TX_GET_TASK_ID) { it.writeString(packageName) }
             ?.let { (status, value) -> if (readAccepted(status) && value > 0) value else null }
+
+    override suspend fun getTaskProjectionState(packageName: String): TaskProjectionQueryResult {
+        // Defense in depth and a useful fail-fast for accidental future generic callers. The
+        // privileged daemon repeats this check and remains the actual security boundary.
+        if (packageName != WazeNavigation.PACKAGE_NAME) return TaskProjectionQueryResult.Unavailable
+        return transactParsed(
+            HelperBinderProtocol.TX_GET_TASK_PROJECTION_STATE,
+            writeArgs = { it.writeString(packageName) },
+        ) { reply ->
+            if (reply.dataAvail() < 16) return@transactParsed TaskProjectionQueryResult.Unavailable
+            val status = reply.readInt()
+            val taskId = reply.readInt()
+            val displayId = reply.readInt()
+            val windowingMode = reply.readInt()
+            when (status) {
+                HelperBinderProtocol.TASK_PROJECTION_FOUND -> {
+                    if (taskId > 0 && displayId >= 0 && windowingMode > 0) {
+                        TaskProjectionQueryResult.Found(
+                            TaskProjectionState(taskId, displayId, windowingMode),
+                        )
+                    } else {
+                        TaskProjectionQueryResult.Unavailable
+                    }
+                }
+                HelperBinderProtocol.TASK_PROJECTION_NOT_RUNNING -> {
+                    if (taskId == -1 && displayId == -1 && windowingMode == -1) {
+                        TaskProjectionQueryResult.NotRunning
+                    } else {
+                        TaskProjectionQueryResult.Unavailable
+                    }
+                }
+                else -> TaskProjectionQueryResult.Unavailable
+            }
+        } ?: TaskProjectionQueryResult.Unavailable
+    }
 
     override suspend fun moveTaskToDisplay(taskId: Int, displayId: Int): Boolean =
         statusOk(HelperBinderProtocol.TX_MOVE_TASK_TO_DISPLAY) { it.writeInt(taskId); it.writeInt(displayId) }

@@ -1234,15 +1234,15 @@
 
     <!-- Dev-only factory HUD calibration -->
     <string name="diagnostics_hud_lab_title">HUD Lab — factory arrow calibration</string>
-    <string name="diagnostics_hud_lab_description">Shows a test arrow on the windshield HUD while parked. Record what the BYD firmware actually rendered after each test.</string>
-    <string name="diagnostics_hud_lab_native_hint">Only raw f28 is sent, without PNG. Normal navigation output is paused for at most 8 seconds.</string>
+    <string name="diagnostics_hud_lab_description">36 bounded parked scenarios test CLEAR, arrows, isolated fields, full frames, transitions and delivery cadence on the windshield HUD.</string>
+    <string name="diagnostics_hud_lab_native_hint">Scenarios use single frames and bounded 100/300/500 ms bursts. Export records every packet, SOME/IP code, field manifest and payload hash.</string>
     <string name="diagnostics_hud_lab_park_confirmation">Vehicle is stationary and gear P is selected</string>
     <string name="diagnostics_hud_lab_left">Expected left</string>
     <string name="diagnostics_hud_lab_right">Expected right</string>
     <string name="diagnostics_hud_lab_straight">Expected straight</string>
     <string name="diagnostics_hud_lab_uturn">Expected U-turn</string>
     <string name="diagnostics_hud_lab_auto_clear">The frame clears automatically after 8 seconds. Tests are blocked while moving or during an active route.</string>
-    <string name="diagnostics_hud_lab_pending">Sent: %1$s, raw f28=%2$d</string>
+    <string name="diagnostics_hud_lab_pending">Live frame sent: %1$s, PNG 0x%2$s, f28=%3$d</string>
     <string name="diagnostics_hud_lab_already_cleared">Display time ended and the HUD was cleared. You can still save the result.</string>
     <string name="diagnostics_hud_lab_what_seen">What did the windshield HUD actually show?</string>
     <string name="diagnostics_hud_lab_saw_left">Saw left</string>
@@ -1250,12 +1250,26 @@
     <string name="diagnostics_hud_lab_saw_straight">Saw straight</string>
     <string name="diagnostics_hud_lab_saw_uturn">Saw U-turn</string>
     <string name="diagnostics_hud_lab_saw_nothing">Nothing appeared</string>
+    <string name="diagnostics_hud_lab_saw_flashed">Appeared then vanished</string>
+    <string name="diagnostics_hud_lab_saw_info">Distance/text visible</string>
+    <string name="diagnostics_hud_lab_saw_distance">Distance visible</string>
+    <string name="diagnostics_hud_lab_saw_road">Road text visible</string>
+    <string name="diagnostics_hud_lab_saw_eta">Arrival time visible</string>
+    <string name="diagnostics_hud_lab_saw_progress">Route progress visible</string>
+    <string name="diagnostics_hud_lab_saw_speed_number">Speed-limit number visible</string>
+    <string name="diagnostics_hud_lab_saw_speed_sign">Speed sign visible</string>
+    <string name="diagnostics_hud_lab_saw_left_then_right">Left, then right</string>
+    <string name="diagnostics_hud_lab_saw_redrawn">Right, CLEAR, right again</string>
+    <string name="diagnostics_hud_lab_saw_clear_not_visible">Arrow stayed continuous; CLEAR was not visible</string>
+    <string name="diagnostics_hud_lab_saw_reversed_sequence">Right first, then left</string>
+    <string name="diagnostics_hud_lab_saw_first_only">First phase only</string>
+    <string name="diagnostics_hud_lab_saw_second_only">Second phase only</string>
     <string name="diagnostics_hud_lab_saw_other">Different symbol</string>
     <string name="diagnostics_hud_lab_not_reported">Not reported</string>
     <string name="diagnostics_hud_lab_clear">Clear HUD</string>
     <string name="diagnostics_hud_lab_export">Export</string>
     <string name="diagnostics_hud_lab_saved_count">Saved tests: %1$d</string>
-    <string name="diagnostics_hud_lab_frame_sent">SOME/IP accepted the test frame (rc=%1$d). Check the windshield.</string>
+    <string name="diagnostics_hud_lab_frame_sent">Series sent; last SOME/IP reply rc=%1$d. This is a transport code; record the visual result.</string>
     <string name="diagnostics_hud_lab_send_rejected">Test frame rejected (rc=%1$d).</string>
     <string name="diagnostics_hud_lab_clear_result">Clear command completed (rc=%1$d).</string>
     <string name="diagnostics_hud_lab_observation_saved">Result saved to the HUD Lab journal.</string>
@@ -1270,7 +1284,22 @@
     <string name="diagnostics_hud_lab_failure_disabled">Enable factory HUD output in BYDMate settings first.</string>
     <string name="diagnostics_hud_lab_failure_not_ready">The SOME/IP HUD channel is not connected yet.</string>
     <string name="diagnostics_hud_lab_failure_payload">The test payload failed internal validation.</string>
+    <string name="diagnostics_hud_lab_failure_icon">The bundled maneuver PNG icon could not be loaded.</string>
+    <string name="diagnostics_hud_lab_failure_clear">None of the three CLEAR calls received rc=0 confirmation; visual cleanup is unconfirmed.</string>
     <string name="diagnostics_hud_lab_failure_journal">The test could not be saved. The HUD was cleared safely; try again.</string>
+    <string name="diagnostics_hud_lab_failure_send">The test frame did not receive rc=0 confirmation. The result was logged and a safe cleanup attempt was made.</string>
+    <string name="diagnostics_cluster_lab_title">Instrument Cluster Lab</string>
+    <string name="diagnostics_cluster_lab_description">Separately tests the second display: inventory, projection state, calibration grid and two bounded Waze projection cycles.</string>
+    <string name="diagnostics_cluster_lab_safety_hint">For C03–C05 manually open the factory Navi/projection mode. The lab never enables unvalidated auto_container commands and always restores OFF.</string>
+    <string name="diagnostics_cluster_lab_what_seen">What happened on the instrument cluster during %1$s?</string>
+    <string name="diagnostics_cluster_lab_cancel">Stop and clean up</string>
+    <string name="diagnostics_cluster_lab_export_all">Export both HUD labs</string>
+    <string name="diagnostics_cluster_lab_saved_count">Saved cluster tests: %1$d</string>
+    <string name="diagnostics_cluster_lab_seen_visible">Displayed correctly</string>
+    <string name="diagnostics_cluster_lab_seen_black">Black screen</string>
+    <string name="diagnostics_cluster_lab_seen_flickered">Flickered/disappeared</string>
+    <string name="diagnostics_cluster_lab_seen_geometry">Wrong size/position</string>
+    <string name="diagnostics_cluster_lab_seen_main_only">Main display only</string>
 
     <!-- Dev demo environment -->
     <string name="settings_section_developer_title">DEV</string>

@@ -1352,15 +1352,15 @@
 
     <!-- Dev-only factory HUD calibration -->
     <string name="diagnostics_hud_lab_title">HUD Lab — 原厂箭头校准</string>
-    <string name="diagnostics_hud_lab_description">车辆静止时在前挡风 HUD 上显示测试箭头，并记录 BYD 固件实际显示的内容。</string>
-    <string name="diagnostics_hud_lab_native_hint">仅发送 raw f28，不包含 PNG。正常导航输出最多暂停 8 秒。</string>
+    <string name="diagnostics_hud_lab_description">36 个受限驻车场景测试前挡风 HUD 的 CLEAR、箭头、独立字段、完整帧、切换和发送频率。</string>
+    <string name="diagnostics_hud_lab_native_hint">场景使用单帧以及受控的 100/300/500 ms 连续发送。导出会记录每个数据包、SOME/IP 代码、字段和哈希。</string>
     <string name="diagnostics_hud_lab_park_confirmation">车辆已静止并挂入 P 挡</string>
     <string name="diagnostics_hud_lab_left">预期向左</string>
     <string name="diagnostics_hud_lab_right">预期向右</string>
     <string name="diagnostics_hud_lab_straight">预期直行</string>
     <string name="diagnostics_hud_lab_uturn">预期掉头</string>
     <string name="diagnostics_hud_lab_auto_clear">8 秒后自动清除。车辆移动或 Waze 路线激活时禁止测试。</string>
-    <string name="diagnostics_hud_lab_pending">已发送：%1$s，raw f28=%2$d</string>
+    <string name="diagnostics_hud_lab_pending">已发送 live 帧：%1$s，PNG 0x%2$s，f28=%3$d</string>
     <string name="diagnostics_hud_lab_already_cleared">显示时间已结束，HUD 已清除；仍可保存观察结果。</string>
     <string name="diagnostics_hud_lab_what_seen">前挡风 HUD 实际显示了什么？</string>
     <string name="diagnostics_hud_lab_saw_left">看到向左</string>
@@ -1368,12 +1368,26 @@
     <string name="diagnostics_hud_lab_saw_straight">看到直行</string>
     <string name="diagnostics_hud_lab_saw_uturn">看到掉头</string>
     <string name="diagnostics_hud_lab_saw_nothing">没有显示</string>
+    <string name="diagnostics_hud_lab_saw_flashed">出现后消失</string>
+    <string name="diagnostics_hud_lab_saw_info">距离/文字可见</string>
+    <string name="diagnostics_hud_lab_saw_distance">距离可见</string>
+    <string name="diagnostics_hud_lab_saw_road">道路文字可见</string>
+    <string name="diagnostics_hud_lab_saw_eta">到达时间可见</string>
+    <string name="diagnostics_hud_lab_saw_progress">路线进度可见</string>
+    <string name="diagnostics_hud_lab_saw_speed_number">限速数字可见</string>
+    <string name="diagnostics_hud_lab_saw_speed_sign">限速标志可见</string>
+    <string name="diagnostics_hud_lab_saw_left_then_right">先左转，后右转</string>
+    <string name="diagnostics_hud_lab_saw_redrawn">右转、CLEAR、再次右转</string>
+    <string name="diagnostics_hud_lab_saw_clear_not_visible">箭头持续显示，未看到 CLEAR</string>
+    <string name="diagnostics_hud_lab_saw_reversed_sequence">先右转，后左转</string>
+    <string name="diagnostics_hud_lab_saw_first_only">仅第一阶段</string>
+    <string name="diagnostics_hud_lab_saw_second_only">仅第二阶段</string>
     <string name="diagnostics_hud_lab_saw_other">其他符号</string>
     <string name="diagnostics_hud_lab_not_reported">未记录</string>
     <string name="diagnostics_hud_lab_clear">清除 HUD</string>
     <string name="diagnostics_hud_lab_export">导出</string>
     <string name="diagnostics_hud_lab_saved_count">已保存测试：%1$d</string>
-    <string name="diagnostics_hud_lab_frame_sent">SOME/IP 已接受测试帧（rc=%1$d），请查看前挡风。</string>
+    <string name="diagnostics_hud_lab_frame_sent">序列已发送；最后一个 SOME/IP 回复 rc=%1$d。请记录目视结果。</string>
     <string name="diagnostics_hud_lab_send_rejected">测试帧被拒绝（rc=%1$d）。</string>
     <string name="diagnostics_hud_lab_clear_result">清除命令完成（rc=%1$d）。</string>
     <string name="diagnostics_hud_lab_observation_saved">结果已保存到 HUD Lab 日志。</string>
@@ -1388,7 +1402,22 @@
     <string name="diagnostics_hud_lab_failure_disabled">请先在 BYDMate 设置中启用原厂 HUD。</string>
     <string name="diagnostics_hud_lab_failure_not_ready">SOME/IP HUD 通道尚未连接。</string>
     <string name="diagnostics_hud_lab_failure_payload">测试 payload 未通过内部验证。</string>
+    <string name="diagnostics_hud_lab_failure_icon">无法加载内置的转向 PNG 图标。</string>
+    <string name="diagnostics_hud_lab_failure_clear">三次 CLEAR 均未收到 rc=0 确认；无法确认画面已清除。</string>
     <string name="diagnostics_hud_lab_failure_journal">无法保存测试。HUD 已安全清除，请重试。</string>
+    <string name="diagnostics_hud_lab_failure_send">测试帧未收到 rc=0 确认。结果已记录，并已执行安全清除尝试。</string>
+    <string name="diagnostics_cluster_lab_title">仪表屏实验室</string>
+    <string name="diagnostics_cluster_lab_description">单独测试第二显示屏：显示列表、投影状态、校准网格和两个受限 Waze 投影周期。</string>
+    <string name="diagnostics_cluster_lab_safety_hint">C03–C05 前请手动打开原厂 Navi/投影模式。实验室不会使用未验证的 auto_container 命令，并始终恢复 OFF。</string>
+    <string name="diagnostics_cluster_lab_what_seen">测试 %1$s 时仪表屏发生了什么？</string>
+    <string name="diagnostics_cluster_lab_cancel">停止并清理</string>
+    <string name="diagnostics_cluster_lab_export_all">导出两个 HUD 实验室</string>
+    <string name="diagnostics_cluster_lab_saved_count">已保存仪表屏测试：%1$d</string>
+    <string name="diagnostics_cluster_lab_seen_visible">显示正确</string>
+    <string name="diagnostics_cluster_lab_seen_black">黑屏</string>
+    <string name="diagnostics_cluster_lab_seen_flickered">闪烁/消失</string>
+    <string name="diagnostics_cluster_lab_seen_geometry">尺寸/位置错误</string>
+    <string name="diagnostics_cluster_lab_seen_main_only">仅主屏显示</string>
 
     <!-- Dev demo environment -->
     <string name="settings_section_developer_title">DEV</string>

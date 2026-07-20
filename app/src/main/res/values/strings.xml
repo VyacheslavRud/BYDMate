@@ -1389,15 +1389,15 @@
 
     <!-- Dev-only factory HUD calibration -->
     <string name="diagnostics_hud_lab_title">HUD Lab — калибровка штатных стрелок</string>
-    <string name="diagnostics_hud_lab_description">Показывает тестовую стрелку на лобовом HUD без поездки. После каждого теста отметьте, что реально нарисовала прошивка BYD.</string>
-    <string name="diagnostics_hud_lab_native_hint">Отправляется только raw f28 без PNG. Обычная навигация временно приостанавливается максимум на 8 секунд.</string>
+    <string name="diagnostics_hud_lab_description">36 безопасных сценариев проверяют лобовой HUD без поездки: CLEAR, стрелки, отдельные поля, полный кадр, переходы и частоту отправки.</string>
+    <string name="diagnostics_hud_lab_native_hint">Сценарии используют одиночные кадры и контролируемые серии 100/300/500 мс. В экспорт записываются все пакеты, коды SOME/IP, поля и хэши.</string>
     <string name="diagnostics_hud_lab_park_confirmation">Машина стоит, включена передача P</string>
     <string name="diagnostics_hud_lab_left">Ожидается налево</string>
     <string name="diagnostics_hud_lab_right">Ожидается направо</string>
     <string name="diagnostics_hud_lab_straight">Ожидается прямо</string>
     <string name="diagnostics_hud_lab_uturn">Ожидается разворот</string>
     <string name="diagnostics_hud_lab_auto_clear">Кадр автоматически очистится через 8 секунд. Тест блокируется при активном маршруте или движении.</string>
-    <string name="diagnostics_hud_lab_pending">Отправлено: %1$s, raw f28=%2$d</string>
+    <string name="diagnostics_hud_lab_pending">Отправлен live-кадр: %1$s, PNG 0x%2$s, f28=%3$d</string>
     <string name="diagnostics_hud_lab_already_cleared">Время показа закончилось, HUD уже очищен. Ответ всё ещё можно сохранить.</string>
     <string name="diagnostics_hud_lab_what_seen">Что на самом деле показалось на лобовом стекле?</string>
     <string name="diagnostics_hud_lab_saw_left">Увидел налево</string>
@@ -1405,12 +1405,26 @@
     <string name="diagnostics_hud_lab_saw_straight">Увидел прямо</string>
     <string name="diagnostics_hud_lab_saw_uturn">Увидел разворот</string>
     <string name="diagnostics_hud_lab_saw_nothing">Ничего не появилось</string>
+    <string name="diagnostics_hud_lab_saw_flashed">Появилось и пропало</string>
+    <string name="diagnostics_hud_lab_saw_info">Видны дистанция/текст</string>
+    <string name="diagnostics_hud_lab_saw_distance">Видна дистанция</string>
+    <string name="diagnostics_hud_lab_saw_road">Виден текст улицы</string>
+    <string name="diagnostics_hud_lab_saw_eta">Видно время прибытия</string>
+    <string name="diagnostics_hud_lab_saw_progress">Виден прогресс маршрута</string>
+    <string name="diagnostics_hud_lab_saw_speed_number">Видно число ограничения скорости</string>
+    <string name="diagnostics_hud_lab_saw_speed_sign">Виден знак скорости</string>
+    <string name="diagnostics_hud_lab_saw_left_then_right">Сначала влево, затем вправо</string>
+    <string name="diagnostics_hud_lab_saw_redrawn">Вправо, CLEAR, снова вправо</string>
+    <string name="diagnostics_hud_lab_saw_clear_not_visible">Стрелка была непрерывно, CLEAR не виден</string>
+    <string name="diagnostics_hud_lab_saw_reversed_sequence">Сначала вправо, затем влево</string>
+    <string name="diagnostics_hud_lab_saw_first_only">Только первая фаза</string>
+    <string name="diagnostics_hud_lab_saw_second_only">Только вторая фаза</string>
     <string name="diagnostics_hud_lab_saw_other">Другой символ</string>
     <string name="diagnostics_hud_lab_not_reported">Не отмечено</string>
     <string name="diagnostics_hud_lab_clear">Очистить HUD</string>
     <string name="diagnostics_hud_lab_export">Экспортировать</string>
     <string name="diagnostics_hud_lab_saved_count">Сохранено тестов: %1$d</string>
-    <string name="diagnostics_hud_lab_frame_sent">SOME/IP принял тестовый кадр (rc=%1$d). Посмотрите на стекло.</string>
+    <string name="diagnostics_hud_lab_frame_sent">Серия отправлена; последний ответ SOME/IP rc=%1$d. Это транспортный код, результат отметьте визуально.</string>
     <string name="diagnostics_hud_lab_send_rejected">Тестовый кадр отклонён (rc=%1$d).</string>
     <string name="diagnostics_hud_lab_clear_result">Команда очистки выполнена (rc=%1$d).</string>
     <string name="diagnostics_hud_lab_observation_saved">Ответ сохранён в журнале HUD Lab.</string>
@@ -1425,7 +1439,22 @@
     <string name="diagnostics_hud_lab_failure_disabled">Сначала включите штатный HUD в настройках BYDMate.</string>
     <string name="diagnostics_hud_lab_failure_not_ready">Канал SOME/IP HUD ещё не подключён.</string>
     <string name="diagnostics_hud_lab_failure_payload">Тестовый payload не прошёл внутреннюю проверку.</string>
+    <string name="diagnostics_hud_lab_failure_icon">Не удалось загрузить встроенную PNG-иконку манёвра.</string>
+    <string name="diagnostics_hud_lab_failure_clear">Ни одна из трёх команд CLEAR не получила подтверждение rc=0; визуальная очистка не подтверждена.</string>
     <string name="diagnostics_hud_lab_failure_journal">Не удалось сохранить тест в журнал. HUD безопасно очищен; повторите попытку.</string>
+    <string name="diagnostics_hud_lab_failure_send">Тестовый кадр не получил подтверждение rc=0. Результат записан; выполнена безопасная попытка очистки.</string>
+    <string name="diagnostics_cluster_lab_title">Instrument Cluster Lab — приборка</string>
+    <string name="diagnostics_cluster_lab_description">Отдельно проверяет второй экран: список дисплеев, состояние проекции, тестовую сетку и два ограниченных цикла запуска Waze.</string>
+    <string name="diagnostics_cluster_lab_safety_hint">Для C03–C05 вручную откройте штатный режим Navi/проекции. Lab не включает неподтверждённые команды auto_container и всегда возвращает режим OFF.</string>
+    <string name="diagnostics_cluster_lab_what_seen">Что произошло на приборке в тесте %1$s?</string>
+    <string name="diagnostics_cluster_lab_cancel">Остановить и очистить</string>
+    <string name="diagnostics_cluster_lab_export_all">Экспорт обоих HUD</string>
+    <string name="diagnostics_cluster_lab_saved_count">Тестов приборки сохранено: %1$d</string>
+    <string name="diagnostics_cluster_lab_seen_visible">Отображалось правильно</string>
+    <string name="diagnostics_cluster_lab_seen_black">Чёрный экран</string>
+    <string name="diagnostics_cluster_lab_seen_flickered">Мигало/пропадало</string>
+    <string name="diagnostics_cluster_lab_seen_geometry">Неверный размер/позиция</string>
+    <string name="diagnostics_cluster_lab_seen_main_only">Только на главном экране</string>
 
     <!-- Dev demo environment -->
     <string name="settings_section_developer_title">DEV</string>
