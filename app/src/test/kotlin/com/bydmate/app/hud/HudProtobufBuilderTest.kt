@@ -158,6 +158,20 @@ class HudProtobufBuilderTest {
         assertEquals(500L, fields[9]!![0] as Long)
     }
 
+    @Test fun `HUD Lab frame sends exact raw f28 without PNG`() {
+        listOf(1, 2, 3, 9).forEach { rawF28 ->
+            val fields = unwrap(HudProtobufBuilder.buildHudLabFrame(rawF28))
+            assertEquals(rawF28.toLong(), fields[28]!![0] as Long)
+            assertNull(fields[8])
+            assertEquals(100L, fields[9]!![0] as Long)
+        }
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `HUD Lab rejects uncalibrated raw f28`() {
+        HudProtobufBuilder.buildHudLabFrame(255)
+    }
+
     @Test fun `oversize payload drops speed sign but never maneuver icon`() {
         val bigIcon = ByteArray(40_000) { 1 }
         val bigSign = ByteArray(40_000) { 2 }

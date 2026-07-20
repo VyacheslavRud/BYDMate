@@ -5,6 +5,7 @@ import android.content.pm.PackageInfo
 import androidx.test.core.app.ApplicationProvider
 import com.bydmate.app.data.vehicle.HelperBootstrap
 import com.bydmate.app.data.vehicle.HelperClient
+import com.bydmate.app.data.remote.diParsData
 import com.bydmate.app.navdata.NavGuidanceHub
 import com.bydmate.app.navdata.NavA11yFeed
 import io.mockk.Called
@@ -85,6 +86,104 @@ class HudControllerTest {
         coVerify { helperClient.enableAccessibilityService() }
         verify { bridge.startService(HudSomeIpBridge.SERVICE_ID_NAVI) }
         c.setEnabled(false)   // stop the push loop so it does not leak into other tests
+    }
+
+    @Test fun `HUD Lab requires parked confirmation before native send`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        val c = controller(bridge)
+        c.setEnabled(true)
+
+        val result = c.sendHudLabFrame(
+            HudProtobufBuilder.buildHudLabFrame(2),
+            parkConfirmedByUser = false,
+        )
+
+        assertEquals(HudLabSendFailure.PARK_CONFIRMATION_REQUIRED, result.failure)
+        assertFalse(result.accepted)
+        verify(exactly = 0) { bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, any()) }
+        c.setEnabled(false)
+    }
+
+    @Test fun `HUD Lab sends raw frame then clear through ready native channel`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val payloads = mutableListOf<ByteArray>()
+        val bridge = connectedBridge()
+        every { bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, capture(payloads)) } returns 0
+        val c = controller(bridge)
+        c.hudLabVehicleSnapshot = { diParsData(speed = 0, gear = 1) }
+        c.setEnabled(true)
+        val labFrame = HudProtobufBuilder.buildHudLabFrame(2)
+
+        val sent = c.sendHudLabFrame(labFrame, parkConfirmedByUser = true)
+        val clearRc = c.clearHudLabFrame()
+
+        assertTrue(sent.accepted)
+        assertEquals(0, clearRc)
+        assertEquals(2, payloads.size)
+        assertTrue(labFrame.contentEquals(payloads[0]))
+        assertTrue(HudProtobufBuilder.buildClearFrame(0).contentEquals(payloads[1]))
+        c.setEnabled(false)
+    }
+
+    @Test fun `HUD Lab cannot overwrite an active Waze route`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        val c = controller(bridge)
+        c.setEnabled(true)
+        NavGuidanceHub.update(
+            com.bydmate.app.navdata.NavGuidance(maneuverGaode = 2, distanceMeters = 250),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = System.currentTimeMillis(),
+        )
+
+        val result = c.sendHudLabFrame(
+            HudProtobufBuilder.buildHudLabFrame(3),
+            parkConfirmedByUser = true,
+        )
+
+        assertEquals(HudLabSendFailure.ROUTE_ACTIVE, result.failure)
+        assertFalse(result.accepted)
+        c.setEnabled(false)
+    }
+
+    @Test fun `HUD Lab rejects moving or unavailable vehicle safety data`() {
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        val c = controller(bridge)
+        c.setEnabled(true)
+
+        c.hudLabVehicleSnapshot = { null }
+        assertEquals(
+            HudLabSendFailure.VEHICLE_DATA_UNAVAILABLE,
+            c.sendHudLabFrame(
+                HudProtobufBuilder.buildHudLabFrame(1),
+                parkConfirmedByUser = true,
+            ).failure,
+        )
+
+        c.hudLabVehicleSnapshot = { diParsData(speed = 5, gear = 4) }
+        assertEquals(
+            HudLabSendFailure.VEHICLE_MOVING,
+            c.sendHudLabFrame(
+                HudProtobufBuilder.buildHudLabFrame(1),
+                parkConfirmedByUser = true,
+            ).failure,
+        )
+
+        c.hudLabVehicleSnapshot = { diParsData(speed = 0, gear = 4) }
+        assertEquals(
+            HudLabSendFailure.PARK_GEAR_REQUIRED,
+            c.sendHudLabFrame(
+                HudProtobufBuilder.buildHudLabFrame(1),
+                parkConfirmedByUser = true,
+            ).failure,
+        )
+        c.setEnabled(false)
     }
 
     @Test fun `rejected HUD frame is visible as send failure`() {

@@ -26,6 +26,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -51,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.bydmate.app.R
+import com.bydmate.app.BuildConfig
 import com.bydmate.app.data.diagnostics.CapabilityAssessment
 import com.bydmate.app.data.diagnostics.CapabilityId
 import com.bydmate.app.data.diagnostics.CapabilityState
@@ -64,6 +66,12 @@ import com.bydmate.app.data.diagnostics.HudIncidentCause
 import com.bydmate.app.data.diagnostics.VehicleDiagnosticsSnapshot
 import com.bydmate.app.data.diagnostics.WazeWindowState
 import com.bydmate.app.data.vehicle.VehicleProfile
+import com.bydmate.app.hud.HudLabCommand
+import com.bydmate.app.hud.HudLabObserved
+import com.bydmate.app.hud.HudLabOutcome
+import com.bydmate.app.hud.HudLabOutcomeType
+import com.bydmate.app.hud.HudLabSendFailure
+import com.bydmate.app.hud.HudLabState
 import com.bydmate.app.ui.theme.AccentBlue
 import com.bydmate.app.ui.theme.AccentGreen
 import com.bydmate.app.ui.theme.AccentOrange
@@ -86,6 +94,7 @@ fun DiagnosticsScreen(
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val hudLabState by viewModel.hudLabState.collectAsStateWithLifecycle()
     val snapshot = state.snapshot
     val evaluation = state.evaluation
 
@@ -141,6 +150,17 @@ fun DiagnosticsScreen(
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     DisplaysCard(snapshot.displays, snapshot.clusterSelectedDisplayId)
                 }
+                if (BuildConfig.DEBUG) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        HudLabCard(
+                            state = hudLabState,
+                            onSend = viewModel::sendHudLabCommand,
+                            onObserved = viewModel::recordHudLabObservation,
+                            onClear = viewModel::clearHudLab,
+                            onExport = viewModel::exportHudLab,
+                        )
+                    }
+                }
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     CapabilitiesCard(
                         capabilities = evaluation.capabilities,
@@ -152,6 +172,298 @@ fun DiagnosticsScreen(
         }
     }
 }
+
+@Composable
+private fun HudLabCard(
+    state: HudLabState,
+    onSend: (HudLabCommand, Boolean) -> Unit,
+    onObserved: (HudLabObserved) -> Unit,
+    onClear: () -> Unit,
+    onExport: () -> Unit,
+) {
+    var parkConfirmed by remember { mutableStateOf(false) }
+    val pending = state.pending
+    val canSend = parkConfirmed && !state.busy && pending == null
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = AccentBlue.copy(alpha = 0.09f)),
+        border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.42f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+            Text(
+                stringResource(R.string.diagnostics_hud_lab_title),
+                color = TextPrimary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                stringResource(R.string.diagnostics_hud_lab_description),
+                color = TextSecondary,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Text(
+                stringResource(R.string.diagnostics_hud_lab_native_hint),
+                color = AccentBlue,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 5.dp),
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !state.busy && pending == null) {
+                        parkConfirmed = !parkConfirmed
+                    }
+                    .padding(top = 9.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(
+                    checked = parkConfirmed,
+                    onCheckedChange = { parkConfirmed = it },
+                    enabled = !state.busy && pending == null,
+                )
+                Text(
+                    stringResource(R.string.diagnostics_hud_lab_park_confirmation),
+                    color = TextPrimary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(start = 4.dp),
+                )
+            }
+
+            HudLabCommandRow(
+                first = HudLabCommand.LEFT,
+                second = HudLabCommand.RIGHT,
+                enabled = canSend,
+                onSend = { onSend(it, parkConfirmed) },
+            )
+            HudLabCommandRow(
+                first = HudLabCommand.STRAIGHT,
+                second = HudLabCommand.UTURN,
+                enabled = canSend,
+                onSend = { onSend(it, parkConfirmed) },
+            )
+
+            Text(
+                stringResource(R.string.diagnostics_hud_lab_auto_clear),
+                color = TextMuted,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 7.dp),
+            )
+
+            if (pending != null) {
+                HorizontalDivider(
+                    color = CardBorder.copy(alpha = 0.55f),
+                    modifier = Modifier.padding(vertical = 10.dp),
+                )
+                Text(
+                    stringResource(
+                        R.string.diagnostics_hud_lab_pending,
+                        hudLabCommandText(pending.record.command),
+                        pending.record.rawF28,
+                    ),
+                    color = TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                if (pending.autoCleared) {
+                    Text(
+                        stringResource(R.string.diagnostics_hud_lab_already_cleared),
+                        color = AccentOrange,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
+                }
+                Text(
+                    stringResource(R.string.diagnostics_hud_lab_what_seen),
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 5.dp),
+                )
+                HudLabObservedRow(
+                    first = HudLabObserved.LEFT,
+                    second = HudLabObserved.RIGHT,
+                    enabled = !state.busy,
+                    onObserved = onObserved,
+                )
+                HudLabObservedRow(
+                    first = HudLabObserved.STRAIGHT,
+                    second = HudLabObserved.UTURN,
+                    enabled = !state.busy,
+                    onObserved = onObserved,
+                )
+                HudLabObservedRow(
+                    first = HudLabObserved.NOTHING,
+                    second = HudLabObserved.OTHER,
+                    enabled = !state.busy,
+                    onObserved = onObserved,
+                )
+            }
+
+            state.lastOutcome?.let { outcome ->
+                Text(
+                    hudLabOutcomeText(outcome),
+                    color = if (outcome.type in setOf(
+                            HudLabOutcomeType.SEND_REJECTED,
+                            HudLabOutcomeType.EXPORT_FAILED,
+                        )
+                    ) SocRed else AccentGreen,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.padding(top = 9.dp),
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = onClear,
+                    enabled = !state.busy,
+                    modifier = Modifier.weight(1f).heightIn(min = 46.dp),
+                    border = BorderStroke(1.dp, CardBorder),
+                ) {
+                    Text(stringResource(R.string.diagnostics_hud_lab_clear))
+                }
+                Button(
+                    onClick = onExport,
+                    enabled = !state.busy,
+                    modifier = Modifier.weight(1f).heightIn(min = 46.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentGreen,
+                        contentColor = NavyDark,
+                    ),
+                ) {
+                    Text(stringResource(R.string.diagnostics_hud_lab_export))
+                }
+            }
+            Text(
+                stringResource(R.string.diagnostics_hud_lab_saved_count, state.recordsCount),
+                color = TextMuted,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 5.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun HudLabCommandRow(
+    first: HudLabCommand,
+    second: HudLabCommand,
+    enabled: Boolean,
+    onSend: (HudLabCommand) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        listOf(first, second).forEach { command ->
+            Button(
+                onClick = { onSend(command) },
+                enabled = enabled,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AccentBlue.copy(alpha = 0.82f),
+                    contentColor = TextPrimary,
+                ),
+            ) {
+                Text("${hudLabCommandText(command)} · f28=${command.rawF28}", maxLines = 2)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HudLabObservedRow(
+    first: HudLabObserved,
+    second: HudLabObserved,
+    enabled: Boolean,
+    onObserved: (HudLabObserved) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        listOf(first, second).forEach { observed ->
+            OutlinedButton(
+                onClick = { onObserved(observed) },
+                enabled = enabled,
+                modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.55f)),
+            ) {
+                Text(hudLabObservedText(observed), maxLines = 2)
+            }
+        }
+    }
+}
+
+@Composable
+private fun hudLabCommandText(command: HudLabCommand): String = stringResource(
+    when (command) {
+        HudLabCommand.LEFT -> R.string.diagnostics_hud_lab_left
+        HudLabCommand.RIGHT -> R.string.diagnostics_hud_lab_right
+        HudLabCommand.STRAIGHT -> R.string.diagnostics_hud_lab_straight
+        HudLabCommand.UTURN -> R.string.diagnostics_hud_lab_uturn
+    },
+)
+
+@Composable
+private fun hudLabObservedText(observed: HudLabObserved): String = stringResource(
+    when (observed) {
+        HudLabObserved.LEFT -> R.string.diagnostics_hud_lab_saw_left
+        HudLabObserved.RIGHT -> R.string.diagnostics_hud_lab_saw_right
+        HudLabObserved.STRAIGHT -> R.string.diagnostics_hud_lab_saw_straight
+        HudLabObserved.UTURN -> R.string.diagnostics_hud_lab_saw_uturn
+        HudLabObserved.NOTHING -> R.string.diagnostics_hud_lab_saw_nothing
+        HudLabObserved.OTHER -> R.string.diagnostics_hud_lab_saw_other
+        HudLabObserved.NOT_REPORTED -> R.string.diagnostics_hud_lab_not_reported
+    },
+)
+
+@Composable
+private fun hudLabOutcomeText(outcome: HudLabOutcome): String = when (outcome.type) {
+    HudLabOutcomeType.FRAME_SENT -> stringResource(
+        R.string.diagnostics_hud_lab_frame_sent,
+        outcome.rc ?: -1,
+    )
+    HudLabOutcomeType.SEND_REJECTED -> if (outcome.failure != null) {
+        hudLabFailureText(outcome.failure)
+    } else {
+        stringResource(R.string.diagnostics_hud_lab_send_rejected, outcome.rc ?: -1)
+    }
+    HudLabOutcomeType.CLEARED -> stringResource(
+        R.string.diagnostics_hud_lab_clear_result,
+        outcome.rc ?: -1,
+    )
+    HudLabOutcomeType.OBSERVATION_SAVED ->
+        stringResource(R.string.diagnostics_hud_lab_observation_saved)
+    HudLabOutcomeType.EXPORTED -> stringResource(
+        R.string.diagnostics_hud_lab_exported,
+        outcome.path ?: "?",
+    )
+    HudLabOutcomeType.EXPORT_FAILED ->
+        stringResource(R.string.diagnostics_hud_lab_export_failed)
+}
+
+@Composable
+private fun hudLabFailureText(failure: HudLabSendFailure): String = stringResource(
+    when (failure) {
+        HudLabSendFailure.DEV_BUILD_REQUIRED -> R.string.diagnostics_hud_lab_failure_dev
+        HudLabSendFailure.PARK_CONFIRMATION_REQUIRED -> R.string.diagnostics_hud_lab_failure_confirm
+        HudLabSendFailure.VEHICLE_DATA_UNAVAILABLE -> R.string.diagnostics_hud_lab_failure_vehicle_data
+        HudLabSendFailure.VEHICLE_MOVING -> R.string.diagnostics_hud_lab_failure_moving
+        HudLabSendFailure.PARK_GEAR_REQUIRED -> R.string.diagnostics_hud_lab_failure_park
+        HudLabSendFailure.ROUTE_ACTIVE -> R.string.diagnostics_hud_lab_failure_route
+        HudLabSendFailure.HUD_DISABLED -> R.string.diagnostics_hud_lab_failure_disabled
+        HudLabSendFailure.HUD_NOT_READY -> R.string.diagnostics_hud_lab_failure_not_ready
+        HudLabSendFailure.INVALID_PAYLOAD -> R.string.diagnostics_hud_lab_failure_payload
+        HudLabSendFailure.JOURNAL_WRITE_FAILED -> R.string.diagnostics_hud_lab_failure_journal
+    },
+)
 
 @Composable
 private fun DiagnosticsHeader(

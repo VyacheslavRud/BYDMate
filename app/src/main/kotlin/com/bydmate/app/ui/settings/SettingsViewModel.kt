@@ -29,6 +29,7 @@ import com.bydmate.app.data.remote.OpenRouterClient
 import com.bydmate.app.data.remote.OpenRouterModel
 import com.bydmate.app.data.local.entity.PlaceEntity
 import com.bydmate.app.data.diagnostics.HudIncidentRecorder
+import com.bydmate.app.hud.HudLabLogStore
 import com.bydmate.app.demo.DemoDataSeeder
 import com.bydmate.app.demo.DemoMode
 import com.bydmate.app.data.repository.ChargeRepository
@@ -1613,6 +1614,13 @@ class SettingsViewModel @Inject constructor(
                 appendLine("(failed to gather HUD incidents: ${e.message})")
             }
 
+            try {
+                append(HudLabLogStore.renderDiagnosticSection(appContext))
+            } catch (e: Exception) {
+                appendLine("--- HUD Lab calibration ---")
+                appendLine("(failed to gather HUD Lab records: ${e.message})")
+            }
+
             appendLine("--- audio ---")
             try {
                 val am = appContext.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
@@ -1729,6 +1737,7 @@ class SettingsViewModel @Inject constructor(
                     "AudioCapture:*", "SherpaTtsEngine:*", "VoiceController:*",
                     // HUD wave: SOME/IP output + cluster projection diagnostics
                     "HudController:*", "HudSomeIpBridge:*", "HudPushLoop:*",
+                    "HudLab:*",
                     "HudIncidentRecorder:*",
                     "ClusterProjection:*",
                     // Direct projection wave: helper daemon (freeform switch diagnostics; visible

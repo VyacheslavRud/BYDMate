@@ -1229,6 +1229,46 @@
     <string name="diagnostics_waze_window_route_unreadable">rota encontrada, instruções ilegíveis</string>
     <string name="diagnostics_waze_window_guidance">instruções de rota visíveis</string>
 
+    <!-- Dev-only factory HUD calibration -->
+    <string name="diagnostics_hud_lab_title">HUD Lab — calibração das setas originais</string>
+    <string name="diagnostics_hud_lab_description">Mostra uma seta de teste no HUD do para-brisa com o carro parado e registra o que o firmware BYD realmente exibiu.</string>
+    <string name="diagnostics_hud_lab_native_hint">Apenas raw f28 é enviado, sem PNG. A navegação normal é pausada por no máximo 8 segundos.</string>
+    <string name="diagnostics_hud_lab_park_confirmation">O veículo está parado e a marcha P está selecionada</string>
+    <string name="diagnostics_hud_lab_left">Esperado: esquerda</string>
+    <string name="diagnostics_hud_lab_right">Esperado: direita</string>
+    <string name="diagnostics_hud_lab_straight">Esperado: em frente</string>
+    <string name="diagnostics_hud_lab_uturn">Esperado: retorno</string>
+    <string name="diagnostics_hud_lab_auto_clear">O frame é limpo após 8 segundos. O teste é bloqueado em movimento ou com rota ativa.</string>
+    <string name="diagnostics_hud_lab_pending">Enviado: %1$s, raw f28=%2$d</string>
+    <string name="diagnostics_hud_lab_already_cleared">O tempo terminou e o HUD foi limpo. Ainda é possível salvar o resultado.</string>
+    <string name="diagnostics_hud_lab_what_seen">O que apareceu no HUD do para-brisa?</string>
+    <string name="diagnostics_hud_lab_saw_left">Vi esquerda</string>
+    <string name="diagnostics_hud_lab_saw_right">Vi direita</string>
+    <string name="diagnostics_hud_lab_saw_straight">Vi em frente</string>
+    <string name="diagnostics_hud_lab_saw_uturn">Vi retorno</string>
+    <string name="diagnostics_hud_lab_saw_nothing">Nada apareceu</string>
+    <string name="diagnostics_hud_lab_saw_other">Outro símbolo</string>
+    <string name="diagnostics_hud_lab_not_reported">Não informado</string>
+    <string name="diagnostics_hud_lab_clear">Limpar HUD</string>
+    <string name="diagnostics_hud_lab_export">Exportar</string>
+    <string name="diagnostics_hud_lab_saved_count">Testes salvos: %1$d</string>
+    <string name="diagnostics_hud_lab_frame_sent">SOME/IP aceitou o frame de teste (rc=%1$d). Verifique o para-brisa.</string>
+    <string name="diagnostics_hud_lab_send_rejected">Frame de teste rejeitado (rc=%1$d).</string>
+    <string name="diagnostics_hud_lab_clear_result">Comando de limpeza concluído (rc=%1$d).</string>
+    <string name="diagnostics_hud_lab_observation_saved">Resultado salvo no diário do HUD Lab.</string>
+    <string name="diagnostics_hud_lab_exported">Relatório salvo: %1$s</string>
+    <string name="diagnostics_hud_lab_export_failed">Não foi possível salvar o relatório do HUD Lab.</string>
+    <string name="diagnostics_hud_lab_failure_dev">HUD Lab está disponível apenas na versão dev.</string>
+    <string name="diagnostics_hud_lab_failure_confirm">Confirme que o veículo está parado em P.</string>
+    <string name="diagnostics_hud_lab_failure_vehicle_data">Não há dados recentes de velocidade e marcha. Aguarde a conexão do serviço em segundo plano.</string>
+    <string name="diagnostics_hud_lab_failure_moving">Teste bloqueado: o veículo está em movimento.</string>
+    <string name="diagnostics_hud_lab_failure_park">Teste bloqueado: selecione a marcha P.</string>
+    <string name="diagnostics_hud_lab_failure_route">Encerre primeiro a rota ativa do Waze.</string>
+    <string name="diagnostics_hud_lab_failure_disabled">Ative primeiro a saída do HUD original nas configurações do BYDMate.</string>
+    <string name="diagnostics_hud_lab_failure_not_ready">O canal SOME/IP do HUD ainda não está conectado.</string>
+    <string name="diagnostics_hud_lab_failure_payload">O payload de teste falhou na validação interna.</string>
+    <string name="diagnostics_hud_lab_failure_journal">Não foi possível salvar o teste. O HUD foi limpo com segurança; tente novamente.</string>
+
     <!-- Dev demo environment -->
     <string name="settings_section_developer_title">DEV</string>
     <string name="settings_demo_header">Ambiente de teste</string>

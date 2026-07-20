@@ -139,6 +139,24 @@ class HudPushLoopTest {
         assertArrayEquals(sink.events.first().second, sink.events.last().second)
     }
 
+    @Test fun `HUD Lab suspension does not send or mutate active loop state`() {
+        activeHub(nowMs = 1000L)
+        val sink = FakeSink()
+        var suspended = true
+        val loop = HudPushLoop(
+            sink,
+            nowMsProvider = { 1000L },
+            outputSuspended = { suspended },
+        )
+
+        assertTrue(loop.tick(wasActive = true))
+        assertTrue(sink.events.isEmpty())
+
+        suspended = false
+        assertTrue(loop.tick(wasActive = true))
+        assertEquals(1, sink.events.size)
+    }
+
     @Test fun `rejected clear frame retries until accepted`() {
         activeHub(nowMs = 1000L)
         val sink = FakeSink(results = listOf(0, -7, -7, 0))

@@ -1387,6 +1387,46 @@
     <string name="diagnostics_waze_window_route_unreadable">маршрут найден, подсказки не читаются</string>
     <string name="diagnostics_waze_window_guidance">маршрутные подсказки доступны</string>
 
+    <!-- Dev-only factory HUD calibration -->
+    <string name="diagnostics_hud_lab_title">HUD Lab — калибровка штатных стрелок</string>
+    <string name="diagnostics_hud_lab_description">Показывает тестовую стрелку на лобовом HUD без поездки. После каждого теста отметьте, что реально нарисовала прошивка BYD.</string>
+    <string name="diagnostics_hud_lab_native_hint">Отправляется только raw f28 без PNG. Обычная навигация временно приостанавливается максимум на 8 секунд.</string>
+    <string name="diagnostics_hud_lab_park_confirmation">Машина стоит, включена передача P</string>
+    <string name="diagnostics_hud_lab_left">Ожидается налево</string>
+    <string name="diagnostics_hud_lab_right">Ожидается направо</string>
+    <string name="diagnostics_hud_lab_straight">Ожидается прямо</string>
+    <string name="diagnostics_hud_lab_uturn">Ожидается разворот</string>
+    <string name="diagnostics_hud_lab_auto_clear">Кадр автоматически очистится через 8 секунд. Тест блокируется при активном маршруте или движении.</string>
+    <string name="diagnostics_hud_lab_pending">Отправлено: %1$s, raw f28=%2$d</string>
+    <string name="diagnostics_hud_lab_already_cleared">Время показа закончилось, HUD уже очищен. Ответ всё ещё можно сохранить.</string>
+    <string name="diagnostics_hud_lab_what_seen">Что на самом деле показалось на лобовом стекле?</string>
+    <string name="diagnostics_hud_lab_saw_left">Увидел налево</string>
+    <string name="diagnostics_hud_lab_saw_right">Увидел направо</string>
+    <string name="diagnostics_hud_lab_saw_straight">Увидел прямо</string>
+    <string name="diagnostics_hud_lab_saw_uturn">Увидел разворот</string>
+    <string name="diagnostics_hud_lab_saw_nothing">Ничего не появилось</string>
+    <string name="diagnostics_hud_lab_saw_other">Другой символ</string>
+    <string name="diagnostics_hud_lab_not_reported">Не отмечено</string>
+    <string name="diagnostics_hud_lab_clear">Очистить HUD</string>
+    <string name="diagnostics_hud_lab_export">Экспортировать</string>
+    <string name="diagnostics_hud_lab_saved_count">Сохранено тестов: %1$d</string>
+    <string name="diagnostics_hud_lab_frame_sent">SOME/IP принял тестовый кадр (rc=%1$d). Посмотрите на стекло.</string>
+    <string name="diagnostics_hud_lab_send_rejected">Тестовый кадр отклонён (rc=%1$d).</string>
+    <string name="diagnostics_hud_lab_clear_result">Команда очистки выполнена (rc=%1$d).</string>
+    <string name="diagnostics_hud_lab_observation_saved">Ответ сохранён в журнале HUD Lab.</string>
+    <string name="diagnostics_hud_lab_exported">Отчёт сохранён: %1$s</string>
+    <string name="diagnostics_hud_lab_export_failed">Не удалось сохранить отчёт HUD Lab.</string>
+    <string name="diagnostics_hud_lab_failure_dev">HUD Lab доступен только в dev-сборке.</string>
+    <string name="diagnostics_hud_lab_failure_confirm">Подтвердите, что машина стоит на P.</string>
+    <string name="diagnostics_hud_lab_failure_vehicle_data">Нет свежих данных о скорости и передаче. Дождитесь подключения фонового сервиса.</string>
+    <string name="diagnostics_hud_lab_failure_moving">Тест заблокирован: автомобиль движется.</string>
+    <string name="diagnostics_hud_lab_failure_park">Тест заблокирован: включите передачу P.</string>
+    <string name="diagnostics_hud_lab_failure_route">Сначала завершите активный маршрут Waze.</string>
+    <string name="diagnostics_hud_lab_failure_disabled">Сначала включите штатный HUD в настройках BYDMate.</string>
+    <string name="diagnostics_hud_lab_failure_not_ready">Канал SOME/IP HUD ещё не подключён.</string>
+    <string name="diagnostics_hud_lab_failure_payload">Тестовый payload не прошёл внутреннюю проверку.</string>
+    <string name="diagnostics_hud_lab_failure_journal">Не удалось сохранить тест в журнал. HUD безопасно очищен; повторите попытку.</string>
+
     <!-- Dev demo environment -->
     <string name="settings_section_developer_title">DEV</string>
     <string name="settings_demo_header">Среда тестирования</string>

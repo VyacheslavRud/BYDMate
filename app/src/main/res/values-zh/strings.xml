@@ -1350,6 +1350,46 @@
     <string name="diagnostics_waze_window_route_unreadable">已找到路线，但无法读取导航提示</string>
     <string name="diagnostics_waze_window_guidance">可见路线提示</string>
 
+    <!-- Dev-only factory HUD calibration -->
+    <string name="diagnostics_hud_lab_title">HUD Lab — 原厂箭头校准</string>
+    <string name="diagnostics_hud_lab_description">车辆静止时在前挡风 HUD 上显示测试箭头，并记录 BYD 固件实际显示的内容。</string>
+    <string name="diagnostics_hud_lab_native_hint">仅发送 raw f28，不包含 PNG。正常导航输出最多暂停 8 秒。</string>
+    <string name="diagnostics_hud_lab_park_confirmation">车辆已静止并挂入 P 挡</string>
+    <string name="diagnostics_hud_lab_left">预期向左</string>
+    <string name="diagnostics_hud_lab_right">预期向右</string>
+    <string name="diagnostics_hud_lab_straight">预期直行</string>
+    <string name="diagnostics_hud_lab_uturn">预期掉头</string>
+    <string name="diagnostics_hud_lab_auto_clear">8 秒后自动清除。车辆移动或 Waze 路线激活时禁止测试。</string>
+    <string name="diagnostics_hud_lab_pending">已发送：%1$s，raw f28=%2$d</string>
+    <string name="diagnostics_hud_lab_already_cleared">显示时间已结束，HUD 已清除；仍可保存观察结果。</string>
+    <string name="diagnostics_hud_lab_what_seen">前挡风 HUD 实际显示了什么？</string>
+    <string name="diagnostics_hud_lab_saw_left">看到向左</string>
+    <string name="diagnostics_hud_lab_saw_right">看到向右</string>
+    <string name="diagnostics_hud_lab_saw_straight">看到直行</string>
+    <string name="diagnostics_hud_lab_saw_uturn">看到掉头</string>
+    <string name="diagnostics_hud_lab_saw_nothing">没有显示</string>
+    <string name="diagnostics_hud_lab_saw_other">其他符号</string>
+    <string name="diagnostics_hud_lab_not_reported">未记录</string>
+    <string name="diagnostics_hud_lab_clear">清除 HUD</string>
+    <string name="diagnostics_hud_lab_export">导出</string>
+    <string name="diagnostics_hud_lab_saved_count">已保存测试：%1$d</string>
+    <string name="diagnostics_hud_lab_frame_sent">SOME/IP 已接受测试帧（rc=%1$d），请查看前挡风。</string>
+    <string name="diagnostics_hud_lab_send_rejected">测试帧被拒绝（rc=%1$d）。</string>
+    <string name="diagnostics_hud_lab_clear_result">清除命令完成（rc=%1$d）。</string>
+    <string name="diagnostics_hud_lab_observation_saved">结果已保存到 HUD Lab 日志。</string>
+    <string name="diagnostics_hud_lab_exported">报告已保存：%1$s</string>
+    <string name="diagnostics_hud_lab_export_failed">无法保存 HUD Lab 报告。</string>
+    <string name="diagnostics_hud_lab_failure_dev">HUD Lab 仅在 dev 版本中可用。</string>
+    <string name="diagnostics_hud_lab_failure_confirm">请确认车辆静止并挂入 P 挡。</string>
+    <string name="diagnostics_hud_lab_failure_vehicle_data">没有最新的车速和挡位数据，请等待后台服务连接。</string>
+    <string name="diagnostics_hud_lab_failure_moving">测试已阻止：车辆正在移动。</string>
+    <string name="diagnostics_hud_lab_failure_park">测试已阻止：请挂入 P 挡。</string>
+    <string name="diagnostics_hud_lab_failure_route">请先结束当前 Waze 路线。</string>
+    <string name="diagnostics_hud_lab_failure_disabled">请先在 BYDMate 设置中启用原厂 HUD。</string>
+    <string name="diagnostics_hud_lab_failure_not_ready">SOME/IP HUD 通道尚未连接。</string>
+    <string name="diagnostics_hud_lab_failure_payload">测试 payload 未通过内部验证。</string>
+    <string name="diagnostics_hud_lab_failure_journal">无法保存测试。HUD 已安全清除，请重试。</string>
+
     <!-- Dev demo environment -->
     <string name="settings_section_developer_title">DEV</string>
     <string name="settings_demo_header">测试环境</string>

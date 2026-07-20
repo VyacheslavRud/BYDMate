@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
+import com.bydmate.app.BuildConfig
+import com.bydmate.app.data.automation.VehicleSafetySnapshot
 import com.bydmate.app.data.diagnostics.DiagnosticEvidenceStore
 import com.bydmate.app.data.vehicle.HelperBootstrap
 import com.bydmate.app.data.vehicle.HelperClient
@@ -24,6 +26,28 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+
+enum class HudLabSendFailure {
+    DEV_BUILD_REQUIRED,
+    PARK_CONFIRMATION_REQUIRED,
+    VEHICLE_DATA_UNAVAILABLE,
+    VEHICLE_MOVING,
+    PARK_GEAR_REQUIRED,
+    ROUTE_ACTIVE,
+    HUD_DISABLED,
+    HUD_NOT_READY,
+    INVALID_PAYLOAD,
+    JOURNAL_WRITE_FAILED,
+}
+
+internal data class HudLabTransportResult(
+    val rc: Int? = null,
+    val failure: HudLabSendFailure? = null,
+    val gear: Int? = null,
+    val speedKmh: Int? = null,
+) {
+    val accepted: Boolean get() = failure == null && (rc ?: -1) >= 0
+}
 
 /** HUD output lifecycle. Ordering rules (Codex fixes 1/2/4):
  *  - the SOME/IP package probe runs BEFORE any helper-daemon work: cars without the
@@ -103,6 +127,9 @@ class HudController @Inject constructor(
     @Volatile private var bridge: HudSomeIpBridge? = null
     @Volatile private var loop: HudPushLoop? = null
     @Volatile private var lastDeliveryPersistElapsedMs = 0L
+    @Volatile private var hudLabOutputSuspended = false
+    private val hudLabLock = Any()
+    internal var hudLabVehicleSnapshot = { VehicleSafetySnapshot.current() }
 
     private val _status = MutableStateFlow(
         if (isEnabled() && !HudSomeIpBridge.isServicePresent(context.packageManager)) {
@@ -164,6 +191,78 @@ class HudController @Inject constructor(
             NavA11yFeed.disable()   // stop tree reads immediately; teardown is async
             scope.launch { stopSequence() }
         }
+    }
+
+    /**
+     * Sends one raw, PNG-free calibration frame through the already running native HUD channel.
+     * This path is deliberately unavailable in release builds and while a real route is active.
+     */
+    internal fun sendHudLabFrame(
+        payload: ByteArray,
+        parkConfirmedByUser: Boolean,
+    ): HudLabTransportResult = synchronized(hudLabLock) {
+        val vehicle = hudLabVehicleSnapshot()
+        val gear = vehicle?.gear
+        val speed = vehicle?.speed
+        fun rejected(failure: HudLabSendFailure) = HudLabTransportResult(
+            failure = failure,
+            gear = gear,
+            speedKmh = speed,
+        )
+
+        if (!BuildConfig.DEBUG) return@synchronized rejected(HudLabSendFailure.DEV_BUILD_REQUIRED)
+        if (!parkConfirmedByUser) {
+            return@synchronized rejected(HudLabSendFailure.PARK_CONFIRMATION_REQUIRED)
+        }
+        if (NavGuidanceHub.snapshot().active) {
+            return@synchronized rejected(HudLabSendFailure.ROUTE_ACTIVE)
+        }
+        if (vehicle == null || speed == null || gear == null) {
+            return@synchronized rejected(HudLabSendFailure.VEHICLE_DATA_UNAVAILABLE)
+        }
+        if (speed > 0) return@synchronized rejected(HudLabSendFailure.VEHICLE_MOVING)
+        if (gear != 1) return@synchronized rejected(HudLabSendFailure.PARK_GEAR_REQUIRED)
+        if (!isEnabled()) return@synchronized rejected(HudLabSendFailure.HUD_DISABLED)
+        val currentBridge = bridge
+        if (_status.value != Status.ON || currentBridge?.isConnected() != true) {
+            return@synchronized rejected(HudLabSendFailure.HUD_NOT_READY)
+        }
+        if (payload.isEmpty() || payload.size > HudProtobufBuilder.MAX_PAYLOAD_BYTES) {
+            return@synchronized rejected(HudLabSendFailure.INVALID_PAYLOAD)
+        }
+
+        hudLabOutputSuspended = true
+        // Close the narrow race between the first route check and suspension of the normal loop.
+        if (NavGuidanceHub.snapshot().active) {
+            hudLabOutputSuspended = false
+            return@synchronized rejected(HudLabSendFailure.ROUTE_ACTIVE)
+        }
+        val rc = runCatching { currentBridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, payload) }
+            .getOrDefault(HudSomeIpBridge.RESULT_LOCAL_ERROR)
+        if (rc < 0) hudLabOutputSuspended = false
+        Log.i(
+            TAG,
+            "HUD Lab frame raw payloadBytes=${payload.size} rc=$rc gear=$gear speed=$speed",
+        )
+        HudLabTransportResult(rc = rc, gear = gear, speedKmh = speed)
+    }
+
+    /** Always releases normal HUD output, even when the native clear transaction fails. */
+    internal fun clearHudLabFrame(): Int = synchronized(hudLabLock) {
+        val currentBridge = bridge
+        val rc = if (_status.value == Status.ON && currentBridge?.isConnected() == true) {
+            runCatching {
+                currentBridge.fireEvent(
+                    HudSomeIpBridge.TOPIC_NAVI,
+                    HudProtobufBuilder.buildClearFrame(0),
+                )
+            }.getOrDefault(HudSomeIpBridge.RESULT_LOCAL_ERROR)
+        } else {
+            HudSomeIpBridge.RESULT_NOT_CONNECTED
+        }
+        hudLabOutputSuspended = false
+        Log.i(TAG, "HUD Lab clear rc=$rc; normal HUD output resumed")
+        rc
     }
 
     /** TrackingService.onCreate hook. */
@@ -388,6 +487,7 @@ class HudController @Inject constructor(
                         pendingClearAfterReconnect = true
                         scope.launch { rebuildChannel("transport:clear_rejected:$rc") }
                     },
+                    outputSuspended = { hudLabOutputSuspended },
                 )
                     .also { it.start(scope) }
                 Log.i(TAG, "HUD output active")
@@ -401,6 +501,7 @@ class HudController @Inject constructor(
     /** Gateway binding died (crash/update). Clean up and reconnect automatically; waiting for the
      * next ignition left an otherwise healthy Waze route without HUD for the rest of the drive. */
     private fun onBindingLost(reason: String) {
+        hudLabOutputSuspended = false
         NavA11yFeed.disable()
         _status.value = Status.BIND_FAILED
         _deliveryDiagnostics.value = _deliveryDiagnostics.value.copy(
@@ -412,6 +513,7 @@ class HudController @Inject constructor(
     private suspend fun rebuildChannel(reason: String) {
         var shouldRetry = false
         mutex.withLock {
+            hudLabOutputSuspended = false
             if (!lifecycleActive || !isEnabled()) return@withLock
             if (reconnectJob?.isActive == true) return@withLock
             // Once a live channel is rebuilt, its last on-glass contents are unknown. Require an
@@ -491,6 +593,7 @@ class HudController @Inject constructor(
     private suspend fun stopSequence() {
         NavA11yFeed.disable()
         mutex.withLock {
+            hudLabOutputSuspended = false
             reconnectJob?.let { it.cancel(); it.join() }
             reconnectJob = null
             startJob?.let { it.cancel(); it.join() }

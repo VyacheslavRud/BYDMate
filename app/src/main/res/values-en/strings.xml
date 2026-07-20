@@ -1232,6 +1232,46 @@
     <string name="diagnostics_waze_window_route_unreadable">route found, guidance unreadable</string>
     <string name="diagnostics_waze_window_guidance">route guidance visible</string>
 
+    <!-- Dev-only factory HUD calibration -->
+    <string name="diagnostics_hud_lab_title">HUD Lab — factory arrow calibration</string>
+    <string name="diagnostics_hud_lab_description">Shows a test arrow on the windshield HUD while parked. Record what the BYD firmware actually rendered after each test.</string>
+    <string name="diagnostics_hud_lab_native_hint">Only raw f28 is sent, without PNG. Normal navigation output is paused for at most 8 seconds.</string>
+    <string name="diagnostics_hud_lab_park_confirmation">Vehicle is stationary and gear P is selected</string>
+    <string name="diagnostics_hud_lab_left">Expected left</string>
+    <string name="diagnostics_hud_lab_right">Expected right</string>
+    <string name="diagnostics_hud_lab_straight">Expected straight</string>
+    <string name="diagnostics_hud_lab_uturn">Expected U-turn</string>
+    <string name="diagnostics_hud_lab_auto_clear">The frame clears automatically after 8 seconds. Tests are blocked while moving or during an active route.</string>
+    <string name="diagnostics_hud_lab_pending">Sent: %1$s, raw f28=%2$d</string>
+    <string name="diagnostics_hud_lab_already_cleared">Display time ended and the HUD was cleared. You can still save the result.</string>
+    <string name="diagnostics_hud_lab_what_seen">What did the windshield HUD actually show?</string>
+    <string name="diagnostics_hud_lab_saw_left">Saw left</string>
+    <string name="diagnostics_hud_lab_saw_right">Saw right</string>
+    <string name="diagnostics_hud_lab_saw_straight">Saw straight</string>
+    <string name="diagnostics_hud_lab_saw_uturn">Saw U-turn</string>
+    <string name="diagnostics_hud_lab_saw_nothing">Nothing appeared</string>
+    <string name="diagnostics_hud_lab_saw_other">Different symbol</string>
+    <string name="diagnostics_hud_lab_not_reported">Not reported</string>
+    <string name="diagnostics_hud_lab_clear">Clear HUD</string>
+    <string name="diagnostics_hud_lab_export">Export</string>
+    <string name="diagnostics_hud_lab_saved_count">Saved tests: %1$d</string>
+    <string name="diagnostics_hud_lab_frame_sent">SOME/IP accepted the test frame (rc=%1$d). Check the windshield.</string>
+    <string name="diagnostics_hud_lab_send_rejected">Test frame rejected (rc=%1$d).</string>
+    <string name="diagnostics_hud_lab_clear_result">Clear command completed (rc=%1$d).</string>
+    <string name="diagnostics_hud_lab_observation_saved">Result saved to the HUD Lab journal.</string>
+    <string name="diagnostics_hud_lab_exported">Report saved: %1$s</string>
+    <string name="diagnostics_hud_lab_export_failed">Could not save the HUD Lab report.</string>
+    <string name="diagnostics_hud_lab_failure_dev">HUD Lab is available only in the dev build.</string>
+    <string name="diagnostics_hud_lab_failure_confirm">Confirm that the vehicle is stationary in P.</string>
+    <string name="diagnostics_hud_lab_failure_vehicle_data">Fresh speed and gear data are unavailable. Wait for the background service to connect.</string>
+    <string name="diagnostics_hud_lab_failure_moving">Test blocked: the vehicle is moving.</string>
+    <string name="diagnostics_hud_lab_failure_park">Test blocked: select gear P.</string>
+    <string name="diagnostics_hud_lab_failure_route">End the active Waze route first.</string>
+    <string name="diagnostics_hud_lab_failure_disabled">Enable factory HUD output in BYDMate settings first.</string>
+    <string name="diagnostics_hud_lab_failure_not_ready">The SOME/IP HUD channel is not connected yet.</string>
+    <string name="diagnostics_hud_lab_failure_payload">The test payload failed internal validation.</string>
+    <string name="diagnostics_hud_lab_failure_journal">The test could not be saved. The HUD was cleared safely; try again.</string>
+
     <!-- Dev demo environment -->
     <string name="settings_section_developer_title">DEV</string>
     <string name="settings_demo_header">Test environment</string>

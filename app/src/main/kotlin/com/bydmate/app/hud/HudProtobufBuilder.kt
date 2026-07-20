@@ -32,6 +32,44 @@ object HudProtobufBuilder {
         speedLimit: Int,
         maneuverIconPng: ByteArray?,
         speedSignPng: ByteArray?,
+    ): ByteArray = buildFrameWithRawF28(
+        rawF28 = maneuverGaode.takeIf { it > 0 }?.let(::gaodeToF28),
+        distanceMeters = distanceMeters,
+        road = road,
+        etaString = etaString,
+        totalDistMeters = totalDistMeters,
+        speedLimit = speedLimit,
+        maneuverIconPng = maneuverIconPng,
+        speedSignPng = speedSignPng,
+    )
+
+    /**
+     * Dev-only native renderer calibration. The frame deliberately omits f8 PNG so the observed
+     * arrow can only come from the Sea Lion firmware's interpretation of raw f28.
+     */
+    fun buildHudLabFrame(rawF28: Int): ByteArray {
+        require(rawF28 in setOf(1, 2, 3, 9)) { "unsupported HUD Lab f28=$rawF28" }
+        return buildFrameWithRawF28(
+            rawF28 = rawF28,
+            distanceMeters = 100,
+            road = "HUD LAB f28=$rawF28",
+            etaString = null,
+            totalDistMeters = 0,
+            speedLimit = 0,
+            maneuverIconPng = null,
+            speedSignPng = null,
+        )
+    }
+
+    private fun buildFrameWithRawF28(
+        rawF28: Int?,
+        distanceMeters: Int,
+        road: String,
+        etaString: String?,
+        totalDistMeters: Int,
+        speedLimit: Int,
+        maneuverIconPng: ByteArray?,
+        speedSignPng: ByteArray?,
     ): ByteArray {
         val inner = ByteArrayOutputStream()
         // f2 is the constant 2 in every reference guidance frame (donor stage 6,
@@ -48,9 +86,7 @@ object HudProtobufBuilder {
         // Do not manufacture f28=1 for an unknown Waze maneuver. On the Sea Lion 07 that
         // fallback is rendered as a LEFT arrow, which is actively misleading on right turns.
         // The route card remains visible and a later parsed A11Y/notification update adds f28.
-        if (maneuverGaode > 0) {
-            writeVarintField(inner, 28, gaodeToF28(maneuverGaode).toLong())
-        }
+        rawF28?.let { writeVarintField(inner, 28, it.toLong()) }
         writeFixed64Field(inner, 33, progress(distanceMeters, totalDistMeters).toRawBits())
         return wrap(inner.toByteArray())
     }

@@ -40,6 +40,7 @@ class HudPushLoop(
     private val onLoopFailure: (Throwable) -> Unit = {},
     initialClearPending: Boolean = false,
     private val onClearExhausted: (Int) -> Unit = {},
+    private val outputSuspended: () -> Boolean = { false },
 ) {
     companion object {
         private const val TAG = "HudPushLoop"
@@ -83,6 +84,9 @@ class HudPushLoop(
     /** One tick; returns whether guidance was active (input for the next tick). Clear retry state
      * is retained internally because subsequent inactive ticks receive wasActive=false. */
     internal fun tick(wasActive: Boolean): Boolean {
+        // HUD Lab owns the same native topic for a bounded parked calibration. Keep the normal
+        // loop's state intact and do not overwrite its raw f28 frame before the user can see it.
+        if (outputSuspended()) return wasActive
         val s = NavGuidanceHub.snapshot(nowMsProvider())
         val previousRefreshGeneration = lastRefreshGeneration
         lastRefreshGeneration = s.hudRefreshGeneration
