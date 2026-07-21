@@ -37,7 +37,7 @@ class WazeVisualManeuverReaderTest {
         assertTrue((result?.horizontalShift ?: 0f) < 0f)
     }
 
-    @Test fun `straight symmetric shape never invents a side`() {
+    @Test fun `straight symmetric arrow maps to straight without inventing a side`() {
         val mask = BooleanArray(100 * 100)
         for (y in 15 until 92) for (x in 45 until 55) mask[y * 100 + x] = true
         for (i in 0 until 18) {
@@ -45,7 +45,7 @@ class WazeVisualManeuverReaderTest {
         }
 
         assertEquals(
-            0,
+            NavManeuverCodes.GAODE_STRAIGHT,
             WazeVisualManeuverReader.classifyForegroundMask(100, 100, mask)?.maneuverGaode,
         )
     }
@@ -55,6 +55,20 @@ class WazeVisualManeuverReaderTest {
         repeat(12) { mask[(it * 317) % mask.size] = true }
 
         assertNull(WazeVisualManeuverReader.classifyForegroundMask(100, 100, mask))
+    }
+
+    @Test fun `plain circular notification badge is not mistaken for straight`() {
+        val mask = BooleanArray(100 * 100)
+        for (y in 5 until 95) for (x in 5 until 95) {
+            val dx = x - 50
+            val dy = y - 50
+            if (dx * dx + dy * dy <= 40 * 40) mask[y * 100 + x] = true
+        }
+
+        assertEquals(
+            0,
+            WazeVisualManeuverReader.classifyForegroundMask(100, 100, mask)?.maneuverGaode,
+        )
     }
 
     @Test fun `white arrow is recovered from inside coloured maneuver disc`() {

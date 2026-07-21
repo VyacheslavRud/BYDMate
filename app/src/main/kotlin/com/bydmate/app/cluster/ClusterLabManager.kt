@@ -1270,7 +1270,7 @@ class ClusterLabManager @Inject constructor(
         heightPx = heightPx,
         densityDpi = densityDpi,
         state = state,
-        clusterCandidate = name.contains("XDJAScreenProjection", ignoreCase = true) || id == 2,
+        clusterCandidate = isClusterProjectionDisplay(id, name),
     )
 
     private fun readExpectedGeometry(display: ClusterLabDisplaySnapshot): ClusterGeometry {

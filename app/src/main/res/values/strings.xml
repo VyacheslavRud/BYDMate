@@ -19,7 +19,7 @@
     <string name="settings_display_mirror_title">Вывод на приборку кнопкой руля</string>
     <string name="settings_display_mirror_desc">Короткое нажатие выбранной кнопки руля переносит выбранное приложение на приборку и обратно.</string>
     <string name="settings_cluster_auto_container_title">Сразу показывать на приборке</string>
-    <string name="settings_cluster_auto_container_desc">По умолчанию выключено: сначала проверьте ручную проекцию на вашей приборке</string>
+    <string name="settings_cluster_auto_container_desc">Отключено для Sea Lion 07: системный fission display оказался плавающим окном центрального экрана, а не приборкой</string>
     <string name="settings_cluster_direct_reboot_hint">Чтобы голосовой агент видел навигатор на приборке, один раз перезагрузите ДиЛинк: зажмите и удерживайте колёсико громкости. Просто заглушить машину недостаточно. До перезагрузки проекция работает, но агент не видит маршрут.</string>
     <string name="settings_display_app_title">Приложение на приборку</string>
     <string name="settings_display_size_header">Размер окна на приборке</string>

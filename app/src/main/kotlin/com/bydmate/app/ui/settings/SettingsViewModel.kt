@@ -1573,10 +1573,15 @@ class SettingsViewModel @Inject constructor(
                         "${remoteViewsDiagnostics.remoteViewsPresent} " +
                         "actions=${remoteViewsDiagnostics.actionsInspected} " +
                         "imageResources=${remoteViewsDiagnostics.imageResourcesInspected} " +
+                        "imagePayloads=${remoteViewsDiagnostics.imagePayloadsInspected} " +
+                        "visualClassifications=${remoteViewsDiagnostics.visualClassifications} " +
                         "maneuver=" +
                         "${NavManeuverCodes.codeName(remoteViewsDiagnostics.maneuverGaode)}" +
                         "(${remoteViewsDiagnostics.maneuverGaode}) " +
-                        "resource=${remoteViewsDiagnostics.maneuverResource ?: "none"}",
+                        "resource=${remoteViewsDiagnostics.maneuverResource ?: "none"} " +
+                        "visualSource=${remoteViewsDiagnostics.visualSource ?: "none"} " +
+                        "shift=${remoteViewsDiagnostics.horizontalShift} " +
+                        "foreground=${remoteViewsDiagnostics.foregroundRatio}",
                 )
                 appendLine(
                     "waze_visual_arrow: display=${visualDiagnostics.displayId} " +

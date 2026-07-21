@@ -46,4 +46,26 @@ class ClusterProjectionMigrationTest {
             prefs.getString(ClusterProjectionManager.KEY_TARGET_PACKAGE, null))
         assertEquals("Player", prefs.getString(ClusterProjectionManager.KEY_TARGET_LABEL, null))
     }
+
+    @Test fun `Sea Lion fission rollback disables auto container but preserves recovery markers`() {
+        prefs.edit()
+            .putBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, true)
+            .putInt(ClusterProjectionManager.KEY_DIRECT_DISPLAY_ID, 2)
+            .putString(ClusterProjectionManager.KEY_DIRECT_PACKAGE, WazeNavigation.PACKAGE_NAME)
+            .commit()
+
+        ClusterProjectionManager.migrateSeaLionFissionProjectionRollback(context)
+
+        assertEquals(false, prefs.getBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, true))
+        assertEquals(2, prefs.getInt(ClusterProjectionManager.KEY_DIRECT_DISPLAY_ID, -1))
+        assertEquals(
+            WazeNavigation.PACKAGE_NAME,
+            prefs.getString(ClusterProjectionManager.KEY_DIRECT_PACKAGE, null),
+        )
+
+        // The one-shot migration must not overwrite a future explicit compatibility choice.
+        prefs.edit().putBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, true).commit()
+        ClusterProjectionManager.migrateSeaLionFissionProjectionRollback(context)
+        assertEquals(true, prefs.getBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, false))
+    }
 }

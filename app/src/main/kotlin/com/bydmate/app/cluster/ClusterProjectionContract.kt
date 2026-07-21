@@ -36,7 +36,6 @@ internal fun clusterProjectionFailureFor(
     "virtual_display" -> ClusterLabFailure.VIRTUAL_DISPLAY_CREATE_FAILED
     "virtual_display_marker" -> ClusterLabFailure.VIRTUAL_DISPLAY_MARKER_WRITE_FAILED
     "task_launch" -> ClusterLabFailure.WAZE_TASK_LAUNCH_FAILED
-    "system_display_launch" -> ClusterLabFailure.WAZE_TASK_LAUNCH_FAILED
     "exception" -> ClusterLabFailure.PROJECTION_EXCEPTION
     "display_removed" -> ClusterLabFailure.CLUSTER_DISPLAY_REMOVED
     "surface_destroyed" -> ClusterLabFailure.PROJECTION_SURFACE_DESTROYED

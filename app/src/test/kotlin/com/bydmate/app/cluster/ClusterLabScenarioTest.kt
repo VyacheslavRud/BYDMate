@@ -96,7 +96,7 @@ class ClusterLabScenarioTest {
 
     @Test fun `cluster display selection exactly matches production priority`() {
         val displays = listOf(
-            2 to "Fallback panel",
+            2 to "fission_bg_XDJAScreenProjection",
             7 to "XDJAScreenProjection_0",
             9 to "XDJAScreenProjection_1",
         )
@@ -106,11 +106,15 @@ class ClusterLabScenarioTest {
             7,
             preferredClusterDisplayId(displays.filterNot { it.first == 9 }),
         )
-        assertEquals(
-            2,
-            preferredClusterDisplayId(displays.filterNot { it.second.contains("XDJ") }),
-        )
+        assertNull(preferredClusterDisplayId(displays.filterNot { it.second.contains("XDJ") }))
         assertNull(preferredClusterDisplayId(listOf(4 to "Center display")))
+    }
+
+    @Test fun `Sea Lion fission display is a center floating window not a cluster candidate`() {
+        assertFalse(isClusterProjectionDisplay(2, "fission_bg_XDJAScreenProjection"))
+        assertNull(preferredClusterDisplayId(listOf(2 to "fission_bg_XDJAScreenProjection")))
+        assertFalse(isClusterProjectionDisplay(2, "Fallback panel"))
+        assertTrue(isClusterProjectionDisplay(9, "XDJAScreenProjection_1"))
     }
 
     @Test fun `lab auto container remains disabled unless allowed and preferred or forced`() {

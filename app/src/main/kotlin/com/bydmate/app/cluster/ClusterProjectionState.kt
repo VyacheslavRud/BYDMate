@@ -71,14 +71,25 @@ data class ClusterProjectionDiagnosticState(
     val lastSuccessAtMs: Long? = null,
 )
 
-/** Shared production/lab display priority: named `_1`, then any named projection display, then id 2. */
+/**
+ * Shared production/lab display priority: a real app-visible projection surface named `_1`, then
+ * another explicitly named projection surface. `fission_bg_XDJAScreenProjection` is the DiLink
+ * floating-window compositor on the central screen, not the physical instrument cluster. The old
+ * id=2 fallback placed Waze in that small window and must never be treated as cluster evidence.
+ */
+internal fun isClusterProjectionDisplay(displayId: Int, displayName: String): Boolean {
+    val name = displayName.trim()
+    if (name.contains("fission_bg", ignoreCase = true)) return false
+    return displayId != 0 &&
+        name.contains("XDJAScreenProjection", ignoreCase = true)
+}
+
 internal fun preferredClusterDisplayId(displays: List<Pair<Int, String>>): Int? {
     val projectionDisplays = displays.filter {
-        it.second.contains("XDJAScreenProjection", ignoreCase = true)
+        isClusterProjectionDisplay(it.first, it.second)
     }
     return projectionDisplays.firstOrNull { it.second.endsWith("_1") }?.first
         ?: projectionDisplays.firstOrNull()?.first
-        ?: displays.firstOrNull { it.first == 2 }?.first
 }
 
 /** Lab transitions pass false, so a concurrently changed preference can never power hardware. */

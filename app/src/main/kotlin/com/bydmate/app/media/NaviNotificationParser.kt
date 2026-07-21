@@ -4,6 +4,7 @@ import android.app.Notification
 import com.bydmate.app.navdata.NavGuidance
 import com.bydmate.app.navdata.NavGuidanceParser
 import com.bydmate.app.navdata.NavManeuverCodes
+import com.bydmate.app.navdata.WazeVisualManeuverReader
 
 /** Parses Waze's standard notification fields plus a bounded semantic RemoteViews arrow hint. */
 object NaviNotificationParser {
@@ -56,6 +57,7 @@ object NaviNotificationParser {
     fun parse(
         notification: Notification,
         resolveName: (Int) -> String? = { null },
+        classifyImage: ((Any, Int?) -> WazeVisualManeuverReader.Classification?)? = null,
     ): Parsed {
         val extras = notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
@@ -65,7 +67,11 @@ object NaviNotificationParser {
         val textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
             ?.map(CharSequence::toString)
             .orEmpty()
-        val remoteViews = WazeRemoteViewsManeuverReader.inspect(notification, resolveName)
+        val remoteViews = WazeRemoteViewsManeuverReader.inspect(
+            notification,
+            resolveName,
+            classifyImage,
+        )
         return fromText(
             title,
             text,
@@ -148,6 +154,7 @@ object NaviNotificationParser {
     fun dump(
         notification: Notification,
         resolveName: (Int) -> String? = { null },
+        classifyImage: ((Any, Int?) -> WazeVisualManeuverReader.Classification?)? = null,
     ): String {
         val e = notification.extras
         val title = e.getCharSequence(Notification.EXTRA_TITLE)?.toString()
@@ -156,7 +163,11 @@ object NaviNotificationParser {
         val big = e.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
         val lines = e.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.map(CharSequence::toString).orEmpty()
         val maneuverHints = semanticManeuverHints(notification)
-        val remoteViews = WazeRemoteViewsManeuverReader.inspect(notification, resolveName)
+        val remoteViews = WazeRemoteViewsManeuverReader.inspect(
+            notification,
+            resolveName,
+            classifyImage,
+        )
         val parseResult = sequenceOf(title, text, sub, big)
             .plus(lines.asSequence())
             .plus(maneuverHints.asSequence())
@@ -181,9 +192,13 @@ object NaviNotificationParser {
             "remoteViews=${remoteViews.remoteViewsPresent} " +
             "remoteActions=${remoteViews.actionsInspected} " +
             "remoteImageResources=${remoteViews.imageResourcesInspected} " +
+            "remoteImagePayloads=${remoteViews.imagePayloadsInspected} " +
+            "remoteVisualClassifications=${remoteViews.visualClassifications} " +
             "remoteManeuver=${NavManeuverCodes.codeName(remoteViews.maneuverGaode)}" +
             "(${remoteViews.maneuverGaode}) " +
             "remoteResource=${remoteViews.maneuverResource ?: "none"} " +
+            "remoteVisualSource=${remoteViews.visualSource ?: "none"} " +
+            "remoteVisualShift=${remoteViews.horizontalShift} " +
             "guidance=${parsed?.hasGuidance == true} " +
             "${parseResult.diagnosticSummary()}"
     }

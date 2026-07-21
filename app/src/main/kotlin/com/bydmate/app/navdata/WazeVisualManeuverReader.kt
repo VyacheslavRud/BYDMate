@@ -34,7 +34,7 @@ object WazeVisualManeuverReader {
 
     private data class Candidate(val rect: Rect, val source: String, val score: Int)
 
-    internal data class Classification(
+    data class Classification(
         val maneuverGaode: Int,
         val horizontalShift: Float,
         val foregroundRatio: Float,
@@ -292,6 +292,17 @@ object WazeVisualManeuverReader {
         return classifyPixels(sampleW, sampleH, pixels)
     }
 
+    /**
+     * Classifies a standalone notification icon without requiring an accessibility window.
+     * The caller retains ownership of [bitmap]; pixels are sampled in memory and never stored.
+     */
+    internal fun classifyBitmap(bitmap: Bitmap): Classification? {
+        if (bitmap.isRecycled || bitmap.width < MIN_TARGET_PX || bitmap.height < MIN_TARGET_PX) {
+            return null
+        }
+        return classify(bitmap, Rect(0, 0, bitmap.width, bitmap.height))
+    }
+
     /** Pure shape core used by tests. [pixels] are opaque ARGB samples. */
     internal fun classifyPixels(width: Int, height: Int, pixels: IntArray): Classification? {
         if (width < 16 || height < 16 || pixels.size != width * height) return null
@@ -400,9 +411,19 @@ object WazeVisualManeuverReader {
         val lowerX = lower.map { it % width }.average()
         val shift = ((upperX - lowerX) / componentW).toFloat()
         val ratio = largest.size.toFloat() / (width * height)
+        val head = largest.filter { it / width <= minY + componentH * 45 / 100 }
+        val tail = largest.filter { it / width >= minY + componentH * 62 / 100 }
+        fun horizontalSpan(points: List<Int>): Int = if (points.isEmpty()) 0 else {
+            points.maxOf { it % width } - points.minOf { it % width } + 1
+        }
+        val headSpan = horizontalSpan(head)
+        val tailSpan = horizontalSpan(tail)
+        val looksStraight = componentH * 100 >= componentW * 125 &&
+            tailSpan >= 3 && headSpan * 100 >= tailSpan * 140
         val code = when {
             shift >= MIN_DIRECTION_SHIFT -> NavManeuverCodes.GAODE_RIGHT
             shift <= -MIN_DIRECTION_SHIFT -> NavManeuverCodes.GAODE_LEFT
+            looksStraight -> NavManeuverCodes.GAODE_STRAIGHT
             else -> 0
         }
         return Classification(code, shift, ratio)

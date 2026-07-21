@@ -925,9 +925,6 @@ private fun DisplaySection() {
     var triggerKey by remember {
         mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_TRIGGER_KEYCODE, DEFAULT_TRIGGER_KEYCODE))
     }
-    var autoContainer by remember {
-        mutableStateOf(prefs.getBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, false))
-    }
     val rebootPending = remember {
         prefs.getBoolean(ClusterProjectionManager.KEY_FREEFORM_REBOOT_PENDING, false)
     }
@@ -960,11 +957,9 @@ private fun DisplaySection() {
             SettingToggleRow(
                 title = stringResource(R.string.settings_cluster_auto_container_title),
                 description = stringResource(R.string.settings_cluster_auto_container_desc),
-                checked = autoContainer,
-                onCheckedChange = {
-                    autoContainer = it
-                    prefs.edit().putBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, it).apply()
-                },
+                checked = false,
+                onCheckedChange = {},
+                enabled = false,
             )
             if (rebootPending) {
                 SettingHint(text = stringResource(R.string.settings_cluster_direct_reboot_hint))

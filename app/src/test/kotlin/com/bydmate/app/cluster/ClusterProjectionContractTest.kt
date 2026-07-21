@@ -106,7 +106,6 @@ class ClusterProjectionContractTest {
             "virtual_display" to ClusterLabFailure.VIRTUAL_DISPLAY_CREATE_FAILED,
             "virtual_display_marker" to ClusterLabFailure.VIRTUAL_DISPLAY_MARKER_WRITE_FAILED,
             "task_launch" to ClusterLabFailure.WAZE_TASK_LAUNCH_FAILED,
-            "system_display_launch" to ClusterLabFailure.WAZE_TASK_LAUNCH_FAILED,
             "exception" to ClusterLabFailure.PROJECTION_EXCEPTION,
             "display_removed" to ClusterLabFailure.CLUSTER_DISPLAY_REMOVED,
             "surface_destroyed" to ClusterLabFailure.PROJECTION_SURFACE_DESTROYED,

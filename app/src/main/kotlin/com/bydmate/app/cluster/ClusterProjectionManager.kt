@@ -71,10 +71,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 object ClusterProjectionManager {
     private data class ClusterDisplayTarget(
         val diagnostic: ClusterDisplayDiagnostic,
-        val appDisplay: Display?,
+        val appDisplay: Display,
     )
     private const val TAG = "ClusterProjection"
-    private const val DEFAULT_CLUSTER_DISPLAY_ID = 2          // Phase 0: fission display id
     private const val VIRTUAL_DISPLAY_FLAGS = 322             // TRUSTED | OWN_CONTENT_ONLY | PRESENTATION (OpenBYD)
     private const val VD_FLAG_PUBLIC = 1                      // DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC
     private const val VD_NAME = "BYDMate_Cluster_VD"
@@ -118,6 +117,7 @@ object ClusterProjectionManager {
     /** Wave P: optional automatic compositor power; default OFF until verified on the target car. */
     const val KEY_AUTO_CONTAINER = "auto_container_enabled"
     private const val KEY_SEA_LION_PROFILE_MIGRATION = "sea_lion_profile_v1_done"
+    private const val KEY_SEA_LION_FISSION_ROLLBACK = "sea_lion_fission_rollback_v1_done"
     // Set while the daemon has powered the cluster compositor up for our projection; cleared only
     // after a CONFIRMED power-down. Survives process death: when the car shuts off mid-projection
     // the off sequence (18 -> pause -> 0) never runs, the compositor reboots in projection mode
@@ -575,6 +575,21 @@ object ClusterProjectionManager {
         }.apply()
     }
 
+    /**
+     * 3.6.24 briefly classified the Sea Lion's `fission_bg` central floating-window surface as
+     * the instrument cluster. Disable production auto-container once on upgrade so another button
+     * press cannot reopen the factory Chinese page while no real app-visible cluster display exists.
+     * Crash ownership markers are intentionally preserved for startup recovery.
+     */
+    fun migrateSeaLionFissionProjectionRollback(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        if (prefs.getBoolean(KEY_SEA_LION_FISSION_ROLLBACK, false)) return
+        prefs.edit()
+            .putBoolean(KEY_AUTO_CONTAINER, false)
+            .putBoolean(KEY_SEA_LION_FISSION_ROLLBACK, true)
+            .apply()
+    }
+
     /** Package to project — user-selectable in settings, defaults to Waze. */
     private fun targetPackage(context: Context): String {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -1029,17 +1044,6 @@ object ClusterProjectionManager {
         val requestedPackage = targetPackageOverride ?: targetPackage(context)
         if (tryDirectProjection(context, helper, display.id, geo, plan, requestedPackage)) return null
 
-        // Sea Lion 07 exposes `fission_bg_XDJAScreenProjection` only to the daemon's system
-        // Context. No app-side Display means no overlay/VirtualDisplay fallback is possible, but
-        // the daemon can still move the verified Waze task directly onto that existing display.
-        if (target.appDisplay == null) {
-            return if (trySystemOnlyProjection(context, helper, display, requestedPackage)) {
-                null
-            } else {
-                "system_display_launch"
-            }
-        }
-
         return try {
             val surface = withTimeoutOrNull(SURFACE_TIMEOUT_MS) {
                 addOverlayAndAwaitSurface(context, target.appDisplay, geo, plan, helper)
@@ -1179,57 +1183,6 @@ object ClusterProjectionManager {
         }
     }
 
-    /** Fullscreen fallback for a protected system display that the app process cannot open. */
-    private suspend fun trySystemOnlyProjection(
-        context: Context,
-        helper: HelperClient,
-        display: ClusterDisplayDiagnostic,
-        packageName: String,
-    ): Boolean {
-        // Task-placement verification is deliberately narrow on both sides of the helper Binder.
-        // Do not claim success for a selectable third-party package that the daemon cannot verify.
-        if (packageName != NAVI_PACKAGE) return false
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val markerWritten = withContext(Dispatchers.IO) {
-            prefs.edit()
-                .putInt(KEY_DIRECT_DISPLAY_ID, display.id)
-                .putString(KEY_DIRECT_PACKAGE, packageName)
-                .commit()
-        }
-        if (!markerWritten) return false
-        val launched = helper.launchAndForce(
-            packageName,
-            display.id,
-            display.widthPx,
-            display.heightPx,
-        )
-        if (!launched) {
-            prefs.edit().putInt(KEY_DIRECT_DISPLAY_ID, -1).remove(KEY_DIRECT_PACKAGE).apply()
-            return false
-        }
-        val task = helper.getTaskProjectionState(NAVI_PACKAGE)
-        val verified = task is com.bydmate.app.data.vehicle.TaskProjectionQueryResult.Found &&
-            task.state.displayId == display.id
-        if (!verified) {
-            Log.w(TAG, "system-only projection move was not verified on display ${display.id}: $task")
-            return false
-        }
-        directDisplayId = display.id
-        projectedPackage = packageName
-        _diagnosticState.update {
-            it.copy(
-                renderPath = ClusterProjectionRenderPath.DIRECT,
-                projectedTaskDisplayId = display.id,
-            )
-        }
-        Log.i(
-            TAG,
-            "system-only projection: $packageName on display ${display.id} " +
-                "${display.widthPx}x${display.heightPx}",
-        )
-        return true
-    }
-
     /** Density override for direct mode: native dpi -> reset (no override), else the plan's dpi. */
     private suspend fun applyDirectDensity(helper: HelperClient, displayId: Int, plan: RenderPlan) {
         val density = if (plan.densityDpi == clusterDensityDpi) 0 else plan.densityDpi
@@ -1263,8 +1216,10 @@ object ClusterProjectionManager {
      * App-side display lookup. The cluster's projection surfaces are virtual displays owned by
      * com.byd.containerservice, named "*XDJAScreenProjection*" (1280x480). Validated on-car
      * 2026-06-02: the panel composites the "..._1" surface in Full mode, so we pick it by name;
-     * if it is absent we take the first projection surface, else fall back to id 2. Name-based
-     * selection survives containerservice reassigning display ids at boot. Updates cluster W/H/dpi.
+     * if it is absent we take another explicitly named projection surface. Name-based selection
+     * survives containerservice reassigning display ids at boot. The system-only
+     * `fission_bg` surface is deliberately diagnostic-only because field photos proved it renders
+     * a floating window on the main screen. Updates cluster W/H/dpi.
      */
     private suspend fun awaitClusterDisplay(
         context: Context,
@@ -1276,7 +1231,7 @@ object ClusterProjectionManager {
         while (true) {
             val appMatch = resolveClusterDisplay(context)
             val match = appMatch?.let { ClusterDisplayTarget(displayDiagnostic(it), it) }
-                ?: resolveSystemClusterDisplay(helper)
+            if (match == null) updateSystemDisplayDiagnostics(helper)
             val elapsed = SystemClock.elapsedRealtime() - started
             _diagnosticState.update { state ->
                 state.copy(
@@ -1285,11 +1240,10 @@ object ClusterProjectionManager {
                 )
             }
             if (match != null) {
-                val visibility = if (match.appDisplay == null) "system-only" else "app-visible"
                 Log.i(
                     TAG,
                     "cluster display appeared after ${elapsed}ms: " +
-                        "id=${match.diagnostic.id} $visibility",
+                        "id=${match.diagnostic.id} app-visible",
                 )
                 return match
             }
@@ -1298,13 +1252,8 @@ object ClusterProjectionManager {
         }
     }
 
-    private suspend fun resolveSystemClusterDisplay(helper: HelperClient): ClusterDisplayTarget? {
+    private suspend fun updateSystemDisplayDiagnostics(helper: HelperClient) {
         val displays = runCatching { helper.getSystemDisplays() }.getOrNull().orEmpty()
-        val selectedId = preferredClusterDisplayId(displays.map { it.id to it.name }) ?: return null
-        val selected = displays.firstOrNull { it.id == selectedId } ?: return null
-        clusterWidth = selected.widthPx
-        clusterHeight = selected.heightPx
-        clusterDensityDpi = selected.densityDpi
         val diagnostics = displays.map(::systemDisplayDiagnostic)
         _diagnosticState.update { state ->
             val appVisibleIds = state.visibleDisplays.filter { it.appVisible }.mapTo(hashSetOf()) { it.id }
@@ -1313,7 +1262,6 @@ object ClusterProjectionManager {
                     diagnostics.filterNot { it.id in appVisibleIds },
             )
         }
-        return ClusterDisplayTarget(systemDisplayDiagnostic(selected), appDisplay = null)
     }
 
     private fun systemDisplayDiagnostic(display: SystemDisplayInfo): ClusterDisplayDiagnostic =
@@ -1324,10 +1272,7 @@ object ClusterProjectionManager {
             heightPx = display.heightPx,
             densityDpi = display.densityDpi,
             state = display.state,
-            isClusterCandidate = display.name.contains(
-                "XDJAScreenProjection",
-                ignoreCase = true,
-            ) || display.id == DEFAULT_CLUSTER_DISPLAY_ID,
+            isClusterCandidate = isClusterProjectionDisplay(display.id, display.name),
             appVisible = false,
         )
 
@@ -1530,10 +1475,10 @@ object ClusterProjectionManager {
             heightPx = point.y,
             densityDpi = metrics.densityDpi,
             state = display.state,
-            isClusterCandidate = display.name?.contains(
-                "XDJAScreenProjection",
-                ignoreCase = true,
-            ) == true || display.displayId == DEFAULT_CLUSTER_DISPLAY_ID,
+            isClusterCandidate = isClusterProjectionDisplay(
+                display.displayId,
+                display.name.orEmpty(),
+            ),
         )
     }
 

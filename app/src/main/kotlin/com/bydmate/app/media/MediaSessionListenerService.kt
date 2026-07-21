@@ -1,12 +1,19 @@
 package com.bydmate.app.media
 
 import android.app.Notification
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.Icon
 import android.os.Handler
 import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
 import com.bydmate.app.navdata.NavPackages
+import com.bydmate.app.navdata.WazeVisualManeuverReader
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -37,6 +44,9 @@ class MediaSessionListenerService : NotificationListenerService() {
     companion object {
         private const val TAG = "WazeNotifListener"
         private const val HUD_OVERLAY_RECOVERY_DELAY_MS = 1_500L
+        private const val MIN_ICON_SIDE_PX = 24
+        private const val DEFAULT_ICON_SIDE_PX = 128
+        private const val MAX_ICON_SIDE_PX = 256
 
         /** Framework binding state. Secure-settings membership alone is not enough on DiLink:
          * the vendor notification manager can retain the grant without reconnecting the service. */
@@ -77,6 +87,7 @@ class MediaSessionListenerService : NotificationListenerService() {
         ConcurrentHashMap<String, NavigationNotificationMirror>()
     private val notificationSequence = AtomicLong()
     private val navigationResources = ConcurrentHashMap<String, android.content.res.Resources>()
+    private val navigationContexts = ConcurrentHashMap<String, Context>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val hudOverlayRecoveryRunnable = Runnable {
         val hub = com.bydmate.app.navdata.NavGuidanceHub
@@ -153,7 +164,10 @@ class MediaSessionListenerService : NotificationListenerService() {
         if (!NavPackages.isNavigationPackage(sbn.packageName)) return
         val extras = sbn.notification.extras
         val resolveName = navigationResourceResolver(sbn.packageName)
-        val parsed = runCatching { NaviNotificationParser.parse(sbn.notification, resolveName) }
+        val classifyImage = navigationImageClassifier(sbn.packageName)
+        val parsed = runCatching {
+            NaviNotificationParser.parse(sbn.notification, resolveName, classifyImage)
+        }
             .onFailure { Log.w(TAG, "Waze notification parse failed", it) }
             .getOrNull()
         if (!shouldAcceptNavigationNotification(
@@ -172,7 +186,7 @@ class MediaSessionListenerService : NotificationListenerService() {
             }
             Log.d(
                 "WazeNotifParser",
-                NaviNotificationParser.dump(sbn.notification, resolveName),
+                NaviNotificationParser.dump(sbn.notification, resolveName, classifyImage),
             )
             return
         }
@@ -238,6 +252,7 @@ class MediaSessionListenerService : NotificationListenerService() {
             NaviNotificationParser.parse(
                 sbn.notification,
                 navigationResourceResolver(sbn.packageName),
+                navigationImageClassifier(sbn.packageName),
             )
         }.getOrNull()
         // The standalone Waze build on DiLink posts real turn instructions on a vendor-specific
@@ -262,5 +277,92 @@ class MediaSessionListenerService : NotificationListenerService() {
                 }.getResourceEntryName(id)
             }.getOrNull()
         }
+    }
+
+    /**
+     * Waze 4.105 on DiLink keeps the maneuver arrow in a bitmap/Icon action while its activity
+     * window is hidden from accessibility. Decode only that bounded image in memory, classify its
+     * direction, then release any temporary bitmap immediately. URI icons are deliberately ignored.
+     */
+    private fun navigationImageClassifier(
+        packageName: String,
+    ): (Any, Int?) -> WazeVisualManeuverReader.Classification? = { value, resourceId ->
+        runCatching { classifyNavigationImage(packageName, value, resourceId) }
+            .onFailure {
+                Log.d(TAG, "Waze notification image classification failed: ${it.javaClass.simpleName}")
+            }
+            .getOrNull()
+    }
+
+    private fun classifyNavigationImage(
+        packageName: String,
+        value: Any,
+        resourceId: Int?,
+    ): WazeVisualManeuverReader.Classification? {
+        var temporary: Bitmap? = null
+        var bitmap = when (value) {
+            is Bitmap -> value
+            is Int -> drawableForResource(packageName, resourceId ?: value)?.let { drawable ->
+                drawableBitmap(drawable).also { if (drawable !is BitmapDrawable) temporary = it }
+            }
+            is Icon -> {
+                if (value.type == Icon.TYPE_URI ||
+                    (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
+                        value.type == Icon.TYPE_URI_ADAPTIVE_BITMAP)
+                ) {
+                    null
+                } else {
+                    val packageContext = navigationPackageContext(packageName) ?: return null
+                    value.loadDrawable(packageContext)?.let { drawable ->
+                        drawableBitmap(drawable).also {
+                            if (drawable !is BitmapDrawable) temporary = it
+                        }
+                    }
+                }
+            }
+            else -> null
+        } ?: return null
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+            bitmap.config == Bitmap.Config.HARDWARE
+        ) {
+            val software = bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: return null
+            temporary?.takeUnless(Bitmap::isRecycled)?.recycle()
+            temporary = software
+            bitmap = software
+        }
+        return try {
+            WazeVisualManeuverReader.classifyBitmap(bitmap)
+        } finally {
+            temporary?.takeUnless(Bitmap::isRecycled)?.recycle()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun drawableForResource(packageName: String, resourceId: Int): Drawable? {
+        if (resourceId == 0) return null
+        return runCatching {
+            navigationResources.getOrPut(packageName) {
+                packageManager.getResourcesForApplication(packageName)
+            }.getDrawable(resourceId, null)
+        }.getOrNull()
+    }
+
+    private fun navigationPackageContext(packageName: String): Context? = runCatching {
+        navigationContexts.getOrPut(packageName) {
+            createPackageContext(packageName, Context.CONTEXT_IGNORE_SECURITY)
+        }
+    }.getOrNull()
+
+    private fun drawableBitmap(drawable: Drawable): Bitmap? {
+        if (drawable is BitmapDrawable && !drawable.bitmap.isRecycled) return drawable.bitmap
+        val width = drawable.intrinsicWidth.takeIf { it > 0 }?.coerceAtMost(MAX_ICON_SIDE_PX)
+            ?: DEFAULT_ICON_SIDE_PX
+        val height = drawable.intrinsicHeight.takeIf { it > 0 }?.coerceAtMost(MAX_ICON_SIDE_PX)
+            ?: DEFAULT_ICON_SIDE_PX
+        if (width < MIN_ICON_SIDE_PX || height < MIN_ICON_SIDE_PX) return null
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        drawable.setBounds(0, 0, width, height)
+        drawable.draw(Canvas(bitmap))
+        return bitmap
     }
 }

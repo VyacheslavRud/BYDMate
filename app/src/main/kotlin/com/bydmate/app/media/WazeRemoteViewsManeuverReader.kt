@@ -1,17 +1,20 @@
 package com.bydmate.app.media
 
 import android.app.Notification
+import android.graphics.Bitmap
 import android.graphics.drawable.Icon
 import android.widget.RemoteViews
 import com.bydmate.app.navdata.NavManeuverCodes
+import com.bydmate.app.navdata.WazeVisualManeuverReader
 
 /**
- * Reads only semantic maneuver evidence from Waze notification [RemoteViews].
+ * Reads semantic and bounded in-memory maneuver evidence from Waze notification [RemoteViews].
  *
  * The Sea Lion DiLink build exposes distance/street as text, but can keep the arrow in an
- * ImageView resource action. We inspect the bounded action list in memory and retain only Android
- * resource entry names and recognized maneuver codes. Notification text, streets, addresses,
- * bitmaps and rendered views never enter diagnostics or persistent storage.
+ * ImageView action. Newer Waze builds put the arrow in a bitmap or non-semantic [Icon], so the
+ * caller may classify that image without requiring Waze's accessibility window. We retain only a
+ * recognized maneuver code and shape metrics. Notification text, streets, addresses, bitmaps and
+ * rendered views never enter diagnostics or persistent storage.
  */
 object WazeRemoteViewsManeuverReader {
     data class Diagnostics(
@@ -19,8 +22,13 @@ object WazeRemoteViewsManeuverReader {
         val remoteViewsPresent: Boolean = false,
         val actionsInspected: Int = 0,
         val imageResourcesInspected: Int = 0,
+        val imagePayloadsInspected: Int = 0,
+        val visualClassifications: Int = 0,
         val maneuverGaode: Int = 0,
         val maneuverResource: String? = null,
+        val visualSource: String? = null,
+        val horizontalShift: Float? = null,
+        val foregroundRatio: Float? = null,
     )
 
     internal data class ResourceCandidate(
@@ -34,7 +42,17 @@ object WazeRemoteViewsManeuverReader {
         val semanticTextHints: List<String>,
         val actionsInspected: Int,
         val imageResourcesInspected: Int,
+        val imagePayloadsInspected: Int,
+        val visualClassifications: Int,
         val remoteViewsPresent: Boolean,
+        val visualSource: String?,
+        val horizontalShift: Float?,
+        val foregroundRatio: Float?,
+    )
+
+    internal data class VisualCandidate(
+        val classification: WazeVisualManeuverReader.Classification,
+        val source: String,
     )
 
     @Volatile private var latest = Diagnostics()
@@ -45,6 +63,7 @@ object WazeRemoteViewsManeuverReader {
     internal fun inspect(
         notification: Notification,
         resolveName: (Int) -> String?,
+        classifyImage: ((Any, Int?) -> WazeVisualManeuverReader.Classification?)? = null,
         nowMs: Long = System.currentTimeMillis(),
     ): Inspection {
         val views = listOfNotNull(
@@ -54,12 +73,14 @@ object WazeRemoteViewsManeuverReader {
         ).distinctBy { System.identityHashCode(it) }
         if (views.isEmpty()) {
             latest = Diagnostics(inspectedAtMs = nowMs)
-            return Inspection(0, null, emptyList(), 0, 0, false)
+            return Inspection(0, null, emptyList(), 0, 0, 0, 0, false, null, null, null)
         }
 
         val resources = ArrayList<ResourceCandidate>()
+        val visualCandidates = ArrayList<VisualCandidate>()
         val textHints = LinkedHashSet<String>()
         var actionCount = 0
+        var imagePayloadCount = 0
         views.forEach { remoteViews ->
             extractActions(remoteViews).take(MAX_ACTIONS - actionCount).forEach actionLoop@{ action ->
                 actionCount++
@@ -80,37 +101,76 @@ object WazeRemoteViewsManeuverReader {
                 }
 
                 if (!isImageMethod(methodName)) return@actionLoop
-                val resourceId = when (value) {
+                val resourceId: Int? = when (value) {
                     is Int -> value
                     is Icon -> runCatching {
                         value.takeIf { it.type == Icon.TYPE_RESOURCE }?.resId
                     }.getOrNull()
                     else -> null
-                } ?: return@actionLoop
-                val resourceName = safeResourceName(resolveName, resourceId)
-                if (resourceName.isNotEmpty() && resources.size < MAX_IMAGE_RESOURCES) {
-                    resources += ResourceCandidate(viewName, resourceName)
+                }
+                resourceId?.let { id ->
+                    val resourceName = safeResourceName(resolveName, id)
+                    if (resourceName.isNotEmpty() && resources.size < MAX_IMAGE_RESOURCES) {
+                        resources += ResourceCandidate(viewName, resourceName)
+                    }
+                }
+
+                if (classifyImage != null && imagePayloadCount < MAX_IMAGE_PAYLOADS) {
+                    val payload = when {
+                        value is Bitmap || value is Icon || value is Int ->
+                            value to imagePayloadSource(value)
+                        else -> bitmapPayload(remoteViews, fields, action)?.let { it to "bitmap_cache" }
+                    }
+                    if (payload != null) {
+                        imagePayloadCount++
+                        runCatching { classifyImage(payload.first, resourceId) }
+                            .getOrNull()
+                            ?.takeIf { it.maneuverGaode != 0 }
+                            ?.let { visualCandidates += VisualCandidate(it, payload.second) }
+                    }
                 }
             }
         }
 
-        val selected = selectManeuver(resources)
+        val semantic = selectManeuver(resources)
+        val visual = selectVisualManeuver(visualCandidates)
+        // A resource name carrying an explicit navigation verb is stronger than shape inference.
+        val selectedCode = semantic?.first ?: visual?.classification?.maneuverGaode ?: 0
+        val selectedResource = semantic?.second ?: visual?.let { "visual:${it.source}" }
         latest = Diagnostics(
             inspectedAtMs = nowMs,
             remoteViewsPresent = true,
             actionsInspected = actionCount,
             imageResourcesInspected = resources.size,
-            maneuverGaode = selected?.first ?: 0,
-            maneuverResource = selected?.second,
+            imagePayloadsInspected = imagePayloadCount,
+            visualClassifications = visualCandidates.size,
+            maneuverGaode = selectedCode,
+            maneuverResource = selectedResource,
+            visualSource = visual?.source,
+            horizontalShift = visual?.classification?.horizontalShift,
+            foregroundRatio = visual?.classification?.foregroundRatio,
         )
         return Inspection(
-            maneuverGaode = selected?.first ?: 0,
-            maneuverResource = selected?.second,
+            maneuverGaode = selectedCode,
+            maneuverResource = selectedResource,
             semanticTextHints = textHints.toList(),
             actionsInspected = actionCount,
             imageResourcesInspected = resources.size,
+            imagePayloadsInspected = imagePayloadCount,
+            visualClassifications = visualCandidates.size,
             remoteViewsPresent = true,
+            visualSource = visual?.source,
+            horizontalShift = visual?.classification?.horizontalShift,
+            foregroundRatio = visual?.classification?.foregroundRatio,
         )
+    }
+
+    /** Repeated notification layouts must agree; conflicting left/right shapes are rejected. */
+    internal fun selectVisualManeuver(candidates: List<VisualCandidate>): VisualCandidate? {
+        val directional = candidates.filter { it.classification.maneuverGaode != 0 }
+        val codes = directional.map { it.classification.maneuverGaode }.distinct()
+        if (codes.size != 1) return null
+        return directional.maxByOrNull { kotlin.math.abs(it.classification.horizontalShift) }
     }
 
     /**
@@ -198,9 +258,43 @@ object WazeRemoteViewsManeuverReader {
                 return@forEach
             }
             val value = runCatching { field.get(target) }.getOrNull()
-            if (value is CharSequence || value is Int || value is Icon) return value
+            if (value is CharSequence || value is Int || value is Icon || value is Bitmap) {
+                return value
+            }
         }
         return null
+    }
+
+    /** Android 12 stores setImageViewBitmap payloads in RemoteViews.mBitmapCache by bitmapId. */
+    private fun bitmapPayload(
+        remoteViews: RemoteViews,
+        actionFields: List<java.lang.reflect.Field>,
+        action: Any,
+    ): Bitmap? {
+        val bitmapId = intFieldValue(actionFields, "bitmapId", action) ?: return null
+        val cache = collectFields(remoteViews.javaClass)
+            .firstOrNull { it.name == "mBitmapCache" }
+            ?.let { runCatching { it.get(remoteViews) }.getOrNull() }
+            ?: return null
+        val getter = generateSequence(cache.javaClass as Class<*>?) { it.superclass }
+            .flatMap { it.declaredMethods.asSequence() }
+            .firstOrNull { method ->
+                method.name == "getBitmapForId" && method.parameterTypes.contentEquals(
+                    arrayOf(Int::class.javaPrimitiveType),
+                )
+            }
+            ?: return null
+        return runCatching {
+            getter.isAccessible = true
+            getter.invoke(cache, bitmapId) as? Bitmap
+        }.getOrNull()
+    }
+
+    private fun imagePayloadSource(value: Any): String = when (value) {
+        is Bitmap -> "bitmap"
+        is Icon -> "icon_type_${runCatching { value.type }.getOrDefault(-1)}"
+        is Int -> "resource"
+        else -> "unknown"
     }
 
     private fun safeResourceName(resolveName: (Int) -> String?, resourceId: Int): String =
@@ -215,6 +309,7 @@ object WazeRemoteViewsManeuverReader {
     )
     private const val MAX_ACTIONS = 96
     private const val MAX_IMAGE_RESOURCES = 32
+    private const val MAX_IMAGE_PAYLOADS = 12
     private const val MAX_TEXT_HINTS = 24
     private const val MAX_TEXT_HINT_CHARS = 256
     private const val MAX_RESOURCE_NAME_CHARS = 160

@@ -19,7 +19,7 @@
     <string name="settings_display_mirror_title">方向盘按键投射到仪表盘</string>
     <string name="settings_display_mirror_desc">短按所选方向盘按键，将所选应用投射到仪表盘或返回屏幕。</string>
     <string name="settings_cluster_auto_container_title">立即显示到仪表盘</string>
-    <string name="settings_cluster_auto_container_desc">默认关闭：请先在您的仪表盘上验证手动投屏</string>
+    <string name="settings_cluster_auto_container_desc">Sea Lion 07 已禁用：fission 显示是中控屏浮窗，不是仪表屏</string>
     <string name="settings_cluster_direct_reboot_hint">要让语音助手看到仪表盘上的导航，请将DiLink车机重启一次：长按音量旋钮即可重启。仅熄火并不能重启车机。重启之前投屏仍然可用，但语音助手看不到路线。</string>
     <string name="settings_display_app_title">投射到仪表盘的应用</string>
     <string name="settings_display_size_header">仪表盘窗口大小</string>

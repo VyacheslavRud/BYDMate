@@ -27,8 +27,8 @@ android {
         // on DiLink Android 12 (requestLegacyExternalStorage works).
         // targetSdk 30+ would break listFiles() on /storage/emulated/0/energydata/
         targetSdk = 29
-        versionCode = 392
-        versionName = "3.6.24"
+        versionCode = 393
+        versionName = "3.6.25"
 
         // Both stable and Dev are real on-car applications. DEBUG still controls logging,
         // demo tools and update checks, but it must not weaken the background lifecycle: the
