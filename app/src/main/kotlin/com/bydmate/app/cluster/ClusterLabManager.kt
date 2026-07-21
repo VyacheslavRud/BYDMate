@@ -777,6 +777,13 @@ class ClusterLabManager @Inject constructor(
             safety = null,
             displays = availableDisplays,
         )
+        append(
+            record,
+            startedElapsed,
+            ClusterLabEventKind.VERDICT,
+            clusterNativeDeltaLine(beforeCapture.report, finalCapture.report),
+            safety = null,
+        )
         updateProgress("container_probe_complete", 0.95f)
     }
 
@@ -822,6 +829,13 @@ class ClusterLabManager @Inject constructor(
                 afterWatch = parseClusterSystemProbe(finalCapture.report),
                 replyStatus = null,
             ),
+            safety = null,
+        )
+        append(
+            record,
+            startedElapsed,
+            ClusterLabEventKind.VERDICT,
+            clusterNativeDeltaLine(beforeCapture.report, finalCapture.report),
             safety = null,
         )
         val displays = inspectAvailableDisplays()
@@ -955,18 +969,29 @@ class ClusterLabManager @Inject constructor(
         startedElapsed: Long,
         stage: String,
         capture: ProbeCapture,
-    ) = append(
-        record,
-        startedElapsed,
-        ClusterLabEventKind.VERDICT,
-        clusterPlatformVerdictLine(
-            stage = stage,
-            report = capture.report,
-            capturedAtMs = capture.capturedAtMs,
-            captureDurationMs = capture.durationMs,
-        ),
-        safety = null,
-    )
+    ) {
+        append(
+            record,
+            startedElapsed,
+            ClusterLabEventKind.VERDICT,
+            clusterPlatformVerdictLine(
+                stage = stage,
+                report = capture.report,
+                capturedAtMs = capture.capturedAtMs,
+                captureDurationMs = capture.durationMs,
+            ),
+            safety = null,
+        )
+        // The Android display verdict and the vendor-stack inventory answer different questions,
+        // so they stay separate lines rather than one merged conclusion.
+        append(
+            record,
+            startedElapsed,
+            ClusterLabEventKind.VERDICT,
+            clusterNativePathLine(stage, capture.report),
+            safety = null,
+        )
+    }
 
     private suspend fun showPattern(
         record: ClusterLabRecord,

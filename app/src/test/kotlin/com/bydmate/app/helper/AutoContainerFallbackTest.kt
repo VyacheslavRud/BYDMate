@@ -76,14 +76,44 @@ class AutoContainerFallbackTest {
             CmdResult(0, "DisplayDeviceInfo XDJAScreenProjection")
         }
 
-        assertEquals(7, commands.size)
+        assertEquals(11, commands.size)
         assertTrue(commands.all { command ->
             command.startsWith("service list") ||
                 command.startsWith("service call") ||
+                command.startsWith("pm list packages") ||
                 command.startsWith("dumpsys ")
         })
         assertTrue(report.contains("[display_manager] exit=0"))
         assertTrue(report.contains("XDJAScreenProjection"))
-        assertTrue(report.length <= 16_000)
+        assertTrue(report.length <= 30_000)
+    }
+
+    @Test
+    fun `cluster system probe carries the vendor-stack sections the native path needs`() {
+        val report = buildClusterSystemProbe("none") { _, _ -> CmdResult(0, "x") }
+
+        listOf(
+            "[vendor_services_wide]",
+            "[nav_cluster_packages]",
+            "[nav_cluster_running_services]",
+            "[foreground_activities]",
+        ).forEach { section -> assertTrue(section, report.contains(section)) }
+        assertTrue(report.startsWith("schema=2"))
+    }
+
+    @Test
+    fun `no probe command takes an argument or writes anything`() {
+        val commands = mutableListOf<String>()
+        buildClusterSystemProbe("none") { command, args ->
+            commands += command
+            assertTrue(args.isEmpty())
+            CmdResult(0, "")
+        }
+
+        // `service call` is allowed only for the two descriptor reads (transaction 1598968902).
+        commands.filter { it.startsWith("service call") }.forEach { command ->
+            assertTrue(command, command.contains("1598968902"))
+        }
+        assertTrue(commands.none { it.contains("am ") || it.contains("settings put") })
     }
 }

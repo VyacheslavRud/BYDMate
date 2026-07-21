@@ -891,13 +891,36 @@ internal fun buildClusterSystemProbe(
             "surface_flinger_layers",
             "dumpsys SurfaceFlinger --list | grep -Ei 'auto.?container|cluster|instrument|projection|xdja|navigation' | head -n 100",
         ),
+        // `dumpsys activity displays` is not a valid option on this Android 12 build: it exits 0
+        // and prints nothing, which produced an empty section in every export so far. The activity
+        // dump does carry the per-display breakdown.
         Probe(
             "activity_displays",
-            "dumpsys activity displays | grep -Ei 'Display #[0-9]+|DisplayContent|mDisplayId|displayId=|DisplayArea' | head -n 120",
+            "dumpsys activity activities | grep -Ei 'Display #[0-9]+|ActivityDisplay|mDisplayId|displayId=' | head -n 80",
+        ),
+        // --- native cluster path inventory -------------------------------------------------
+        // The instrument cluster of this vehicle is not an Android display, so the questions that
+        // remain are about the vendor stack: which navigation/cluster packages exist, which of
+        // their services are actually running, and what holds the foreground. All read-only.
+        Probe(
+            "vendor_services_wide",
+            "service list | grep -Ei 'auto.?container|cluster|instrument|meter|navi|hud|someip|xdja|fission|projection|display|car' | head -n 80",
+        ),
+        Probe(
+            "nav_cluster_packages",
+            "pm list packages | grep -Ei 'navi|meter|cluster|instrument|hud|someip|xdja|container' | head -n 60",
+        ),
+        Probe(
+            "nav_cluster_running_services",
+            "dumpsys activity services | grep -Ei 'ServiceRecord' | grep -Ei 'navi|meter|cluster|instrument|hud|someip|xdja|container' | head -n 60",
+        ),
+        Probe(
+            "foreground_activities",
+            "dumpsys activity activities | grep -Ei 'topResumedActivity|mResumedActivity|mFocusedApp|mCurrentFocus' | head -n 40",
         ),
     )
     return buildString {
-        appendLine("schema=1")
+        appendLine("schema=2")
         appendLine("last_auto_container=${safeProbeValue(autoContainerTrace, 480)}")
         probes.forEach { probe ->
             val result = runCatching { exec(probe.command, emptyArray()) }.getOrNull()
@@ -917,7 +940,9 @@ internal fun safeProbeValue(value: String, maxChars: Int = 1_200): String = valu
     .take(maxChars)
 
 private const val MAX_PROBE_SECTION_CHARS = 2_400
-private const val MAX_CLUSTER_PROBE_CHARS = 16_000
+// Eleven sections now. The old 16 000 cap silently truncated the report from the middle of the
+// display inventory onwards, which would have dropped exactly the new native-path sections.
+private const val MAX_CLUSTER_PROBE_CHARS = 30_000
 private const val MAX_SYSTEM_DISPLAYS = 16
 private const val MAX_DISPLAY_NAME_CHARS = 160
 
