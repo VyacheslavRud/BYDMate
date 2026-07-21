@@ -298,7 +298,7 @@ object NavA11yFeed {
                         maneuverHintGaode,
                         NavGuidanceHub.Source.A11Y,
                         nowMs,
-                    )
+                    ).applied
                 ) {
                     lastGuidanceAtMs = nowMs
                     lastProbeResult = ProbeResult.GUIDANCE
@@ -341,7 +341,7 @@ object NavA11yFeed {
                             maneuverHintGaode,
                             NavGuidanceHub.Source.A11Y,
                             nowMs,
-                        )
+                        ).applied
                         if (hintApplied) {
                             lastGuidanceAtMs = nowMs
                         } else {
@@ -406,23 +406,38 @@ object NavA11yFeed {
         visualRequests++
         val accepted = WazeVisualManeuverReader.request(service, root) { maneuverGaode ->
             if (!enabled) return@request
-            val nowMs = System.currentTimeMillis()
-            if (NavGuidanceHub.updateManeuverHint(
-                    maneuverGaode,
-                    NavGuidanceHub.Source.A11Y,
-                    nowMs,
-                )
-            ) {
-                lastGuidanceAtMs = nowMs
-                Log.i(
-                    TAG,
-                    "Waze visual maneuver=" +
-                        "${NavManeuverCodes.codeName(maneuverGaode)} gaode=$maneuverGaode",
-                )
-                NavGuidanceHub.requestHudRefresh()
-            }
+            applyVisualManeuver(maneuverGaode)
         }
         if (accepted) visualRequestsAccepted++
+    }
+
+    /**
+     * Applies one classified arrow to the route.
+     *
+     * Waze publishes the arrow only as an image, so the classifier re-reads the very same arrow
+     * about once a second for the whole approach to a turn. Requesting a HUD refresh per read made
+     * the windshield card clear and redraw at 1 Hz. Re-confirmation still renews the guidance lease,
+     * but only a maneuver the driver can actually see change is worth a clear/redraw. Overlay
+     * recovery and Waze window recovery request their own refresh and are deliberately untouched.
+     */
+    internal fun applyVisualManeuver(
+        maneuverGaode: Int,
+        nowMs: Long = System.currentTimeMillis(),
+    ) {
+        val result = NavGuidanceHub.updateManeuverHint(
+            maneuverGaode,
+            NavGuidanceHub.Source.A11Y,
+            nowMs,
+        )
+        if (result.applied) lastGuidanceAtMs = nowMs
+        if (result == NavGuidanceHub.ManeuverHintResult.CHANGED) {
+            Log.i(
+                TAG,
+                "Waze visual maneuver=" +
+                    "${NavManeuverCodes.codeName(maneuverGaode)} gaode=$maneuverGaode",
+            )
+            NavGuidanceHub.requestHudRefresh()
+        }
     }
 
     private fun hasRouteAnchor(root: AccessibilityNodeInfo): Boolean = runCatching {

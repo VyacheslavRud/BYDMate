@@ -53,7 +53,7 @@ class NavGuidanceHubTest {
                 NavManeuverCodes.GAODE_RIGHT,
                 NavGuidanceHub.Source.A11Y,
                 nowMs = 1_000,
-            ),
+            ).applied,
         )
         assertFalse(NavGuidanceHub.snapshot(nowMs = 1_000).active)
     }
@@ -69,7 +69,7 @@ class NavGuidanceHubTest {
                 NavManeuverCodes.GAODE_RIGHT,
                 NavGuidanceHub.Source.A11Y,
                 nowMs = 2_000,
-            ),
+            ).applied,
         )
 
         val snapshot = NavGuidanceHub.snapshot(nowMs = 2_000)

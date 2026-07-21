@@ -304,6 +304,26 @@ object NavGuidanceHub {
     }
 
     /**
+     * Outcome of a maneuver hint, split so a caller can tell a re-confirmation from a real change.
+     *
+     * The visual arrow classifier re-reads the same arrow about once per second, so treating every
+     * successful read as a change made the windshield card clear and redraw at 1 Hz.
+     */
+    internal enum class ManeuverHintResult {
+        /** No active route to attach the direction to, or no direction was recognized. */
+        IGNORED,
+
+        /** Applied, and it renews the route lease, but the rendered maneuver is identical. */
+        UNCHANGED,
+
+        /** The rendered maneuver actually changed; the HUD needs a redraw. */
+        CHANGED,
+        ;
+
+        val applied: Boolean get() = this != IGNORED
+    }
+
+    /**
      * Merges a direction carried by a Waze accessibility event into the current route without
      * replacing richer distance/street data from another source. It can never create a route.
      */
@@ -312,10 +332,10 @@ object NavGuidanceHub {
         maneuverGaode: Int,
         source: Source,
         nowMs: Long = System.currentTimeMillis(),
-    ): Boolean {
-        if (maneuverGaode <= 0) return false
+    ): ManeuverHintResult {
+        if (maneuverGaode <= 0) return ManeuverHintResult.IGNORED
         val current = snapshot(nowMs)
-        if (!current.active) return false
+        if (!current.active) return ManeuverHintResult.IGNORED
         update(
             NavGuidance(
                 maneuverGaode = maneuverGaode,
@@ -329,7 +349,13 @@ object NavGuidanceHub {
             source,
             nowMs,
         )
-        return true
+        // Compared against the rendered snapshot rather than one source, because that is exactly
+        // what HudPushLoop turns into a frame.
+        return if (current.maneuverGaode == maneuverGaode) {
+            ManeuverHintResult.UNCHANGED
+        } else {
+            ManeuverHintResult.CHANGED
+        }
     }
 
     /** A window/probe failure says nothing about whether the route ended. */

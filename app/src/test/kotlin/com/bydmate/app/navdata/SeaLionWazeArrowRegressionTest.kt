@@ -146,7 +146,7 @@ class SeaLionWazeArrowRegressionTest {
                 NavManeuverCodes.GAODE_RIGHT,
                 NavGuidanceHub.Source.A11Y,
                 nowMs = 10_100,
-            ),
+            ).applied,
         )
         assertEquals(NavManeuverCodes.GAODE_RIGHT, NavGuidanceHub.snapshot(10_100).maneuverGaode)
 
