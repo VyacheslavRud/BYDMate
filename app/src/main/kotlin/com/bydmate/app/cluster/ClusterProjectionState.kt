@@ -77,11 +77,14 @@ data class ClusterProjectionDiagnosticState(
  * floating-window compositor on the central screen, not the physical instrument cluster. The old
  * id=2 fallback placed Waze in that small window and must never be treated as cluster evidence.
  */
-internal fun isClusterProjectionDisplay(displayId: Int, displayName: String): Boolean {
+internal fun isClusterProjectionDisplay(displayId: Int, displayName: String): Boolean =
+    displayId != 0 && isClusterProjectionDisplayName(displayName)
+
+/** Name-only half of the rule, for probe text where no display id is quoted. */
+internal fun isClusterProjectionDisplayName(displayName: String): Boolean {
     val name = displayName.trim()
     if (name.contains("fission_bg", ignoreCase = true)) return false
-    return displayId != 0 &&
-        name.contains("XDJAScreenProjection", ignoreCase = true)
+    return name.contains("XDJAScreenProjection", ignoreCase = true)
 }
 
 internal fun preferredClusterDisplayId(displays: List<Pair<Int, String>>): Int? {

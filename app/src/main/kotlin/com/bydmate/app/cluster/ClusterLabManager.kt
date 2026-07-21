@@ -673,7 +673,11 @@ class ClusterLabManager @Inject constructor(
         if (!permissionsGranted) {
             throw ScenarioAbort(ClusterLabFailure.OVERLAY_PERMISSION_UNAVAILABLE)
         }
-        appendSystemProbe(record, startedElapsed, "before_container_on")
+        // Baseline for the three-snapshot comparison at the end of this scenario. Captured
+        // synchronously so its timestamp really precedes the container command.
+        val beforeCapture = clusterSystemProbe()
+        appendSystemProbeReport(record, startedElapsed, "before_container_on", beforeCapture)
+        appendPlatformVerdict(record, startedElapsed, "before_container_on", beforeCapture)
         requireSafe(parkConfirmedByUser)
 
         val markerWritten = withContext(Dispatchers.IO) {
@@ -701,7 +705,9 @@ class ClusterLabManager @Inject constructor(
         )
         if (!processAccepted) throw ScenarioAbort(ClusterLabFailure.CONTAINER_ON_REJECTED)
 
-        coroutineScope {
+        // Snapshot 2: started right after the command so it describes the immediate state, while
+        // the display watch runs in parallel rather than waiting for dumpsys.
+        val immediateCapture = coroutineScope {
             val systemProbe = async { clusterSystemProbe() }
             watchDisplays(
                 record = record,
@@ -710,15 +716,30 @@ class ClusterLabManager @Inject constructor(
                 durationMs = scenario.durationMs,
                 step = "container_display_watch",
                 progressStart = 0.25f,
-                progressSpan = 0.60f,
+                progressSpan = 0.55f,
             )
-            appendSystemProbeReport(
-                record,
-                startedElapsed,
-                "after_container_on",
-                systemProbe.await(),
-            )
+            systemProbe.await()
         }
+        appendSystemProbeReport(
+            record,
+            startedElapsed,
+            "immediate_after_container_on",
+            immediateCapture,
+        )
+        appendPlatformVerdict(
+            record,
+            startedElapsed,
+            "immediate_after_container_on",
+            immediateCapture,
+        )
+        // Snapshot 3, and the reason this scenario can conclude anything: taken synchronously once
+        // the whole observation window has elapsed. A display, Surface or layer that needs several
+        // seconds to appear is invisible to snapshot 2, so without this one the honest answer to
+        // "did the command change anything" is EVIDENCE_INCOMPLETE rather than "no".
+        val finalCapture = clusterSystemProbe()
+        appendSystemProbeReport(record, startedElapsed, "final_after_container_watch", finalCapture)
+        appendPlatformVerdict(record, startedElapsed, "final_after_container_watch", finalCapture)
+        updateProgress("container_probe_final_snapshot", 0.85f)
         val appDisplays = inspectDisplays()
         val systemDisplays = inspectSystemDisplays()
         val availableDisplays = mergeDisplaySnapshots(appDisplays, systemDisplays)
@@ -727,16 +748,33 @@ class ClusterLabManager @Inject constructor(
         _state.update {
             it.copy(clusterDisplayAvailable = appCandidateFound || systemCandidateFound)
         }
+        val finalFacts = parseClusterSystemProbe(finalCapture.report)
         append(
             record,
             startedElapsed,
             ClusterLabEventKind.VERDICT,
             "containerTransportProcessResult=true " +
+                "containerReplyStatus=${finalFacts.containerReplyStatus ?: "unknown"} " +
+                "containerReplyMeaning=" +
+                "${containerReplyMeaning(finalFacts.containerReplyStatus)} " +
                 "appVisibleClusterDisplay=$appCandidateFound " +
                 "systemClusterDisplay=$systemCandidateFound " +
                 "selectedSystemDisplay=${systemDisplays.firstOrNull { it.clusterCandidate }?.id} " +
                 "hardwareChangeRequiresVisualObservation=true",
             safety = requireSafe(parkConfirmedByUser),
+            displays = availableDisplays,
+        )
+        append(
+            record,
+            startedElapsed,
+            ClusterLabEventKind.VERDICT,
+            clusterContainerEffectLine(
+                before = parseClusterSystemProbe(beforeCapture.report),
+                immediate = parseClusterSystemProbe(immediateCapture.report),
+                afterWatch = finalFacts,
+                replyStatus = finalFacts.containerReplyStatus,
+            ),
+            safety = null,
             displays = availableDisplays,
         )
         updateProgress("container_probe_complete", 0.95f)
@@ -748,24 +786,44 @@ class ClusterLabManager @Inject constructor(
         parkConfirmedByUser: Boolean,
         scenario: ClusterLabScenario,
     ) = coroutineScope {
-        updateProgress("switch_factory_navi_now", 0.05f)
-        val initialProbe = async { clusterSystemProbe() }
+        // The baseline must describe the panel *before* the driver touches it, so it is captured
+        // and appended first. Running it asynchronously would timestamp a state that may already
+        // include the factory Navi mode, which is exactly the comparison this scenario needs.
+        updateProgress("manual_watch_baseline", 0.02f)
+        val beforeCapture = clusterSystemProbe()
+        appendSystemProbeReport(record, startedElapsed, "manual_watch_before", beforeCapture)
+        appendPlatformVerdict(record, startedElapsed, "manual_watch_before", beforeCapture)
+        requireSafe(parkConfirmedByUser)
+
+        updateProgress("switch_factory_navi_now", 0.10f)
         watchDisplays(
             record = record,
             startedElapsed = startedElapsed,
             parkConfirmedByUser = parkConfirmedByUser,
             durationMs = scenario.durationMs,
             step = "switch_factory_navi_now",
-            progressStart = 0.05f,
-            progressSpan = 0.80f,
+            progressStart = 0.10f,
+            progressSpan = 0.75f,
         )
-        appendSystemProbeReport(
+        // The decisive snapshot: taken while the driver has the panel switched to its factory Navi
+        // mode. If that mode were an Android display, it can only appear here.
+        val finalCapture = clusterSystemProbe()
+        appendSystemProbeReport(record, startedElapsed, "manual_watch_final", finalCapture)
+        appendPlatformVerdict(record, startedElapsed, "manual_watch_final", finalCapture)
+        append(
             record,
             startedElapsed,
-            "manual_watch_initial",
-            initialProbe.await(),
+            ClusterLabEventKind.VERDICT,
+            clusterContainerEffectLine(
+                before = parseClusterSystemProbe(beforeCapture.report),
+                // No container command here: the immediate axis is the baseline itself, so any
+                // difference reported below belongs to the manual mode switch alone.
+                immediate = parseClusterSystemProbe(beforeCapture.report),
+                afterWatch = parseClusterSystemProbe(finalCapture.report),
+                replyStatus = null,
+            ),
+            safety = null,
         )
-        appendSystemProbe(record, startedElapsed, "manual_watch_final")
         val displays = inspectAvailableDisplays()
         _state.update {
             it.copy(clusterDisplayAvailable = displays.any { display -> display.clusterCandidate })
@@ -827,34 +885,51 @@ class ClusterLabManager @Inject constructor(
         }
     }
 
-    private suspend fun clusterSystemProbe(): String? = try {
-        withTimeoutOrNull(SYSTEM_PROBE_TIMEOUT_MS) { helper.getClusterSystemProbe() }
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (error: Throwable) {
-        Log.w(TAG, "cluster system probe failed: ${error.message}")
-        null
-    }
+    /**
+     * A probe plus when it was really taken.
+     *
+     * The journal timestamps an event when it is appended, which for an asynchronous probe can be
+     * many seconds after the state it describes. Comparing snapshots needs the capture time.
+     */
+    private data class ProbeCapture(
+        val report: String?,
+        val capturedAtMs: Long,
+        val durationMs: Long,
+    )
 
-    private suspend fun appendSystemProbe(
-        record: ClusterLabRecord,
-        startedElapsed: Long,
-        stage: String,
-    ) = appendSystemProbeReport(record, startedElapsed, stage, clusterSystemProbe())
+    private suspend fun clusterSystemProbe(): ProbeCapture {
+        val startedAtMs = wallClockProvider()
+        val startedElapsed = elapsedRealtimeProvider()
+        val report = try {
+            withTimeoutOrNull(SYSTEM_PROBE_TIMEOUT_MS) { helper.getClusterSystemProbe() }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            Log.w(TAG, "cluster system probe failed: ${error.message}")
+            null
+        }
+        return ProbeCapture(
+            report = report,
+            capturedAtMs = startedAtMs,
+            durationMs = (elapsedRealtimeProvider() - startedElapsed).coerceAtLeast(0L),
+        )
+    }
 
     private fun appendSystemProbeReport(
         record: ClusterLabRecord,
         startedElapsed: Long,
         stage: String,
-        report: String?,
+        capture: ProbeCapture,
     ) {
-        val chunks = report?.chunked(SYSTEM_PROBE_EVENT_CHARS).orEmpty()
+        val stamp = "stage=$stage capturedAtMs=${capture.capturedAtMs} " +
+            "captureDurationMs=${capture.durationMs}"
+        val chunks = capture.report?.chunked(SYSTEM_PROBE_EVENT_CHARS).orEmpty()
         if (chunks.isEmpty()) {
             append(
                 record,
                 startedElapsed,
                 ClusterLabEventKind.SNAPSHOT,
-                "system_probe stage=$stage status=UNAVAILABLE",
+                "system_probe $stamp status=UNAVAILABLE",
                 safety = null,
             )
             return
@@ -864,11 +939,34 @@ class ClusterLabManager @Inject constructor(
                 record,
                 startedElapsed,
                 ClusterLabEventKind.SNAPSHOT,
-                "system_probe stage=$stage part=${index + 1}/${chunks.size} $chunk",
+                "system_probe $stamp part=${index + 1}/${chunks.size} $chunk",
                 safety = null,
             )
         }
     }
+
+    /**
+     * One readable conclusion next to the raw probe chunks. The chunks stay the primary evidence;
+     * this line only says what they add up to, so the export answers "does a cluster display exist
+     * on this car" without hand-parsing four `dumpsys` fragments.
+     */
+    private fun appendPlatformVerdict(
+        record: ClusterLabRecord,
+        startedElapsed: Long,
+        stage: String,
+        capture: ProbeCapture,
+    ) = append(
+        record,
+        startedElapsed,
+        ClusterLabEventKind.VERDICT,
+        clusterPlatformVerdictLine(
+            stage = stage,
+            report = capture.report,
+            capturedAtMs = capture.capturedAtMs,
+            captureDurationMs = capture.durationMs,
+        ),
+        safety = null,
+    )
 
     private suspend fun showPattern(
         record: ClusterLabRecord,

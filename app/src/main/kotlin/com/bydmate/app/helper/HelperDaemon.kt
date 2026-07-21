@@ -830,8 +830,37 @@ internal fun autoContainerCall(cmd: Int, exec: (String, String) -> Int): Boolean
 internal fun autoContainerTrace(serviceName: String, cmd: Int, code: Int, stdout: String): String {
     val normalized = safeProbeValue(stdout, maxChars = 320)
     val parcelReply = stdout.contains("Parcel(", ignoreCase = true)
+    val replyStatus = serviceCallReplyStatus(stdout)
     return "service=$serviceName transaction=2 device=1000 command=$cmd " +
-        "processExit=$code parcelReply=$parcelReply reply=$normalized"
+        "processExit=$code parcelReply=$parcelReply replyStatus=${replyStatus ?: "unknown"} " +
+        "reply=$normalized"
+}
+
+private val PARCEL_BODY = Regex("""Parcel\(([0-9a-fA-F][0-9a-fA-F ]*)""")
+private val HEX_WORD = Regex("""^[0-9a-fA-F]{8}$""")
+
+/**
+ * Return value of a `service call` whose reply is a plain status int.
+ *
+ * `service call` exits 0 whenever the binary itself ran, so the process status says nothing about
+ * what the service answered. Sea Lion 07 replies `Parcel(00000000 ffffffff)` to `auto_container`
+ * command 16 — no Binder exception, return value -1 — while the process still exits 0, so the two
+ * are worth reporting separately.
+ *
+ * This is transport evidence only. Without a published AIDL contract for `IAutoContainer` a
+ * non-zero return says the service answered with an error-shaped int; it does not establish that
+ * no native compositor or cluster UI side effect occurred. Callers must keep it separate from
+ * display-inventory evidence and from what the driver actually saw.
+ *
+ * Null means the output was not a compact status reply (a descriptor dump, an error, or empty).
+ */
+internal fun serviceCallReplyStatus(stdout: String): Int? {
+    val body = PARCEL_BODY.find(stdout)?.groupValues?.get(1) ?: return null
+    val words = body.trim().split(Regex("\\s+")).takeWhile { HEX_WORD.matches(it) }
+    if (words.size < 2) return null
+    // A non-zero first word is the Binder exception header, not a value this helper may interpret.
+    if (words[0] != "00000000") return null
+    return words[1].toLong(16).toInt()
 }
 
 /**
