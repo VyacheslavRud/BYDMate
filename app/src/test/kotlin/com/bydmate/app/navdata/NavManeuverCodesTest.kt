@@ -88,6 +88,17 @@ class NavManeuverCodesTest {
         assertEquals(9, gaode("掉头"))
     }
 
+    @Test fun `Czech Waze direction descriptions map to HUD codes`() {
+        assertEquals(1, gaode("Odbočte vlevo"))
+        assertEquals(2, gaode("Odbočte vpravo"))
+        assertEquals(3, gaode("Držte se vlevo"))
+        assertEquals(4, gaode("Mírně vpravo"))
+        assertEquals(7, gaode("Ostře vlevo"))
+        assertEquals(8, gaode("Ostře vpravo"))
+        assertEquals(9, gaode("Otočte se"))
+        assertEquals(11, gaode("Pokračujte rovně"))
+    }
+
     @Test fun `compound instruction selects first maneuver by textual position`() {
         assertEquals(2, gaode("Turn right, then turn left"))
         assertEquals(1, gaode("Turn left, then turn right"))

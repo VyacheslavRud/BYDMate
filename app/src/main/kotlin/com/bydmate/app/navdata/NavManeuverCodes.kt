@@ -62,18 +62,22 @@ object NavManeuverCodes {
         add(GAODE_UTURN_RIGHT,
             "развернитесь направо", "разворот направо",
             "make a u-turn to the right", "make a u turn to the right", "u-turn right", "u turn right",
+            "otocte se doprava", "otočte se doprava",
             "向右掉头")
         add(GAODE_UTURN,
             "развернитесь налево", "разворот налево", "развернитесь", "разворот",
             "make a u-turn", "make a u turn", "u-turn", "u turn", "掉头")
-        add(GAODE_HARD_LEFT, "резкий поворот налево", "резко налево", "sharp left")
-        add(GAODE_HARD_RIGHT, "резкий поворот направо", "резко направо", "sharp right")
+        add(GAODE_UTURN, "otocte se", "otočte se")
+        add(GAODE_HARD_LEFT, "резкий поворот налево", "резко налево", "sharp left", "ostře vlevo")
+        add(GAODE_HARD_RIGHT, "резкий поворот направо", "резко направо", "sharp right", "ostře vpravo")
         add(GAODE_SLIGHT_LEFT,
             "плавный поворот налево", "плавно налево", "держитесь левее", "левее",
-            "slight left", "keep left", "bear left", "fork left", "靠左")
+            "slight left", "keep left", "bear left", "fork left",
+            "držte se vlevo", "mírně vlevo", "靠左")
         add(GAODE_SLIGHT_RIGHT,
             "плавный поворот направо", "плавно направо", "держитесь правее", "правее",
-            "slight right", "keep right", "bear right", "fork right", "靠右")
+            "slight right", "keep right", "bear right", "fork right",
+            "držte se vpravo", "mírně vpravo", "靠右")
         add(GAODE_ROUNDABOUT_EXIT,
             "выезд с кольца", "съезд с кольца", "съезжайте с кольца", "выезжайте из кольца",
             "exit the roundabout", "leave the roundabout")
@@ -89,13 +93,16 @@ object NavManeuverCodes {
         add(GAODE_TUNNEL, "тоннель", "туннель", "tunnel")
         add(GAODE_LEFT,
             "поверните налево", "поворот налево", "съезд налево", "налево",
-            "take the left", "turn left", "exit left", "向左转", "左转")
+            "take the left", "turn left", "exit left",
+            "odbočte vlevo", "zahněte vlevo", "doleva", "vlevo", "向左转", "左转")
         add(GAODE_RIGHT,
             "поверните направо", "поворот направо", "съезд направо", "направо",
-            "take the right", "turn right", "exit right", "向右转", "右转")
+            "take the right", "turn right", "exit right",
+            "odbočte vpravo", "zahněte vpravo", "doprava", "vpravo", "向右转", "右转")
         add(GAODE_STRAIGHT,
             "продолжайте прямо", "двигайтесь прямо", "продолжайте", "двигайтесь", "прямо",
-            "keep straight", "continue straight", "continue", "straight", "直行")
+            "keep straight", "continue straight", "continue", "straight",
+            "pokračujte rovně", "jeďte rovně", "rovně", "直行")
     }
 
     fun parseInstructionText(text: String?): ParseResult {

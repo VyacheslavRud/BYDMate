@@ -1,5 +1,6 @@
 package com.bydmate.app.navdata
 
+import android.os.Build
 import android.view.accessibility.AccessibilityNodeInfo
 
 /**
@@ -18,6 +19,11 @@ object WazeAccessibilityReader {
         RegexOption.IGNORE_CASE,
     )
     private val SHORT_DIRECTIONS = setOf("LEFT", "RIGHT", "STRAIGHT", "U-TURN", "U TURN")
+    private val MANEUVER_RESOURCE_HINT = Regex(
+        "(?:^|_)(?:nav|navigation|maneuver|direction|turn|uturn|u_turn|keep|bear|fork|" +
+            "straight|roundabout|exit|arrow)(?:_|$)",
+        RegexOption.IGNORE_CASE,
+    )
     private val routeAnchorSuffixes = listOf(
         "navBarDistance",
         "navBarStreetLine",
@@ -221,11 +227,7 @@ object WazeAccessibilityReader {
         fun visit(node: AccessibilityNodeInfo) {
             if (result != null || visited++ >= MAX_FALLBACK_TREE_NODES) return
             if (!runCatching { node.isVisibleToUser }.getOrDefault(false)) return
-            val values = linkedSetOf<String>()
-            runCatching { node.text?.toString()?.trim() }.getOrNull()
-                ?.takeIf(String::isNotEmpty)?.let(values::add)
-            runCatching { node.contentDescription?.toString()?.trim() }.getOrNull()
-                ?.takeIf(::isUsefulDescription)?.let(values::add)
+            val values = maneuverSemanticValues(node)
             values.forEach { value ->
                 val parsed = NavManeuverCodes.parseInstructionText(value)
                 if (parsed.gaode != 0 && result == null) result = value
@@ -249,16 +251,13 @@ object WazeAccessibilityReader {
         return result
     }
 
-    /** Unlike generic text fields, maneuver nodes need both text and contentDescription: a Waze
-     *  icon can expose RIGHT only through accessibility while its sibling text carries the full
-     *  instruction. Detailed text still wins later in [maneuverValue]. */
+    /** Unlike generic text fields, maneuver nodes need every public semantic channel. Depending
+     *  on the Waze/DiLink build, the arrow can be exposed as text, content/state description,
+     *  tooltip, action label or a Compose test tag promoted to viewIdResourceName. Detailed text
+     *  still wins later in [maneuverValue]. */
     private fun maneuverNodeValues(node: AccessibilityNodeInfo, depth: Int): List<String> {
         if (!runCatching { node.isVisibleToUser }.getOrDefault(false)) return emptyList()
-        val values = linkedSetOf<String>()
-        runCatching { node.text?.toString()?.trim() }.getOrNull()
-            ?.takeIf(String::isNotEmpty)?.let(values::add)
-        runCatching { node.contentDescription?.toString()?.trim() }.getOrNull()
-            ?.takeIf(::isUsefulDescription)?.let(values::add)
+        val values = maneuverSemanticValues(node)
         if (depth <= 0) return values.toList()
         val childCount = runCatching { node.childCount }.getOrDefault(0)
         for (index in 0 until childCount) {
@@ -271,6 +270,34 @@ object WazeAccessibilityReader {
         }
         return values.toList()
     }
+
+    /** Privacy-safe direction discovery: values are parsed in memory and are never logged. A
+     *  resource id is accepted only when its tail looks navigation-specific, so unrelated Waze
+     *  controls such as LEFT_PANEL cannot become a maneuver. */
+    private fun maneuverSemanticValues(node: AccessibilityNodeInfo): LinkedHashSet<String> =
+        linkedSetOf<String>().apply {
+            fun addValue(value: CharSequence?, requireUsefulDescription: Boolean = false) {
+                value?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let {
+                    if (!requireUsefulDescription || isUsefulDescription(it)) add(it)
+                }
+            }
+
+            addValue(runCatching { node.text }.getOrNull())
+            addValue(runCatching { node.contentDescription }.getOrNull(), true)
+            addValue(runCatching { node.hintText }.getOrNull(), true)
+            addValue(runCatching { node.paneTitle }.getOrNull(), true)
+            addValue(runCatching { node.tooltipText }.getOrNull(), true)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                addValue(runCatching { node.stateDescription }.getOrNull(), true)
+            }
+            runCatching { node.actionList }.getOrNull().orEmpty().forEach { action ->
+                addValue(runCatching { action.label }.getOrNull(), true)
+            }
+            runCatching { node.viewIdResourceName }.getOrNull()
+                ?.substringAfterLast('/')
+                ?.takeIf { MANEUVER_RESOURCE_HINT.containsMatchIn(it) }
+                ?.let(::add)
+        }
 
     private fun isDetailedInstruction(value: String): Boolean =
         value.trim().uppercase() !in SHORT_DIRECTIONS

@@ -101,4 +101,52 @@ class NavA11yExtractorTest {
 
         assertEquals(2, result.data.maneuverGaode)
     }
+
+    @Test fun `Compose maneuver resource id is read when icon has no text`() {
+        val direction = mockk<AccessibilityNodeInfo>(relaxed = true) {
+            every { isVisibleToUser } returns true
+            every { text } returns null
+            every { contentDescription } returns null
+            every { viewIdResourceName } returns "com.waze:id/navigation_turn_right_icon"
+            every { childCount } returns 0
+        }
+        val root = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { root.packageName } returns "com.waze"
+        every { root.isVisibleToUser } returns true
+        every { root.text } returns null
+        every { root.contentDescription } returns null
+        every { root.childCount } returns 1
+        every { root.getChild(0) } returns direction
+        every { root.findAccessibilityNodeInfosByViewId(any()) } returns emptyList()
+        every { root.findAccessibilityNodeInfosByViewId("com.waze:id/navBarDistance") } returns
+            listOf(valueNode("500 m"))
+
+        val result = NavA11yExtractor.read(root) as NavA11yExtractor.ReadResult.Guidance
+
+        assertEquals(2, result.data.maneuverGaode)
+    }
+
+    @Test fun `unrelated left resource id is not treated as maneuver`() {
+        val unrelated = mockk<AccessibilityNodeInfo>(relaxed = true) {
+            every { isVisibleToUser } returns true
+            every { text } returns null
+            every { contentDescription } returns null
+            every { viewIdResourceName } returns "com.waze:id/left_panel"
+            every { childCount } returns 0
+        }
+        val root = mockk<AccessibilityNodeInfo>(relaxed = true)
+        every { root.packageName } returns "com.waze"
+        every { root.isVisibleToUser } returns true
+        every { root.text } returns null
+        every { root.contentDescription } returns null
+        every { root.childCount } returns 1
+        every { root.getChild(0) } returns unrelated
+        every { root.findAccessibilityNodeInfosByViewId(any()) } returns emptyList()
+        every { root.findAccessibilityNodeInfosByViewId("com.waze:id/navBarDistance") } returns
+            listOf(valueNode("500 m"))
+
+        val result = NavA11yExtractor.read(root) as NavA11yExtractor.ReadResult.Guidance
+
+        assertEquals(0, result.data.maneuverGaode)
+    }
 }

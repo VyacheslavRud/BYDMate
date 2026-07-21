@@ -34,6 +34,8 @@ object NavGuidanceHub {
     /** Never fill a current route with fields from a source that has stopped updating. */
     const val CROSS_SOURCE_FALLBACK_MAX_AGE_MS = 5_000L
     internal const val MANEUVER_HOLD_MS = 30_000L
+    /** Waze often publishes the semantic arrow once, then updates only the numeric distance. */
+    private const val MANEUVER_DISTANCE_JITTER_METERS = 75
     // Two 15 s refresh periods leave room for normal Handler jitter and one temporarily
     // unreadable Waze tree. Matching the refresh interval exactly makes distance hit zero between
     // the probe and the next 300 ms HUD tick, which can visibly rebuild or hide the factory card.
@@ -206,6 +208,7 @@ object NavGuidanceHub {
             Source.A11Y -> a11y
             Source.NOTIFICATION -> notification
         }
+        val maneuverContinuity = maneuverContinuity(previous, data)
         if (data.maneuverGaode > 0 && data.maneuverGaode != previous?.data?.maneuverGaode) {
             Log.i(
                 TAG,
@@ -217,8 +220,11 @@ object NavGuidanceHub {
         }
         val replacement = SourceSnapshot(
             data = NavGuidance(
-                maneuverGaode = data.maneuverGaode.takeIf { it > 0 }
-                    ?: previous?.data?.maneuverGaode ?: 0,
+                maneuverGaode = when {
+                    data.maneuverGaode > 0 -> data.maneuverGaode
+                    maneuverContinuity == ManeuverContinuity.NEW_MANEUVER_UNKNOWN -> 0
+                    else -> previous?.data?.maneuverGaode ?: 0
+                },
                 distanceMeters = data.distanceMeters.takeIf { it > 0 }
                     ?: previous?.data?.distanceMeters ?: 0,
                 road = data.road.takeIf { it.isNotBlank() }
@@ -233,7 +239,12 @@ object NavGuidanceHub {
                     ?: previous?.data?.speedLimit ?: 0,
             ),
             updatedAtMs = nowMs,
-            maneuverAtMs = if (data.maneuverGaode > 0) nowMs else previous?.maneuverAtMs ?: 0L,
+            maneuverAtMs = when {
+                data.maneuverGaode > 0 -> nowMs
+                maneuverContinuity == ManeuverContinuity.SAME_MANEUVER -> nowMs
+                maneuverContinuity == ManeuverContinuity.NEW_MANEUVER_UNKNOWN -> 0L
+                else -> previous?.maneuverAtMs ?: 0L
+            },
             distanceAtMs = if (data.distanceMeters > 0) nowMs else previous?.distanceAtMs ?: 0L,
             roadAtMs = if (data.road.isNotBlank()) nowMs else previous?.roadAtMs ?: 0L,
             // Waze exposes rounded remaining minutes. Re-anchoring an unchanged "18 min" on
@@ -436,6 +447,38 @@ object NavGuidanceHub {
     private fun NavGuidance.hasUsefulValue(): Boolean =
         maneuverGaode > 0 || distanceMeters > 0 || road.isNotBlank() || etaSeconds > 0 ||
             arrivalTime.isNotBlank() || totalDistMeters > 0 || speedLimit > 0
+
+    private enum class ManeuverContinuity { NO_EVIDENCE, SAME_MANEUVER, NEW_MANEUVER_UNKNOWN }
+
+    /**
+     * Keep a recognized arrow alive while Waze sends distance-only progress updates. A clear
+     * increase in distance or a next-street replacement means the previous maneuver has been
+     * passed/rerouted; in that case blank is safer than a stale left/right arrow.
+     */
+    private fun maneuverContinuity(
+        previous: SourceSnapshot?,
+        incoming: NavGuidance,
+    ): ManeuverContinuity {
+        if (incoming.maneuverGaode > 0 || previous?.data?.maneuverGaode == null ||
+            previous.data.maneuverGaode <= 0
+        ) {
+            return ManeuverContinuity.NO_EVIDENCE
+        }
+        val oldDistance = previous.data.distanceMeters
+        val newDistance = incoming.distanceMeters
+        if (oldDistance <= 0 || newDistance <= 0) return ManeuverContinuity.NO_EVIDENCE
+
+        val distanceJumped = newDistance > oldDistance + MANEUVER_DISTANCE_JITTER_METERS
+        val oldRoad = previous.data.road.trim()
+        val newRoad = incoming.road.trim()
+        val nextRoadChanged = oldRoad.isNotEmpty() && newRoad.isNotEmpty() && oldRoad != newRoad &&
+            newDistance >= oldDistance - MANEUVER_DISTANCE_JITTER_METERS
+        return if (distanceJumped || nextRoadChanged) {
+            ManeuverContinuity.NEW_MANEUVER_UNKNOWN
+        } else {
+            ManeuverContinuity.SAME_MANEUVER
+        }
+    }
 
     private fun age(nowMs: Long, timestampMs: Long): Long =
         (nowMs - timestampMs).coerceAtLeast(0L)

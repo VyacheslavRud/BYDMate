@@ -114,6 +114,60 @@ class NavGuidanceHubTest {
         assertEquals(0, expiredFields.etaSeconds)
     }
 
+    @Test fun `distance progress renews a recognized maneuver without repeating its text`() {
+        NavGuidanceHub.update(
+            data(gaode = 2, dist = 500, road = "Main Street"),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 1_000,
+        )
+        NavGuidanceHub.update(
+            data(dist = 350, road = "Main Street"),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 25_000,
+        )
+        NavGuidanceHub.update(
+            data(dist = 200, road = "Main Street"),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 49_000,
+        )
+
+        assertEquals(2, NavGuidanceHub.snapshot(nowMs = 70_000).maneuverGaode)
+    }
+
+    @Test fun `distance jump clears retained maneuver until a new direction is known`() {
+        NavGuidanceHub.update(
+            data(gaode = 2, dist = 50, road = "First Street"),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 1_000,
+        )
+        NavGuidanceHub.update(
+            data(dist = 600, road = "Second Street"),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 2_000,
+        )
+
+        val afterTurn = NavGuidanceHub.snapshot(nowMs = 2_000)
+        assertTrue(afterTurn.active)
+        assertEquals(0, afterTurn.maneuverGaode)
+        assertEquals(600, afterTurn.distanceMeters)
+        assertEquals("Second Street", afterTurn.road)
+    }
+
+    @Test fun `small distance increase is treated as GPS jitter and keeps maneuver`() {
+        NavGuidanceHub.update(
+            data(gaode = 1, dist = 300, road = "Main Street"),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 1_000,
+        )
+        NavGuidanceHub.update(
+            data(dist = 350, road = "Main Street"),
+            NavGuidanceHub.Source.A11Y,
+            nowMs = 20_000,
+        )
+
+        assertEquals(1, NavGuidanceHub.snapshot(nowMs = 45_000).maneuverGaode)
+    }
+
     @Test fun `distance hold spans two refresh periods but still expires`() {
         NavGuidanceHub.update(
             data(gaode = 2, dist = 250),
