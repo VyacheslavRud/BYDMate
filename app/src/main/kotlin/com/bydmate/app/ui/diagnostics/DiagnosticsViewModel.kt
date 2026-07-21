@@ -119,6 +119,10 @@ class DiagnosticsViewModel @Inject constructor(
         clusterLabManager.cancel()
     }
 
+    fun deleteClusterLabRecords() {
+        clusterLabManager.deleteRecords()
+    }
+
     companion object {
         private const val AUTO_REFRESH_MS = 5_000L
     }

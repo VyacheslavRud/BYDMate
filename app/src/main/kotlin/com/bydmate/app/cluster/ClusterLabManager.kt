@@ -15,6 +15,7 @@ import com.bydmate.app.data.automation.VehicleSafetySnapshot
 import com.bydmate.app.data.remote.DiParsData
 import com.bydmate.app.data.vehicle.HelperBootstrap
 import com.bydmate.app.data.vehicle.HelperClient
+import com.bydmate.app.data.vehicle.SystemDisplayInfo
 import com.bydmate.app.data.vehicle.TaskProjectionQueryResult
 import com.bydmate.app.data.vehicle.VehicleProfile
 import com.bydmate.app.navdata.NavGuidanceHub
@@ -107,8 +108,6 @@ internal fun wazeTaskProjectionDetail(
         "$stage target=$NAVI_PACKAGE status=UNAVAILABLE"
 }
 
-private const val TASK_WINDOWING_MODE_FULLSCREEN = 1
-
 enum class ClusterLabOutcomeType {
     COMPLETED,
     REJECTED,
@@ -136,10 +135,10 @@ data class ClusterLabState(
 )
 
 /**
- * Safe runner for C01-C05. All visual mutation is dev-only, route-free, gear-P/speed-0 gated and
- * continuously rechecked. Projection tests use an exclusive awaitable lease whose production
- * pipeline hard-disables auto_container, so a live preference change cannot send the
- * Sea-Lion-unvalidated commands or leave queued ON/OFF work after cleanup is reported.
+ * Safe runner for C01-C08. All visual mutation is dev-only, route-free, gear-P/speed-0 gated and
+ * continuously rechecked. Projection tests use an exclusive awaitable lease. Only explicit C06/C07
+ * may force the daemon-whitelisted auto_container calibration sequence; both use durable ownership
+ * and the same awaitable lease as cleanup.
  */
 @Singleton
 class ClusterLabManager @Inject constructor(
@@ -164,6 +163,20 @@ class ClusterLabManager @Inject constructor(
         ClusterLabState(recordsCount = ClusterLabLogStore.records(this.context).size),
     )
     val state: StateFlow<ClusterLabState> = _state.asStateFlow()
+
+    init {
+        // C07 in the previous build already proved that Sea Lion's display is system-only. Refresh
+        // that read-only inventory as soon as the diagnostics singleton is created, so an update or
+        // process restart does not force the driver to run the 12-second container probe again just
+        // to reveal C06.
+        scope.launch {
+            val helperReady = runCatching { bootstrap.ensureRunning() }.getOrDefault(false)
+            val displays = if (helperReady) inspectAvailableDisplays() else inspectDisplays()
+            _state.update {
+                it.copy(clusterDisplayAvailable = displays.any { display -> display.clusterCandidate })
+            }
+        }
+    }
 
     fun runScenario(scenarioId: String, parkConfirmedByUser: Boolean) {
         val scenario = ClusterLabScenarioCatalog.byId(scenarioId) ?: return
@@ -251,6 +264,31 @@ class ClusterLabManager @Inject constructor(
 
     fun export(): File = ClusterLabLogStore.export(context)
 
+    fun deleteRecords() {
+        synchronized(actionLock) {
+            if (_state.value.busy || _state.value.pendingObservationRecordId != null) return
+            _state.update { it.copy(busy = true, lastOutcome = null) }
+            activeJob = scope.launch {
+                try {
+                    operationMutex.withLock {
+                        runCatching { ClusterLabLogStore.clearRecords(context) }
+                            .onFailure { Log.e(TAG, "Cluster Lab journal delete failed", it) }
+                    }
+                } finally {
+                    synchronized(actionLock) {
+                        _state.update {
+                            it.copy(
+                                busy = false,
+                                recordsCount = ClusterLabLogStore.records(context).size,
+                            )
+                        }
+                        activeJob = null
+                    }
+                }
+            }
+        }
+    }
+
     private suspend fun execute(
         scenario: ClusterLabScenario,
         parkConfirmedByUser: Boolean,
@@ -283,6 +321,7 @@ class ClusterLabManager @Inject constructor(
         var cleanupConfirmed = true
         var overlay: OverlayHandle? = null
         var projectionTouched = false
+        var projectionUsesAutoContainer = false
         var projectionLease: ClusterLabProjectionLease? = null
         try {
             append(
@@ -348,6 +387,7 @@ class ClusterLabManager @Inject constructor(
                         parkConfirmedByUser,
                         cycle = 1,
                         lease = checkNotNull(projectionLease),
+                        forceAutoContainer = false,
                     )
                     holdWithSafety(
                         record,
@@ -373,6 +413,7 @@ class ClusterLabManager @Inject constructor(
                         parkConfirmedByUser,
                         cycle = 1,
                         lease = checkNotNull(projectionLease),
+                        forceAutoContainer = false,
                     )
                     holdWithSafety(record, startedElapsed, parkConfirmedByUser, 3_000L, "cycle_1_hold")
                     val betweenCyclesCleanup = stopProjectionAndAwait(
@@ -380,10 +421,13 @@ class ClusterLabManager @Inject constructor(
                         startedElapsed,
                         checkNotNull(projectionLease),
                         "between_cycles",
+                        forceAutoContainer = false,
                     )
                     betweenCyclesCleanup.journalFailure?.let { throw JournalFailure(it) }
                     if (!betweenCyclesCleanup.confirmed) {
-                        throw ScenarioAbort(ClusterLabFailure.CLEANUP_TIMEOUT)
+                        throw ScenarioAbort(
+                            betweenCyclesCleanup.failure ?: ClusterLabFailure.CLEANUP_TIMEOUT,
+                        )
                     }
                     holdWithSafety(record, startedElapsed, parkConfirmedByUser, 1_000L, "between_cycles")
                     startProjectionAndAwait(
@@ -392,9 +436,65 @@ class ClusterLabManager @Inject constructor(
                         parkConfirmedByUser,
                         cycle = 2,
                         lease = checkNotNull(projectionLease),
+                        forceAutoContainer = false,
                     )
                     holdWithSafety(record, startedElapsed, parkConfirmedByUser, 5_000L, "cycle_2_hold")
                 }
+                "C06" -> {
+                    append(
+                        record,
+                        startedElapsed,
+                        ClusterLabEventKind.MUTATION_ARMED,
+                        "sea_lion_waze_end_to_end; target=$NAVI_PACKAGE " +
+                            "auto_container=forced_whitelist_16_18_0; auto_remove_ms=${scenario.durationMs}",
+                        initialSafety,
+                    )
+                    projectionTouched = true
+                    projectionUsesAutoContainer = true
+                    cleanupConfirmed = false
+                    startProjectionAndAwait(
+                        record = record,
+                        startedElapsed = startedElapsed,
+                        parkConfirmedByUser = parkConfirmedByUser,
+                        cycle = 1,
+                        lease = checkNotNull(projectionLease),
+                        forceAutoContainer = true,
+                    )
+                    holdWithSafety(
+                        record = record,
+                        startedElapsed = startedElapsed,
+                        parkConfirmedByUser = parkConfirmedByUser,
+                        durationMs = scenario.durationMs,
+                        step = "sea_lion_waze_map_visible",
+                    )
+                }
+                "C07" -> {
+                    append(
+                        record,
+                        startedElapsed,
+                        ClusterLabEventKind.MUTATION_ARMED,
+                        "sea_lion_container_transport; no_waze_launch=true " +
+                            "auto_container=forced_whitelist_16_18_0; auto_remove_ms=${scenario.durationMs}",
+                        initialSafety,
+                    )
+                    runContainerTransportProbe(
+                        record = record,
+                        startedElapsed = startedElapsed,
+                        parkConfirmedByUser = parkConfirmedByUser,
+                        scenario = scenario,
+                        armCleanup = {
+                            projectionTouched = true
+                            projectionUsesAutoContainer = true
+                            cleanupConfirmed = false
+                        },
+                    )
+                }
+                "C08" -> runManualFactoryNaviWatch(
+                    record = record,
+                    startedElapsed = startedElapsed,
+                    parkConfirmedByUser = parkConfirmedByUser,
+                    scenario = scenario,
+                )
                 else -> throw ScenarioAbort(ClusterLabFailure.INTERNAL_ERROR)
             }
         } catch (abort: ScenarioAbort) {
@@ -426,8 +526,12 @@ class ClusterLabManager @Inject constructor(
                         startedElapsed,
                         lease,
                         "final_cleanup",
+                        forceAutoContainer = projectionUsesAutoContainer,
                     )
                     cleanupConfirmed = projectionCleanup.confirmed
+                    if (!projectionCleanup.confirmed && failure == null) {
+                        failure = projectionCleanup.failure ?: ClusterLabFailure.CLEANUP_TIMEOUT
+                    }
                     if (projectionCleanup.journalFailure != null) {
                         Log.e(
                             TAG,
@@ -441,7 +545,9 @@ class ClusterLabManager @Inject constructor(
                     cleanupConfirmed = ClusterProjectionManager.releaseClusterLabLease(lease) &&
                         cleanupConfirmed
                 }
-                if (!cleanupConfirmed && failure == null) failure = ClusterLabFailure.CLEANUP_TIMEOUT
+                if (!cleanupConfirmed && failure == null) {
+                    failure = ClusterLabFailure.CLEANUP_TIMEOUT
+                }
                 val finished = runCatching {
                     ClusterLabLogStore.finish(
                         context = context,
@@ -503,7 +609,7 @@ class ClusterLabManager @Inject constructor(
     }
 
     private suspend fun runStateSnapshot(record: ClusterLabRecord, startedElapsed: Long) {
-        val displays = inspectDisplays()
+        val displays = inspectAvailableDisplays()
         _state.update {
             it.copy(clusterDisplayAvailable = displays.any { display -> display.clusterCandidate })
         }
@@ -518,6 +624,10 @@ class ClusterLabManager @Inject constructor(
             append("mode=${ClusterProjectionManager.currentMode} phase=${projection.phase} ")
             append("failure=${projection.lastFailure ?: ClusterProjectionManager.lastFailure} ")
             append("selectedDisplay=${projection.selectedDisplay?.id} monitoredDisplay=${projection.monitoredDisplayId} ")
+            append("renderPath=${projection.renderPath} taskDisplay=${projection.projectedTaskDisplayId} ")
+            append("autoContainerRequested=${projection.autoContainerRequested} ")
+            append("containerMarkerWritten=${projection.autoContainerMarkerWritten} ")
+            append("containerCommandAccepted=${projection.autoContainerCommandAccepted} ")
             append("widthPct=${prefs.getInt(ClusterProjectionManager.KEY_WIDTH_PCT, VehicleProfile.CURRENT.clusterProjectionPreset.widthPct)} ")
             append("heightPct=${prefs.getInt(ClusterProjectionManager.KEY_HEIGHT_PCT, VehicleProfile.CURRENT.clusterProjectionPreset.heightPct)} ")
             append("offsetXPct=${prefs.getInt(ClusterProjectionManager.KEY_OFFSET_X_PCT, VehicleProfile.CURRENT.clusterProjectionPreset.offsetXPct)} ")
@@ -541,6 +651,223 @@ class ClusterLabManager @Inject constructor(
             projectionPhase = projection.phase.name,
         )
         updateProgress("snapshot_complete", 1f)
+    }
+
+    private suspend fun runContainerTransportProbe(
+        record: ClusterLabRecord,
+        startedElapsed: Long,
+        parkConfirmedByUser: Boolean,
+        scenario: ClusterLabScenario,
+        armCleanup: () -> Unit,
+    ) {
+        updateProgress("container_probe_preparing", 0.05f)
+        if (!bootstrap.ensureRunning()) throw ScenarioAbort(ClusterLabFailure.HELPER_UNAVAILABLE)
+        val permissionsGranted = helper.grantOverlayPermission()
+        append(
+            record,
+            startedElapsed,
+            ClusterLabEventKind.SNAPSHOT,
+            "project_media_grant_process_success=$permissionsGranted",
+            safety = requireSafe(parkConfirmedByUser),
+        )
+        if (!permissionsGranted) {
+            throw ScenarioAbort(ClusterLabFailure.OVERLAY_PERMISSION_UNAVAILABLE)
+        }
+        appendSystemProbe(record, startedElapsed, "before_container_on")
+        requireSafe(parkConfirmedByUser)
+
+        val markerWritten = withContext(Dispatchers.IO) {
+            projectionPrefs().edit().putBoolean(KEY_COMPOSITOR_POWERED, true).commit()
+        }
+        append(
+            record,
+            startedElapsed,
+            ClusterLabEventKind.PROJECTION_REQUESTED,
+            "container_on markerWritten=$markerWritten serviceProcessResult=pending",
+            safety = null,
+        )
+        if (!markerWritten) throw ScenarioAbort(ClusterLabFailure.COMPOSITOR_MARKER_WRITE_FAILED)
+        // From this point every path, including cancellation and Binder death, must execute the
+        // existing OFF cleanup (18 -> pause -> 0) under the owned Cluster Lab lease.
+        armCleanup()
+        val processAccepted = runCatching { helper.setClusterContainerMode(true) }
+            .getOrDefault(false)
+        append(
+            record,
+            startedElapsed,
+            ClusterLabEventKind.PROJECTION_STATE,
+            "container_on serviceProcessResult=$processAccepted hardwareState=UNCONFIRMED",
+            safety = requireSafe(parkConfirmedByUser),
+        )
+        if (!processAccepted) throw ScenarioAbort(ClusterLabFailure.CONTAINER_ON_REJECTED)
+
+        coroutineScope {
+            val systemProbe = async { clusterSystemProbe() }
+            watchDisplays(
+                record = record,
+                startedElapsed = startedElapsed,
+                parkConfirmedByUser = parkConfirmedByUser,
+                durationMs = scenario.durationMs,
+                step = "container_display_watch",
+                progressStart = 0.25f,
+                progressSpan = 0.60f,
+            )
+            appendSystemProbeReport(
+                record,
+                startedElapsed,
+                "after_container_on",
+                systemProbe.await(),
+            )
+        }
+        val appDisplays = inspectDisplays()
+        val systemDisplays = inspectSystemDisplays()
+        val availableDisplays = mergeDisplaySnapshots(appDisplays, systemDisplays)
+        val appCandidateFound = appDisplays.any { it.clusterCandidate }
+        val systemCandidateFound = systemDisplays.any { it.clusterCandidate }
+        _state.update {
+            it.copy(clusterDisplayAvailable = appCandidateFound || systemCandidateFound)
+        }
+        append(
+            record,
+            startedElapsed,
+            ClusterLabEventKind.VERDICT,
+            "containerTransportProcessResult=true " +
+                "appVisibleClusterDisplay=$appCandidateFound " +
+                "systemClusterDisplay=$systemCandidateFound " +
+                "selectedSystemDisplay=${systemDisplays.firstOrNull { it.clusterCandidate }?.id} " +
+                "hardwareChangeRequiresVisualObservation=true",
+            safety = requireSafe(parkConfirmedByUser),
+            displays = availableDisplays,
+        )
+        updateProgress("container_probe_complete", 0.95f)
+    }
+
+    private suspend fun runManualFactoryNaviWatch(
+        record: ClusterLabRecord,
+        startedElapsed: Long,
+        parkConfirmedByUser: Boolean,
+        scenario: ClusterLabScenario,
+    ) = coroutineScope {
+        updateProgress("switch_factory_navi_now", 0.05f)
+        val initialProbe = async { clusterSystemProbe() }
+        watchDisplays(
+            record = record,
+            startedElapsed = startedElapsed,
+            parkConfirmedByUser = parkConfirmedByUser,
+            durationMs = scenario.durationMs,
+            step = "switch_factory_navi_now",
+            progressStart = 0.05f,
+            progressSpan = 0.80f,
+        )
+        appendSystemProbeReport(
+            record,
+            startedElapsed,
+            "manual_watch_initial",
+            initialProbe.await(),
+        )
+        appendSystemProbe(record, startedElapsed, "manual_watch_final")
+        val displays = inspectAvailableDisplays()
+        _state.update {
+            it.copy(clusterDisplayAvailable = displays.any { display -> display.clusterCandidate })
+        }
+        append(
+            record,
+            startedElapsed,
+            ClusterLabEventKind.INVENTORY,
+            "manual_watch_structured_system_inventory=true",
+            safety = requireSafe(parkConfirmedByUser),
+            displays = displays,
+        )
+        updateProgress("manual_watch_complete", 1f)
+    }
+
+    private suspend fun watchDisplays(
+        record: ClusterLabRecord,
+        startedElapsed: Long,
+        parkConfirmedByUser: Boolean,
+        durationMs: Long,
+        step: String,
+        progressStart: Float,
+        progressSpan: Float,
+    ) {
+        val deadline = elapsedRealtimeProvider() + durationMs
+        var sample = 0
+        var priorSignature: String? = null
+        var candidateFirstSeen = false
+        while (elapsedRealtimeProvider() <= deadline) {
+            val safe = requireSafe(parkConfirmedByUser)
+            val displays = inspectDisplays()
+            val signature = displays.joinToString("|") {
+                "${it.id}:${it.name}:${it.widthPx}x${it.heightPx}:${it.state}:${it.clusterCandidate}"
+            }
+            val candidateNow = displays.any { it.clusterCandidate }
+            if (signature != priorSignature || sample % 10 == 0 || (candidateNow && !candidateFirstSeen)) {
+                append(
+                    record,
+                    startedElapsed,
+                    ClusterLabEventKind.INVENTORY,
+                    detail = "$step sample=$sample changed=${signature != priorSignature} " +
+                        "candidateFirstSeen=${candidateNow && !candidateFirstSeen}",
+                    safety = safe,
+                    displays = displays,
+                )
+            }
+            candidateFirstSeen = candidateFirstSeen || candidateNow
+            priorSignature = signature
+            sample++
+            val elapsed = durationMs - (deadline - elapsedRealtimeProvider()).coerceAtLeast(0L)
+            updateProgress(step, progressStart + elapsed.toFloat() / durationMs * progressSpan)
+            delay(INVENTORY_INTERVAL_MS)
+        }
+        _state.update {
+            it.copy(
+                clusterDisplayAvailable = candidateFirstSeen ||
+                    inspectDisplays().any { display -> display.clusterCandidate },
+            )
+        }
+    }
+
+    private suspend fun clusterSystemProbe(): String? = try {
+        withTimeoutOrNull(SYSTEM_PROBE_TIMEOUT_MS) { helper.getClusterSystemProbe() }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        Log.w(TAG, "cluster system probe failed: ${error.message}")
+        null
+    }
+
+    private suspend fun appendSystemProbe(
+        record: ClusterLabRecord,
+        startedElapsed: Long,
+        stage: String,
+    ) = appendSystemProbeReport(record, startedElapsed, stage, clusterSystemProbe())
+
+    private fun appendSystemProbeReport(
+        record: ClusterLabRecord,
+        startedElapsed: Long,
+        stage: String,
+        report: String?,
+    ) {
+        val chunks = report?.chunked(SYSTEM_PROBE_EVENT_CHARS).orEmpty()
+        if (chunks.isEmpty()) {
+            append(
+                record,
+                startedElapsed,
+                ClusterLabEventKind.SNAPSHOT,
+                "system_probe stage=$stage status=UNAVAILABLE",
+                safety = null,
+            )
+            return
+        }
+        chunks.forEachIndexed { index, chunk ->
+            append(
+                record,
+                startedElapsed,
+                ClusterLabEventKind.SNAPSHOT,
+                "system_probe stage=$stage part=${index + 1}/${chunks.size} $chunk",
+                safety = null,
+            )
+        }
     }
 
     private suspend fun showPattern(
@@ -668,6 +995,7 @@ class ClusterLabManager @Inject constructor(
         parkConfirmedByUser: Boolean,
         cycle: Int,
         lease: ClusterLabProjectionLease,
+        forceAutoContainer: Boolean,
     ) {
         requireSafe(parkConfirmedByUser)
         requireProjectionGuards()
@@ -676,7 +1004,8 @@ class ClusterLabManager @Inject constructor(
             record,
             startedElapsed,
             ClusterLabEventKind.PROJECTION_REQUESTED,
-            detail = "cycle=$cycle mode=FULLSCREEN target=$NAVI_PACKAGE auto_container=false",
+            detail = "cycle=$cycle mode=FULLSCREEN target=$NAVI_PACKAGE " +
+                "auto_container=${if (forceAutoContainer) "forced" else "disabled"}",
             safety = null,
         )
         updateProgress("projection_cycle_${cycle}_starting", if (cycle == 1) 0.2f else 0.65f)
@@ -687,6 +1016,7 @@ class ClusterLabManager @Inject constructor(
             parkConfirmedByUser,
             cycle,
             lease,
+            forceAutoContainer,
         )
         appendProjectionState(
             record,
@@ -694,13 +1024,22 @@ class ClusterLabManager @Inject constructor(
             "cycle=$cycle terminal success=${transition.success} failure=${transition.failure}",
             safety = safety(parkConfirmedByUser),
         )
-        if (!transition.success) throw ScenarioAbort(ClusterLabFailure.PROJECTION_FAILED)
-
-        val activeTask = taskProjectionState()
+        val postTransitionSafety = requireSafe(parkConfirmedByUser)
+        val activeTask = transition.projectedTaskDisplayId?.let { expectedDisplayId ->
+            awaitProjectedTaskState(parkConfirmedByUser, expectedDisplayId)
+        } ?: taskProjectionState()
         appendTaskState(record, startedElapsed, "cycle=$cycle active", activeTask)
-        if (activeTask !is TaskProjectionQueryResult.Found || activeTask.state.displayId == 0) {
-            throw ScenarioAbort(ClusterLabFailure.PROJECTION_FAILED)
-        }
+        val verdict = verifyClusterProjectionStart(transition, activeTask)
+        append(
+            record,
+            startedElapsed,
+            ClusterLabEventKind.VERDICT,
+            verdict.detail,
+            safety = postTransitionSafety,
+            projectionMode = ClusterProjectionManager.currentMode.name,
+            projectionPhase = ClusterProjectionManager.diagnosticState.value.phase.name,
+        )
+        verdict.failure?.let { throw ScenarioAbort(it) }
         updateProgress("projection_cycle_${cycle}_active", if (cycle == 1) 0.35f else 0.8f)
     }
 
@@ -710,6 +1049,7 @@ class ClusterLabManager @Inject constructor(
         parkConfirmedByUser: Boolean,
         cycle: Int,
         lease: ClusterLabProjectionLease,
+        forceAutoContainer: Boolean,
     ): ClusterLabProjectionTransitionResult = coroutineScope {
         val transition = async {
             ClusterProjectionManager.setModeForClusterLab(
@@ -719,6 +1059,8 @@ class ClusterLabManager @Inject constructor(
                 bootstrap = bootstrap,
                 lease = lease,
                 targetPackage = NAVI_PACKAGE,
+                allowAutoContainerCommands = forceAutoContainer,
+                forceAutoContainerCommands = forceAutoContainer,
             )
         }
         val deadline = elapsedRealtimeProvider() + PROJECTION_START_TIMEOUT_MS
@@ -750,6 +1092,7 @@ class ClusterLabManager @Inject constructor(
         startedElapsed: Long,
         lease: ClusterLabProjectionLease,
         reason: String,
+        forceAutoContainer: Boolean,
     ): ProjectionCleanupResult {
         val journal = ClusterLabBestEffortJournal()
         journal.record {
@@ -772,6 +1115,8 @@ class ClusterLabManager @Inject constructor(
                     bootstrap = bootstrap,
                     lease = lease,
                     targetPackage = NAVI_PACKAGE,
+                    allowAutoContainerCommands = forceAutoContainer,
+                    forceAutoContainerCommands = forceAutoContainer,
                 )
             }
         } catch (cancelled: CancellationException) {
@@ -780,11 +1125,11 @@ class ClusterLabManager @Inject constructor(
             Log.e(TAG, "Cluster Lab OFF transition failed: ${error.message}", error)
             null
         }
-        val afterTask = taskProjectionState()
+        val afterTask = awaitCleanTaskState()
         journal.record { appendTaskState(record, startedElapsed, "$reason after", afterTask) }
-        val taskClean = isProjectionTaskCleanupConfirmed(afterTask)
         val ownershipClean = projectionOwnershipMarkersClear()
-        val confirmed = transition?.success == true && taskClean && ownershipClean
+        val verdict = verifyClusterProjectionCleanup(transition, afterTask, ownershipClean)
+        val confirmed = verdict.passed
         val diagnostic = ClusterProjectionManager.diagnosticState.value
         journal.record {
             append(
@@ -792,14 +1137,25 @@ class ClusterLabManager @Inject constructor(
                 startedElapsed,
                 ClusterLabEventKind.CLEANUP_CONFIRMED,
                 detail = "reason=$reason transition=${transition?.success} " +
-                    "taskStatus=${taskProjectionStatus(afterTask)} taskClean=$taskClean " +
+                    "taskStatus=${taskProjectionStatus(afterTask)} " +
                     "ownershipClean=$ownershipClean failure=${transition?.failure}",
                 safety = null,
                 projectionMode = ClusterProjectionManager.currentMode.name,
                 projectionPhase = diagnostic.phase.name,
             )
         }
-        return ProjectionCleanupResult(confirmed, journal.failure)
+        journal.record {
+            append(
+                record,
+                startedElapsed,
+                ClusterLabEventKind.VERDICT,
+                "$reason ${verdict.detail}",
+                safety = null,
+                projectionMode = ClusterProjectionManager.currentMode.name,
+                projectionPhase = diagnostic.phase.name,
+            )
+        }
+        return ProjectionCleanupResult(confirmed, verdict.failure, journal.failure)
     }
 
     private suspend fun stopProjectionAndAwaitBestEffort(
@@ -807,12 +1163,26 @@ class ClusterLabManager @Inject constructor(
         startedElapsed: Long,
         lease: ClusterLabProjectionLease,
         reason: String,
+        forceAutoContainer: Boolean,
     ): ProjectionCleanupResult {
-        val first = stopProjectionAndAwait(record, startedElapsed, lease, reason)
+        val first = stopProjectionAndAwait(
+            record,
+            startedElapsed,
+            lease,
+            reason,
+            forceAutoContainer,
+        )
         if (first.confirmed) return first
-        val second = stopProjectionAndAwait(record, startedElapsed, lease, "${reason}_retry")
+        val second = stopProjectionAndAwait(
+            record,
+            startedElapsed,
+            lease,
+            "${reason}_retry",
+            forceAutoContainer,
+        )
         return ProjectionCleanupResult(
             confirmed = second.confirmed,
+            failure = second.failure ?: first.failure,
             journalFailure = first.journalFailure ?: second.journalFailure,
         )
     }
@@ -871,6 +1241,38 @@ class ClusterLabManager @Inject constructor(
         runCatching { ClusterProjectionManager.inspectDisplays(context).map { it.toLabSnapshot() } }
             .getOrDefault(emptyList())
 
+    private suspend fun inspectSystemDisplays(): List<ClusterLabDisplaySnapshot> = try {
+        withTimeoutOrNull(HELPER_PROBE_TIMEOUT_MS) { helper.getSystemDisplays() }
+            .orEmpty()
+            .map { it.toLabSnapshot() }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        Log.w(TAG, "system display inventory failed: ${error.message}")
+        emptyList()
+    }
+
+    private suspend fun inspectAvailableDisplays(): List<ClusterLabDisplaySnapshot> =
+        mergeDisplaySnapshots(inspectDisplays(), inspectSystemDisplays())
+
+    private fun mergeDisplaySnapshots(
+        appDisplays: List<ClusterLabDisplaySnapshot>,
+        systemDisplays: List<ClusterLabDisplaySnapshot>,
+    ): List<ClusterLabDisplaySnapshot> {
+        val appIds = appDisplays.mapTo(hashSetOf()) { it.id }
+        return appDisplays + systemDisplays.filterNot { it.id in appIds }
+    }
+
+    private fun SystemDisplayInfo.toLabSnapshot() = ClusterLabDisplaySnapshot(
+        id = id,
+        name = name,
+        widthPx = widthPx,
+        heightPx = heightPx,
+        densityDpi = densityDpi,
+        state = state,
+        clusterCandidate = name.contains("XDJAScreenProjection", ignoreCase = true) || id == 2,
+    )
+
     private fun readExpectedGeometry(display: ClusterLabDisplaySnapshot): ClusterGeometry {
         val prefs = projectionPrefs()
         val preset = VehicleProfile.CURRENT.clusterProjectionPreset
@@ -908,6 +1310,38 @@ class ClusterLabManager @Inject constructor(
     } catch (error: Throwable) {
         Log.w(TAG, "Waze task projection query failed: ${error.message}")
         TaskProjectionQueryResult.Unavailable
+    }
+
+    /** ATMS can publish a successful move a few frames after the daemon call returns. */
+    private suspend fun awaitProjectedTaskState(
+        parkConfirmedByUser: Boolean,
+        expectedDisplayId: Int,
+    ): TaskProjectionQueryResult {
+        val deadline = elapsedRealtimeProvider() + TASK_SETTLE_TIMEOUT_MS
+        var latest: TaskProjectionQueryResult = TaskProjectionQueryResult.Unavailable
+        do {
+            requireSafe(parkConfirmedByUser)
+            latest = taskProjectionState()
+            if (latest is TaskProjectionQueryResult.Found &&
+                latest.state.displayId == expectedDisplayId
+            ) {
+                return latest
+            }
+            if (elapsedRealtimeProvider() >= deadline) return latest
+            delay(TASK_SETTLE_POLL_INTERVAL_MS)
+        } while (true)
+    }
+
+    /** Cleanup never aborts on changing vehicle state; it keeps observing the safe return to main. */
+    private suspend fun awaitCleanTaskState(): TaskProjectionQueryResult {
+        val deadline = elapsedRealtimeProvider() + TASK_SETTLE_TIMEOUT_MS
+        var latest: TaskProjectionQueryResult = TaskProjectionQueryResult.Unavailable
+        do {
+            latest = taskProjectionState()
+            if (isProjectionTaskCleanupConfirmed(latest)) return latest
+            if (elapsedRealtimeProvider() >= deadline) return latest
+            delay(TASK_SETTLE_POLL_INTERVAL_MS)
+        } while (true)
     }
 
     private fun appendTaskState(
@@ -953,7 +1387,12 @@ class ClusterLabManager @Inject constructor(
             startedElapsed,
             ClusterLabEventKind.PROJECTION_STATE,
             detail = "$detail selected=${diagnostic.selectedDisplay?.id} " +
-                "searchElapsedMs=${diagnostic.displaySearchElapsedMs}",
+                "searchElapsedMs=${diagnostic.displaySearchElapsedMs} " +
+                "renderPath=${diagnostic.renderPath} " +
+                "expectedTaskDisplay=${diagnostic.projectedTaskDisplayId} " +
+                "autoContainerRequested=${diagnostic.autoContainerRequested} " +
+                "containerMarkerWritten=${diagnostic.autoContainerMarkerWritten} " +
+                "containerCommandAccepted=${diagnostic.autoContainerCommandAccepted}",
             safety = safety,
             displays = diagnostic.visibleDisplays.map { it.toLabSnapshot() },
             projectionMode = ClusterProjectionManager.currentMode.name,
@@ -965,7 +1404,9 @@ class ClusterLabManager @Inject constructor(
         mode: ClusterMode,
         diagnostic: ClusterProjectionDiagnosticState,
     ): String = "$mode|${diagnostic.phase}|${diagnostic.selectedDisplay?.id}|" +
-        "${diagnostic.monitoredDisplayId}|${diagnostic.lastFailure}|${diagnostic.lastDisplayEvent}"
+        "${diagnostic.monitoredDisplayId}|${diagnostic.renderPath}|" +
+        "${diagnostic.projectedTaskDisplayId}|${diagnostic.autoContainerCommandAccepted}|" +
+        "${diagnostic.lastFailure}|${diagnostic.lastDisplayEvent}"
 
     private fun append(
         record: ClusterLabRecord,
@@ -1014,10 +1455,10 @@ class ClusterLabManager @Inject constructor(
                     currentStep = null,
                     progress = if (success) 1f else it.progress,
                     pendingObservationRecordId = record?.id.takeIf {
-                        success && scenario.mutation != ClusterLabMutation.NONE
+                        success && (scenario.mutation != ClusterLabMutation.NONE || scenario.id == "C08")
                     },
                     pendingObservationScenarioId = scenario.id.takeIf {
-                        success && scenario.mutation != ClusterLabMutation.NONE
+                        success && (scenario.mutation != ClusterLabMutation.NONE || scenario.id == "C08")
                     },
                     recordsCount = ClusterLabLogStore.records(context).size,
                     lastOutcome = ClusterLabOutcome(
@@ -1052,6 +1493,7 @@ class ClusterLabManager @Inject constructor(
 
     private data class ProjectionCleanupResult(
         val confirmed: Boolean,
+        val failure: ClusterLabFailure?,
         val journalFailure: Throwable?,
     )
 
@@ -1069,6 +1511,10 @@ class ClusterLabManager @Inject constructor(
         private const val PROJECTION_START_TIMEOUT_MS = 30_000L
         private const val CLEANUP_TIMEOUT_MS = 35_000L
         private const val HELPER_PROBE_TIMEOUT_MS = 2_500L
+        private const val SYSTEM_PROBE_TIMEOUT_MS = 10_000L
+        private const val SYSTEM_PROBE_EVENT_CHARS = 900
+        private const val TASK_SETTLE_TIMEOUT_MS = 5_000L
+        private const val TASK_SETTLE_POLL_INTERVAL_MS = 150L
         private const val OVERLAY_PERMISSION_POLL_ATTEMPTS = 10
         private const val OVERLAY_PERMISSION_POLL_INTERVAL_MS = 200L
     }

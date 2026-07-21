@@ -21,6 +21,13 @@ internal data class ClusterLabProjectionTransitionResult(
     val success: Boolean,
     val failure: String?,
     val selectedDisplay: ClusterDisplayDiagnostic?,
+    val renderPath: ClusterProjectionRenderPath?,
+    val projectedTaskDisplayId: Int?,
+    val autoContainerRequested: Boolean,
+    val autoContainerMarkerWritten: Boolean?,
+    /** `service call` process succeeded; this is transport evidence, not confirmed hardware state. */
+    val autoContainerCommandAccepted: Boolean?,
+    val runtimeResourcesActive: Boolean,
     val attemptStartedAtMs: Long?,
     val attemptFinishedAtMs: Long?,
 )
@@ -28,6 +35,9 @@ internal data class ClusterLabProjectionTransitionResult(
 /** Fine-grained state retained for the diagnostics screen even after a failed attempt falls back
  * to [ClusterMode.OFF]. */
 enum class ClusterProjectionPhase { OFF, STARTING, WAITING_FOR_DISPLAY, ACTIVE, FAILED }
+
+/** The production branch that actually placed the navigation task. */
+enum class ClusterProjectionRenderPath { DIRECT, VIRTUAL_DISPLAY }
 
 data class ClusterDisplayDiagnostic(
     val id: Int,
@@ -37,6 +47,8 @@ data class ClusterDisplayDiagnostic(
     val densityDpi: Int,
     val state: Int,
     val isClusterCandidate: Boolean,
+    /** False when visible only to the helper daemon's system Context. */
+    val appVisible: Boolean = true,
 )
 
 data class ClusterProjectionDiagnosticState(
@@ -45,6 +57,12 @@ data class ClusterProjectionDiagnosticState(
     val attemptFinishedAtMs: Long? = null,
     val displaySearchElapsedMs: Long? = null,
     val selectedDisplay: ClusterDisplayDiagnostic? = null,
+    val renderPath: ClusterProjectionRenderPath? = null,
+    val projectedTaskDisplayId: Int? = null,
+    val autoContainerRequested: Boolean = false,
+    val autoContainerMarkerWritten: Boolean? = null,
+    /** `service call` process succeeded; this is transport evidence, not confirmed hardware state. */
+    val autoContainerCommandAccepted: Boolean? = null,
     val visibleDisplays: List<ClusterDisplayDiagnostic> = emptyList(),
     val monitoredDisplayId: Int? = null,
     val lastDisplayEvent: String? = null,
@@ -67,7 +85,8 @@ internal fun preferredClusterDisplayId(displays: List<Pair<Int, String>>): Int? 
 internal fun shouldUseAutoContainer(
     allowAutoContainerCommands: Boolean,
     preferenceEnabled: Boolean,
-): Boolean = allowAutoContainerCommands && preferenceEnabled
+    forceForParkedLab: Boolean = false,
+): Boolean = allowAutoContainerCommands && (preferenceEnabled || forceForParkedLab)
 
 /** Where Navi renders on the cluster overlay. VirtualDisplay size == SurfaceView size (1:1). */
 data class ClusterGeometry(val width: Int, val height: Int, val xOffset: Int, val yOffset: Int)

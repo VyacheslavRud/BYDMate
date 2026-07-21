@@ -76,6 +76,7 @@ class MediaSessionListenerService : NotificationListenerService() {
     private val navigationNotifications =
         ConcurrentHashMap<String, NavigationNotificationMirror>()
     private val notificationSequence = AtomicLong()
+    private val navigationResources = ConcurrentHashMap<String, android.content.res.Resources>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val hudOverlayRecoveryRunnable = Runnable {
         val hub = com.bydmate.app.navdata.NavGuidanceHub
@@ -151,7 +152,8 @@ class MediaSessionListenerService : NotificationListenerService() {
     private fun processPosted(sbn: StatusBarNotification) {
         if (!NavPackages.isNavigationPackage(sbn.packageName)) return
         val extras = sbn.notification.extras
-        val parsed = runCatching { NaviNotificationParser.parse(sbn.notification) }
+        val resolveName = navigationResourceResolver(sbn.packageName)
+        val parsed = runCatching { NaviNotificationParser.parse(sbn.notification, resolveName) }
             .onFailure { Log.w(TAG, "Waze notification parse failed", it) }
             .getOrNull()
         if (!shouldAcceptNavigationNotification(
@@ -168,7 +170,10 @@ class MediaSessionListenerService : NotificationListenerService() {
             if (navigationNotifications.containsKey(sbn.key)) {
                 scheduleHudRefreshAfterOverlay()
             }
-            Log.d("WazeNotifParser", NaviNotificationParser.dump(sbn.notification))
+            Log.d(
+                "WazeNotifParser",
+                NaviNotificationParser.dump(sbn.notification, resolveName),
+            )
             return
         }
         val now = System.currentTimeMillis()
@@ -229,7 +234,12 @@ class MediaSessionListenerService : NotificationListenerService() {
 
     private fun isAcceptedNavigationNotification(sbn: StatusBarNotification): Boolean {
         if (!NavPackages.isNavigationPackage(sbn.packageName)) return false
-        val parsed = runCatching { NaviNotificationParser.parse(sbn.notification) }.getOrNull()
+        val parsed = runCatching {
+            NaviNotificationParser.parse(
+                sbn.notification,
+                navigationResourceResolver(sbn.packageName),
+            )
+        }.getOrNull()
         // The standalone Waze build on DiLink posts real turn instructions on a vendor-specific
         // channel. Unknown channels are accepted only with a recognized maneuver plus an
         // independent route metric; engagement and community alerts remain rejected.
@@ -239,5 +249,18 @@ class MediaSessionListenerService : NotificationListenerService() {
             parsedHasGuidance = parsed?.hasGuidance == true,
             hasStrongRouteEvidence = hasStrongRouteEvidence(parsed),
         )
+    }
+
+    /** Resource ids in RemoteViews belong to Waze, not BYDMate. */
+    private fun navigationResourceResolver(packageName: String): (Int) -> String? = { id ->
+        if (id == 0) {
+            null
+        } else {
+            runCatching {
+                navigationResources.getOrPut(packageName) {
+                    packageManager.getResourcesForApplication(packageName)
+                }.getResourceEntryName(id)
+            }.getOrNull()
+        }
     }
 }

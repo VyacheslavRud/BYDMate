@@ -1331,13 +1331,22 @@
     <string name="diagnostics_hud_lab_failure_journal">The test could not be saved. The HUD was cleared safely; try again.</string>
     <string name="diagnostics_hud_lab_failure_send">The test frame did not receive rc=0 confirmation. The result was logged and a safe cleanup attempt was made.</string>
     <string name="diagnostics_cluster_lab_title">Instrument Cluster Lab</string>
-    <string name="diagnostics_cluster_lab_description">First checks display inventory and projection state. Visual tests appear only after an instrument-cluster display is actually detected.</string>
-    <string name="diagnostics_cluster_lab_safety_hint">Open the factory Navi/projection mode and run C01. The lab never enables unvalidated auto_container commands and always restores OFF.</string>
-    <string name="diagnostics_cluster_lab_display_required">C03–C05 are hidden because no cluster display is available. Open factory projection and run C01 again.</string>
+    <string name="diagnostics_cluster_lab_description">C06 verifies the complete chain: factory cluster container → display → Waze map → Waze restored to the center display → OFF. The export records the exact failing stage.</string>
+    <string name="diagnostics_cluster_lab_safety_hint">Dev only, selector in P, speed 0 and no active route. C06 temporarily probes the whitelisted 16/18/0 container commands; the screen may switch for about 10 seconds, then cleanup always runs.</string>
+    <string name="diagnostics_cluster_lab_display_required">C03–C06 stay hidden until an Android cluster display is found. Run C07 or C08 first.</string>
+    <string name="diagnostics_cluster_lab_run_e2e">C06 · Test Waze map on cluster</string>
+    <string name="diagnostics_cluster_lab_run_transport">C07 · Probe Sea Lion display transport</string>
+    <string name="diagnostics_cluster_lab_manual_transport">Separate check: press C08, then immediately switch the cluster to its factory Navi mode. The watch lasts 20 seconds.</string>
+    <string name="diagnostics_cluster_lab_support_tests">Read-only support diagnostics</string>
+    <string name="diagnostics_cluster_lab_show_advanced">Show legacy advanced tests</string>
+    <string name="diagnostics_cluster_lab_hide_advanced">Hide advanced tests</string>
     <string name="diagnostics_cluster_lab_what_seen">What happened on the instrument cluster during %1$s?</string>
     <string name="diagnostics_cluster_lab_cancel">Stop and clean up</string>
     <string name="diagnostics_cluster_lab_export_all">Export both HUD labs</string>
     <string name="diagnostics_cluster_lab_saved_count">Saved cluster tests: %1$d</string>
+    <string name="diagnostics_cluster_lab_delete_records">Delete saved cluster tests</string>
+    <string name="diagnostics_cluster_lab_delete_title">Clear the cluster journal?</string>
+    <string name="diagnostics_cluster_lab_delete_message">All saved Instrument Cluster Lab tests will be removed from the app. Exported files and windshield HUD tests remain.</string>
     <string name="diagnostics_cluster_lab_seen_visible">Displayed correctly</string>
     <string name="diagnostics_cluster_lab_seen_black">Black screen</string>
     <string name="diagnostics_cluster_lab_seen_flickered">Flickered/disappeared</string>

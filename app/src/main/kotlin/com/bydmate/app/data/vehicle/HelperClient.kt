@@ -28,6 +28,16 @@ data class TaskProjectionState(
     val windowingMode: Int,
 )
 
+/** Display visible to the helper daemon's system Context, including protected BYD projection. */
+data class SystemDisplayInfo(
+    val id: Int,
+    val name: String,
+    val widthPx: Int,
+    val heightPx: Int,
+    val densityDpi: Int,
+    val state: Int,
+)
+
 /** Explicit result of the narrow Waze task-placement query. */
 sealed interface TaskProjectionQueryResult {
     data class Found(val state: TaskProjectionState) : TaskProjectionQueryResult
@@ -77,6 +87,10 @@ interface HelperClient {
     /** Explicit live Waze task-placement result. The client and daemon both reject every package
      *  except [WazeNavigation.PACKAGE_NAME]; rejection and transport failure are [TaskProjectionQueryResult.Unavailable]. */
     suspend fun getTaskProjectionState(packageName: String): TaskProjectionQueryResult
+    /** Fixed, read-only daemon-side inventory of BYD container and display services. */
+    suspend fun getClusterSystemProbe(): String?
+    /** Structured read-only display inventory, including system-only projection displays. */
+    suspend fun getSystemDisplays(): List<SystemDisplayInfo>?
     suspend fun moveTaskToDisplay(taskId: Int, displayId: Int): Boolean
     suspend fun setTaskBounds(taskId: Int, left: Int, top: Int, right: Int, bottom: Int): Boolean
     suspend fun setFocusedTask(taskId: Int): Boolean
@@ -243,6 +257,41 @@ open class HelperClientImpl @Inject constructor() : HelperClient {
         } ?: TaskProjectionQueryResult.Unavailable
     }
 
+    override suspend fun getClusterSystemProbe(): String? = transactParsed(
+        HelperBinderProtocol.TX_GET_CLUSTER_SYSTEM_PROBE,
+        writeArgs = { },
+        timeoutMs = CLUSTER_PROBE_TIMEOUT_MS,
+    ) { reply ->
+        if (reply.dataAvail() < 4) return@transactParsed null
+        val status = reply.readInt()
+        if (status != 0 || reply.dataAvail() <= 0) return@transactParsed null
+        reply.readString()?.takeIf(String::isNotBlank)
+    }
+
+    override suspend fun getSystemDisplays(): List<SystemDisplayInfo>? = transactParsed(
+        HelperBinderProtocol.TX_GET_SYSTEM_DISPLAYS,
+        writeArgs = { },
+    ) { reply ->
+        if (reply.dataAvail() < 8 || reply.readInt() != 0) return@transactParsed null
+        val count = reply.readInt()
+        if (count !in 1..MAX_SYSTEM_DISPLAYS) return@transactParsed null
+        buildList(count) {
+            repeat(count) {
+                if (reply.dataAvail() < 24) return@transactParsed null
+                val id = reply.readInt()
+                val name = reply.readString()?.take(MAX_DISPLAY_NAME_CHARS) ?: return@transactParsed null
+                val width = reply.readInt()
+                val height = reply.readInt()
+                val density = reply.readInt()
+                val state = reply.readInt()
+                if (id < 0 || width !in 1..16_384 || height !in 1..16_384 || density !in 1..1_280) {
+                    return@transactParsed null
+                }
+                add(SystemDisplayInfo(id, name, width, height, density, state))
+            }
+        }
+    }
+
     override suspend fun moveTaskToDisplay(taskId: Int, displayId: Int): Boolean =
         statusOk(HelperBinderProtocol.TX_MOVE_TASK_TO_DISPLAY) { it.writeInt(taskId); it.writeInt(displayId) }
 
@@ -397,6 +446,9 @@ open class HelperClientImpl @Inject constructor() : HelperClient {
     }
 
     companion object {
+        private const val CLUSTER_PROBE_TIMEOUT_MS = 8_000L
+        private const val MAX_SYSTEM_DISPLAYS = 16
+        private const val MAX_DISPLAY_NAME_CHARS = 160
         /**
          * The daemon forwards the raw autoservice transact return code in status.
          * Validated on Leopard 3 2026-05-28:

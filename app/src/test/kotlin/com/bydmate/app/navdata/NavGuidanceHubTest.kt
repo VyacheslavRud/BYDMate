@@ -47,6 +47,39 @@ class NavGuidanceHubTest {
         assertEquals(1000, s.lastUpdateMs)
     }
 
+    @Test fun `event maneuver hint cannot create a route`() {
+        assertFalse(
+            NavGuidanceHub.updateManeuverHint(
+                NavManeuverCodes.GAODE_RIGHT,
+                NavGuidanceHub.Source.A11Y,
+                nowMs = 1_000,
+            ),
+        )
+        assertFalse(NavGuidanceHub.snapshot(nowMs = 1_000).active)
+    }
+
+    @Test fun `event maneuver hint preserves richer route fields from notification`() {
+        NavGuidanceHub.updateFromNotification(
+            data(dist = 250, road = "Main Street", eta = 600, total = 5_000),
+            nowMs = 1_000,
+        )
+
+        assertTrue(
+            NavGuidanceHub.updateManeuverHint(
+                NavManeuverCodes.GAODE_RIGHT,
+                NavGuidanceHub.Source.A11Y,
+                nowMs = 2_000,
+            ),
+        )
+
+        val snapshot = NavGuidanceHub.snapshot(nowMs = 2_000)
+        assertEquals(NavManeuverCodes.GAODE_RIGHT, snapshot.maneuverGaode)
+        assertEquals(250, snapshot.distanceMeters)
+        assertEquals("Main Street", snapshot.road)
+        assertEquals(600, snapshot.etaSeconds)
+        assertEquals(5_000, snapshot.totalDistMeters)
+    }
+
     @Test fun `sources merge into one snapshot`() {
         NavGuidanceHub.update(data(gaode = 2, dist = 300), NavGuidanceHub.Source.NOTIFICATION, nowMs = 1000)
         NavGuidanceHub.update(data(limit = 60), NavGuidanceHub.Source.A11Y, nowMs = 2000)

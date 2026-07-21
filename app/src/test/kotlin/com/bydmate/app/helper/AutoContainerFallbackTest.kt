@@ -52,4 +52,38 @@ class AutoContainerFallbackTest {
         assertThrows(IllegalArgumentException::class.java) { autoContainerCall(17, exec) }
         assertEquals(0, exec.scripts.size)
     }
+
+    @Test
+    fun `trace distinguishes process result from Binder parcel and sanitizes output`() {
+        val trace = autoContainerTrace(
+            serviceName = "auto_container",
+            cmd = 16,
+            code = 0,
+            stdout = "Result: Parcel(00000000)\nroute/private",
+        )
+
+        assertTrue(trace.contains("processExit=0"))
+        assertTrue(trace.contains("parcelReply=true"))
+        assertFalse(trace.contains('\n'))
+    }
+
+    @Test
+    fun `cluster system probe runs only fixed read-only commands and stays bounded`() {
+        val commands = mutableListOf<String>()
+        val report = buildClusterSystemProbe("none") { command, args ->
+            commands += command
+            assertTrue(args.isEmpty())
+            CmdResult(0, "DisplayDeviceInfo XDJAScreenProjection")
+        }
+
+        assertEquals(7, commands.size)
+        assertTrue(commands.all { command ->
+            command.startsWith("service list") ||
+                command.startsWith("service call") ||
+                command.startsWith("dumpsys ")
+        })
+        assertTrue(report.contains("[display_manager] exit=0"))
+        assertTrue(report.contains("XDJAScreenProjection"))
+        assertTrue(report.length <= 16_000)
+    }
 }

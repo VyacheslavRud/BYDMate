@@ -1328,13 +1328,22 @@
     <string name="diagnostics_hud_lab_failure_journal">Não foi possível salvar o teste. O HUD foi limpo com segurança; tente novamente.</string>
     <string name="diagnostics_hud_lab_failure_send">O quadro de teste não recebeu confirmação rc=0. O resultado foi registrado e foi feita uma tentativa segura de limpeza.</string>
     <string name="diagnostics_cluster_lab_title">Instrument Cluster Lab</string>
-    <string name="diagnostics_cluster_lab_description">Primeiro verifica os ecrãs e o estado da projeção. Os testes visuais aparecem apenas após detetar o painel.</string>
-    <string name="diagnostics_cluster_lab_safety_hint">Abra o modo Navi/projeção original e execute C01. O laboratório não usa auto_container não validado e restaura OFF.</string>
-    <string name="diagnostics_cluster_lab_display_required">C03–C05 estão ocultos porque o painel não foi encontrado. Abra a projeção original e repita C01.</string>
+    <string name="diagnostics_cluster_lab_description">C06 verifica toda a cadeia: contentor original → ecrã do painel → mapa Waze → regresso ao ecrã central → OFF. A exportação regista a fase exata da falha.</string>
+    <string name="diagnostics_cluster_lab_safety_hint">Apenas dev, seletor em P, velocidade 0 e sem rota ativa. C06 testa temporariamente os comandos 16/18/0 autorizados; o ecrã pode mudar por cerca de 10 segundos e depois a limpeza é sempre executada.</string>
+    <string name="diagnostics_cluster_lab_display_required">C03–C06 ficam ocultos até um display Android do painel ser encontrado. Execute C07 ou C08 primeiro.</string>
+    <string name="diagnostics_cluster_lab_run_e2e">C06 · Testar mapa Waze no painel</string>
+    <string name="diagnostics_cluster_lab_run_transport">C07 · Testar transporte do display Sea Lion</string>
+    <string name="diagnostics_cluster_lab_manual_transport">Teste separado: pressione C08 e ative imediatamente o modo Navi original no painel. A observação dura 20 segundos.</string>
+    <string name="diagnostics_cluster_lab_support_tests">Diagnóstico auxiliar só de leitura</string>
+    <string name="diagnostics_cluster_lab_show_advanced">Mostrar testes avançados antigos</string>
+    <string name="diagnostics_cluster_lab_hide_advanced">Ocultar testes avançados</string>
     <string name="diagnostics_cluster_lab_what_seen">O que aconteceu no painel durante %1$s?</string>
     <string name="diagnostics_cluster_lab_cancel">Parar e limpar</string>
     <string name="diagnostics_cluster_lab_export_all">Exportar ambos os HUD</string>
     <string name="diagnostics_cluster_lab_saved_count">Testes do painel guardados: %1$d</string>
+    <string name="diagnostics_cluster_lab_delete_records">Eliminar testes guardados do painel</string>
+    <string name="diagnostics_cluster_lab_delete_title">Limpar o diário do painel?</string>
+    <string name="diagnostics_cluster_lab_delete_message">Todos os testes guardados do Instrument Cluster Lab serão removidos da aplicação. Os ficheiros exportados e testes do HUD do para-brisas permanecem.</string>
     <string name="diagnostics_cluster_lab_seen_visible">Exibido corretamente</string>
     <string name="diagnostics_cluster_lab_seen_black">Ecrã preto</string>
     <string name="diagnostics_cluster_lab_seen_flickered">Piscou/desapareceu</string>

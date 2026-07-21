@@ -4,6 +4,7 @@ import android.app.Notification
 import android.os.UserHandle
 import android.service.notification.StatusBarNotification
 import com.bydmate.app.navdata.NavGuidanceHub
+import com.bydmate.app.navdata.NavManeuverCodes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -209,6 +210,71 @@ class NaviNotificationParserTest {
         assertEquals("левее", parsed.maneuver)
         assertEquals(500, parsed.guidance?.distanceMeters)
         assertEquals("Brno", parsed.street)
+    }
+
+    @Test fun `vendor string extra supplies maneuver when standard fields omit it`() {
+        val notification = Notification().apply {
+            extras.putString(Notification.EXTRA_TITLE, "250 m")
+            extras.putString(Notification.EXTRA_TEXT, "Main Street")
+            extras.putString("com.waze.navigation.maneuver", "TURN_RIGHT")
+        }
+
+        val parsed = NaviNotificationParser.parse(notification)
+
+        assertEquals(NavManeuverCodes.GAODE_RIGHT, parsed.guidance?.maneuverGaode)
+        assertEquals(250, parsed.guidance?.distanceMeters)
+        assertEquals("Main Street", parsed.street)
+    }
+
+    @Test fun `standard route instruction wins over a stale vendor hint`() {
+        val parsed = NaviNotificationParser.fromText(
+            title = "250 m",
+            text = "Turn left onto Main Street",
+            subText = null,
+            bigText = null,
+            maneuverHints = listOf("TURN_RIGHT"),
+        )
+
+        assertEquals(NavManeuverCodes.GAODE_LEFT, parsed.guidance?.maneuverGaode)
+    }
+
+    @Test fun `RemoteViews maneuver code completes distance and street only notification`() {
+        val parsed = NaviNotificationParser.fromText(
+            title = "50 m",
+            text = "Main Street",
+            subText = null,
+            bigText = null,
+            maneuverCodeHint = NavManeuverCodes.GAODE_RIGHT,
+        )
+
+        assertEquals(NavManeuverCodes.GAODE_RIGHT, parsed.guidance?.maneuverGaode)
+        assertEquals(50, parsed.guidance?.distanceMeters)
+        assertEquals("Main Street", parsed.guidance?.road)
+    }
+
+    @Test fun `standard instruction wins over conflicting RemoteViews resource`() {
+        val parsed = NaviNotificationParser.fromText(
+            title = "50 m",
+            text = "Turn left onto Main Street",
+            subText = null,
+            bigText = null,
+            maneuverCodeHint = NavManeuverCodes.GAODE_RIGHT,
+        )
+
+        assertEquals(NavManeuverCodes.GAODE_LEFT, parsed.guidance?.maneuverGaode)
+    }
+
+    @Test fun `diagnostic dump redacts vendor maneuver extra value`() {
+        val notification = Notification().apply {
+            extras.putString(Notification.EXTRA_TITLE, "250 m")
+            extras.putString(Notification.EXTRA_TEXT, "Main Street")
+            extras.putString("com.waze.navigation.maneuver", "TURN_RIGHT_SECRET")
+        }
+
+        val dump = NaviNotificationParser.dump(notification)
+
+        assertTrue("semanticHints=" in dump)
+        assertFalse("TURN_RIGHT_SECRET" in dump)
     }
 
     @Test fun `parse survives notification without extras content`() {

@@ -3,9 +3,9 @@ package com.bydmate.app.cluster
 /**
  * Parked, development-only checks for the instrument-cluster projection path.
  *
- * The lab deliberately has no scenario that powers the BYD compositor through auto_container.
- * Those commands are not validated on the Sea Lion 07. C04/C05 exercise only the existing
- * projection pipeline after the driver has manually opened the native Navi/projection mode.
+ * C06 and C07 are the only scenarios allowed to power the BYD compositor. They are explicit parked
+ * calibration probes for the existing, daemon-whitelisted 16/18/0 sequence; they must not be
+ * treated as proof that donor commands are generally compatible with the Sea Lion 07.
  */
 enum class ClusterLabMutation {
     NONE,
@@ -58,12 +58,43 @@ object ClusterLabScenarioCatalog {
             mutation = ClusterLabMutation.PROJECTION_PIPELINE,
             durationMs = 14_000L,
         ),
+        ClusterLabScenario(
+            id = "C06",
+            title = "Sea Lion Waze map end-to-end",
+            summary = "Opens the factory projection container, verifies Waze task placement, then restores the center display and OFF.",
+            mutation = ClusterLabMutation.PROJECTION_PIPELINE,
+            durationMs = 10_000L,
+        ),
+        ClusterLabScenario(
+            id = "C07",
+            title = "Sea Lion container transport",
+            summary = "Powers only the known container sequence, records Binder/display/SurfaceFlinger evidence, then always restores OFF.",
+            mutation = ClusterLabMutation.PROJECTION_PIPELINE,
+            durationMs = 12_000L,
+        ),
+        ClusterLabScenario(
+            id = "C08",
+            title = "Manual factory Navi watch",
+            summary = "Watches system and app display inventories while you switch the instrument panel to its factory Navi mode.",
+            mutation = ClusterLabMutation.NONE,
+            durationMs = 20_000L,
+        ),
     )
 
     fun byId(id: String): ClusterLabScenario? = all.firstOrNull { it.id == id }
 
     fun visible(clusterDisplayAvailable: Boolean): List<ClusterLabScenario> = all.filter {
-        it.mutation == ClusterLabMutation.NONE || clusterDisplayAvailable
+        it.mutation == ClusterLabMutation.NONE || it.id == "C07" || clusterDisplayAvailable
+    }
+
+    fun primary(): ClusterLabScenario = checkNotNull(byId("C07"))
+
+    fun support(): List<ClusterLabScenario> = all.filter { it.id == "C01" || it.id == "C02" }
+
+    fun manualTransport(): List<ClusterLabScenario> = all.filter { it.id == "C08" }
+
+    fun advanced(clusterDisplayAvailable: Boolean): List<ClusterLabScenario> = all.filter {
+        it.id in setOf("C03", "C04", "C05", "C06") && clusterDisplayAvailable
     }
 }
 
@@ -81,6 +112,30 @@ enum class ClusterLabFailure {
     OVERLAY_ALREADY_ACTIVE,
     OVERLAY_PERMISSION_UNAVAILABLE,
     CLUSTER_DISPLAY_NOT_FOUND,
+    COMPOSITOR_MARKER_WRITE_FAILED,
+    CONTAINER_ON_REJECTED,
+    CLUSTER_DISPLAY_DID_NOT_APPEAR,
+    INVALID_GEOMETRY,
+    OVERLAY_SURFACE_TIMEOUT,
+    STALE_DISPLAY_RELEASE_FAILED,
+    VIRTUAL_DISPLAY_CREATE_FAILED,
+    VIRTUAL_DISPLAY_MARKER_WRITE_FAILED,
+    WAZE_TASK_LAUNCH_FAILED,
+    PROJECTION_EXCEPTION,
+    CLUSTER_DISPLAY_REMOVED,
+    PROJECTION_SURFACE_DESTROYED,
+    LAB_LEASE_LOST,
+    RENDER_PATH_UNKNOWN,
+    PROJECTION_RESOURCES_MISSING,
+    TASK_STATE_UNAVAILABLE,
+    WAZE_TASK_NOT_RUNNING,
+    TASK_STAYED_ON_MAIN_DISPLAY,
+    TASK_ON_WRONG_DISPLAY,
+    CLEANUP_TRANSITION_FAILED,
+    CLEANUP_TASK_STATE_UNAVAILABLE,
+    WAZE_NOT_RETURNED_TO_MAIN_DISPLAY,
+    OWNERSHIP_NOT_CLEARED,
+    RUNTIME_RESOURCES_NOT_RELEASED,
     PROJECTION_FAILED,
     PROJECTION_TIMEOUT,
     CLEANUP_TIMEOUT,

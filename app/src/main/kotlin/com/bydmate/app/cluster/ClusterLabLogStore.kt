@@ -24,6 +24,7 @@ enum class ClusterLabEventKind {
     OVERLAY_REMOVED,
     PROJECTION_REQUESTED,
     PROJECTION_STATE,
+    VERDICT,
     CLEANUP_REQUESTED,
     CLEANUP_CONFIRMED,
     OBSERVATION,
@@ -44,7 +45,7 @@ data class ClusterLabEvent(
 )
 
 data class ClusterLabRecord(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val id: String,
     val scenarioId: String,
     val scenarioTitle: String,
@@ -230,6 +231,17 @@ object ClusterLabLogStore {
                 Charsets.UTF_8,
             )
         }
+    }
+
+    /** Deletes only the in-app cluster journal; already exported reports are untouched. */
+    @Synchronized
+    fun clearRecords(context: Context) {
+        check(
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .remove(KEY_RECORDS)
+                .commit(),
+        ) { "cluster_lab_log_clear_failed" }
     }
 
     @Synchronized

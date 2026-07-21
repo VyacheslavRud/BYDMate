@@ -31,6 +31,10 @@ import com.bydmate.app.data.local.entity.PlaceEntity
 import com.bydmate.app.data.diagnostics.HudIncidentRecorder
 import com.bydmate.app.hud.HudLabLogStore
 import com.bydmate.app.cluster.ClusterLabLogStore
+import com.bydmate.app.navdata.NavA11yFeed
+import com.bydmate.app.navdata.NavManeuverCodes
+import com.bydmate.app.navdata.WazeVisualManeuverReader
+import com.bydmate.app.media.WazeRemoteViewsManeuverReader
 import com.bydmate.app.demo.DemoDataSeeder
 import com.bydmate.app.demo.DemoMode
 import com.bydmate.app.data.repository.ChargeRepository
@@ -1519,6 +1523,12 @@ class SettingsViewModel @Inject constructor(
             appendLine("--- HUD live pipeline ---")
             try {
                 val sample = hudIncidentRecorder.runtimeSample()
+                val a11yDiagnostics = NavA11yFeed.diagnostics()
+                val remoteViewsDiagnostics = WazeRemoteViewsManeuverReader.diagnostics()
+                val visualDiagnostics = WazeVisualManeuverReader.diagnostics()
+                val eventManeuverAgeMs = a11yDiagnostics.lastEventManeuverAtMs?.let {
+                    (System.currentTimeMillis() - it).coerceAtLeast(0L)
+                }
                 appendLine(
                     "route: active=${sample.routeActive} source=${sample.routeSource} " +
                         "renderable=${sample.routeRenderable} maneuver=${sample.routeManeuverGaode} " +
@@ -1548,11 +1558,36 @@ class SettingsViewModel @Inject constructor(
                         "guidanceAgeMs=${sample.wazeGuidanceAgeMs} " +
                         "noGuidanceAgeMs=${sample.wazeNoGuidanceAgeMs} " +
                         "windowUnreachableAgeMs=${sample.wazeWindowUnreachableAgeMs} " +
-                        "unreadableAgeMs=${sample.wazeUnreadableAgeMs}",
+                        "unreadableAgeMs=${sample.wazeUnreadableAgeMs} " +
+                        "eventManeuver=" +
+                        "${NavManeuverCodes.codeName(a11yDiagnostics.lastEventManeuverGaode)}" +
+                        "(${a11yDiagnostics.lastEventManeuverGaode}) " +
+                        "eventManeuverAgeMs=$eventManeuverAgeMs",
                 )
                 appendLine(
                     "waze_notification_listener: connected=" +
                         com.bydmate.app.media.MediaSessionListenerService.isConnected,
+                )
+                appendLine(
+                    "waze_notification_arrow: remoteViews=" +
+                        "${remoteViewsDiagnostics.remoteViewsPresent} " +
+                        "actions=${remoteViewsDiagnostics.actionsInspected} " +
+                        "imageResources=${remoteViewsDiagnostics.imageResourcesInspected} " +
+                        "maneuver=" +
+                        "${NavManeuverCodes.codeName(remoteViewsDiagnostics.maneuverGaode)}" +
+                        "(${remoteViewsDiagnostics.maneuverGaode}) " +
+                        "resource=${remoteViewsDiagnostics.maneuverResource ?: "none"}",
+                )
+                appendLine(
+                    "waze_visual_arrow: display=${visualDiagnostics.displayId} " +
+                        "source=${visualDiagnostics.targetSource ?: "none"} " +
+                        "target=${visualDiagnostics.targetWidth}x${visualDiagnostics.targetHeight} " +
+                        "maneuver=" +
+                        "${NavManeuverCodes.codeName(visualDiagnostics.maneuverGaode)}" +
+                        "(${visualDiagnostics.maneuverGaode}) " +
+                        "shift=${visualDiagnostics.horizontalShift} " +
+                        "foreground=${visualDiagnostics.foregroundRatio} " +
+                        "failure=${visualDiagnostics.failure}",
                 )
             } catch (e: Exception) {
                 appendLine("(failed to gather live HUD pipeline: ${e.message})")

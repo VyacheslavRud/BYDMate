@@ -48,6 +48,9 @@ object NavA11yFeed {
     @Volatile private var lastUnreadableAtMs: Long = 0L
     @Volatile private var lastRefreshAtMs: Long = 0L
     @Volatile private var lastProbeResult: ProbeResult? = null
+    @Volatile private var lastEventManeuverGaode: Int = 0
+    @Volatile private var lastEventManeuverAtMs: Long = 0L
+    @Volatile private var pendingEventManeuverGaode: Int = 0
     @Volatile private var lastGuidanceEvidencePersistElapsedMs: Long = 0L
     @Volatile private var lastGuidanceEvidenceScope: String? = null
 
@@ -108,6 +111,24 @@ object NavA11yFeed {
             processWindow(service, System.currentTimeMillis(), SystemClock.elapsedRealtime())
         }.onFailure { Log.w(TAG, "Immediate Waze probe failed: ${it.message}") }
     }
+    private val deferredEventProbeRunnable = Runnable {
+        if (!enabled) return@Runnable
+        val service = SteeringWheelKeyService.instance ?: run {
+            lastProbeResult = ProbeResult.ACCESSIBILITY_UNAVAILABLE
+            return@Runnable
+        }
+        val nowMs = System.currentTimeMillis()
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val maneuverHint = pendingEventManeuverGaode
+        pendingEventManeuverGaode = 0
+        lastProcessElapsedMs = nowElapsed
+        lastProcessMs = nowMs
+        runCatching { processWindow(service, nowMs, nowElapsed, maneuverHint) }
+            .onFailure {
+                Log.w(TAG, "Deferred Waze event probe failed: ${it.message}")
+                NavGuidanceHub.markRouteIndeterminate()
+            }
+    }
 
     data class Diagnostics(
         val enabled: Boolean,
@@ -122,6 +143,8 @@ object NavA11yFeed {
         val lastRefreshAtMs: Long?,
         val lastProbeResult: ProbeResult?,
         val lastGuidanceEvidenceScope: String?,
+        val lastEventManeuverGaode: Int,
+        val lastEventManeuverAtMs: Long?,
     )
 
     fun diagnostics(): Diagnostics = Diagnostics(
@@ -136,6 +159,8 @@ object NavA11yFeed {
         lastRefreshAtMs = lastRefreshAtMs.takeIf { it > 0L },
         lastProbeResult = lastProbeResult,
         lastGuidanceEvidenceScope = lastGuidanceEvidenceScope,
+        lastEventManeuverGaode = lastEventManeuverGaode,
+        lastEventManeuverAtMs = lastEventManeuverAtMs.takeIf { it > 0L },
     )
 
     fun enable() {
@@ -159,10 +184,14 @@ object NavA11yFeed {
         mainHandler.removeCallbacks(refreshRunnable)
         mainHandler.removeCallbacks(noRouteConfirmationRunnable)
         mainHandler.removeCallbacks(immediateProbeRunnable)
+        mainHandler.removeCallbacks(deferredEventProbeRunnable)
         lastProcessMs = 0L
         lastProcessElapsedMs = 0L
         rootReachable = null
         lastProbeResult = null
+        lastEventManeuverGaode = 0
+        lastEventManeuverAtMs = 0L
+        pendingEventManeuverGaode = 0
         NavGuidanceHub.markRouteIndeterminate()
     }
 
@@ -172,15 +201,45 @@ object NavA11yFeed {
         val nowElapsed = SystemClock.elapsedRealtime()
         val eventType = event?.eventType ?: 0
         val pkg = event?.packageName?.toString()
+        val fromWaze = NavPackages.isNavigationPackage(pkg)
+        if (fromWaze) lastWazeEventAtMs = nowMs
+        val eventManeuver = if (fromWaze && eventType != 0) {
+            WazeAccessibilityReader.maneuverFromEvent(event)
+        } else {
+            0
+        }
+        if (eventManeuver > 0) {
+            val previousEventManeuver = lastEventManeuverGaode
+            pendingEventManeuverGaode = eventManeuver
+            lastEventManeuverGaode = eventManeuver
+            lastEventManeuverAtMs = nowMs
+            if (eventManeuver != previousEventManeuver) {
+                Log.i(
+                    TAG,
+                    "Waze event maneuver=" +
+                        "${NavManeuverCodes.codeName(eventManeuver)} gaode=$eventManeuver",
+                )
+            }
+        }
         val allowWindowProbe = eventType == AccessibilityEvent.TYPE_WINDOWS_CHANGED &&
             NavGuidanceHub.snapshot(nowMs).active
         if (!shouldProcess(pkg, eventType, nowElapsed, lastProcessElapsedMs, allowWindowProbe)) {
+            if (fromWaze && eventType != 0 && lastProcessElapsedMs != 0L) {
+                // Do not discard the arrow update that commonly follows the distance update.
+                // Coalesce the burst and reread once at the end of the 500 ms window.
+                deferredProbeDelayMs(nowElapsed, lastProcessElapsedMs)?.let { delayMs ->
+                    mainHandler.removeCallbacks(deferredEventProbeRunnable)
+                    mainHandler.postDelayed(deferredEventProbeRunnable, delayMs)
+                }
+            }
             return
         }
+        mainHandler.removeCallbacks(deferredEventProbeRunnable)
         lastProcessElapsedMs = nowElapsed
         lastProcessMs = nowMs
-        if (NavPackages.isNavigationPackage(pkg)) lastWazeEventAtMs = nowMs
-        processWindow(service, nowMs, nowElapsed)
+        val maneuverHint = pendingEventManeuverGaode
+        pendingEventManeuverGaode = 0
+        processWindow(service, nowMs, nowElapsed, maneuverHint)
     }
 
     /** Main-thread tree read shared by event and periodic refresh paths. */
@@ -188,6 +247,7 @@ object NavA11yFeed {
         service: SteeringWheelKeyService,
         nowMs: Long,
         nowElapsed: Long,
+        maneuverHintGaode: Int = 0,
     ): ProbeResult {
         val root = runCatching { service.findNavigatorRoot() }.getOrNull()
             ?: run {
@@ -198,6 +258,16 @@ object NavA11yFeed {
                 lastWindowUnreachableAtMs = nowMs
                 lastProbeResult = ProbeResult.WINDOW_UNREACHABLE
                 mainHandler.removeCallbacks(noRouteConfirmationRunnable)
+                if (NavGuidanceHub.updateManeuverHint(
+                        maneuverHintGaode,
+                        NavGuidanceHub.Source.A11Y,
+                        nowMs,
+                    )
+                ) {
+                    lastGuidanceAtMs = nowMs
+                    lastProbeResult = ProbeResult.GUIDANCE
+                    return ProbeResult.GUIDANCE
+                }
                 NavGuidanceHub.markRouteIndeterminate()
                 return ProbeResult.WINDOW_UNREACHABLE
             }
@@ -212,11 +282,15 @@ object NavA11yFeed {
         return try {
             when (val result = NavA11yExtractor.read(root)) {
                 is NavA11yExtractor.ReadResult.Guidance -> {
+                    val guidance = result.data.withManeuverHint(maneuverHintGaode)
                     lastGuidanceAtMs = nowMs
                     lastNoGuidanceAtMs = 0L
                     mainHandler.removeCallbacks(noRouteConfirmationRunnable)
                     recordGuidanceEvidence(service, nowMs, nowElapsed)
-                    NavGuidanceHub.update(result.data, NavGuidanceHub.Source.A11Y, nowMs)
+                    NavGuidanceHub.update(guidance, NavGuidanceHub.Source.A11Y, nowMs)
+                    if (guidance.maneuverGaode == 0) {
+                        requestVisualManeuver(service, root)
+                    }
                     if (recoveredWindow) NavGuidanceHub.requestHudRefresh()
                     ProbeResult.GUIDANCE
                 }
@@ -227,9 +301,19 @@ object NavA11yFeed {
                         lastUnreadableAtMs = nowMs
                         lastNoGuidanceAtMs = 0L
                         mainHandler.removeCallbacks(noRouteConfirmationRunnable)
-                        NavGuidanceHub.markRouteObserved(NavGuidanceHub.Source.A11Y, nowMs)
+                        val hintApplied = NavGuidanceHub.updateManeuverHint(
+                            maneuverHintGaode,
+                            NavGuidanceHub.Source.A11Y,
+                            nowMs,
+                        )
+                        if (hintApplied) {
+                            lastGuidanceAtMs = nowMs
+                        } else {
+                            NavGuidanceHub.markRouteObserved(NavGuidanceHub.Source.A11Y, nowMs)
+                            requestVisualManeuver(service, root)
+                        }
                         if (recoveredWindow) NavGuidanceHub.requestHudRefresh()
-                        ProbeResult.ROUTE_UNREADABLE
+                        if (hintApplied) ProbeResult.GUIDANCE else ProbeResult.ROUTE_UNREADABLE
                     } else {
                         lastNoGuidanceAtMs = nowMs
                         val noGuidance = NavGuidanceHub.markNoGuidance(nowMs)
@@ -279,6 +363,30 @@ object NavA11yFeed {
             }
     }
 
+    private fun requestVisualManeuver(
+        service: SteeringWheelKeyService,
+        root: AccessibilityNodeInfo,
+    ) {
+        WazeVisualManeuverReader.request(service, root) { maneuverGaode ->
+            if (!enabled) return@request
+            val nowMs = System.currentTimeMillis()
+            if (NavGuidanceHub.updateManeuverHint(
+                    maneuverGaode,
+                    NavGuidanceHub.Source.A11Y,
+                    nowMs,
+                )
+            ) {
+                lastGuidanceAtMs = nowMs
+                Log.i(
+                    TAG,
+                    "Waze visual maneuver=" +
+                        "${NavManeuverCodes.codeName(maneuverGaode)} gaode=$maneuverGaode",
+                )
+                NavGuidanceHub.requestHudRefresh()
+            }
+        }
+    }
+
     private fun hasRouteAnchor(root: AccessibilityNodeInfo): Boolean = runCatching {
         WazeAccessibilityReader.hasRouteAnchor(root)
     }.getOrDefault(false)
@@ -307,4 +415,15 @@ object NavA11yFeed {
         if (eventType == 0) return false
         return lastMs == 0L || nowMs - lastMs >= DEBOUNCE_MS
     }
+
+    /** Delay for the trailing probe that preserves the last event in a debounced Waze burst. */
+    internal fun deferredProbeDelayMs(nowMs: Long, lastMs: Long): Long? {
+        if (lastMs == 0L) return null
+        val elapsed = nowMs - lastMs
+        return if (elapsed in 0 until DEBOUNCE_MS) DEBOUNCE_MS - elapsed else null
+    }
 }
+
+/** A full route-tree maneuver always wins; an event fills only a genuinely absent direction. */
+internal fun NavGuidance.withManeuverHint(hintGaode: Int): NavGuidance =
+    if (maneuverGaode == 0 && hintGaode > 0) copy(maneuverGaode = hintGaode) else this

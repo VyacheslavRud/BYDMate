@@ -3,10 +3,12 @@ package com.bydmate.app.helper
 
 import android.content.Context
 import android.graphics.Rect
+import android.graphics.Point
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.os.Binder
 import android.view.Surface
+import android.util.DisplayMetrics
 import java.util.concurrent.ConcurrentHashMap
 import android.os.IBinder
 import android.os.Looper
@@ -16,6 +18,9 @@ import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
 import java.nio.channels.OverlappingFileLockException
 import kotlin.system.exitProcess
+
+@Volatile
+private var lastAutoContainerTrace: String = "none"
 
 /**
  * Acquires an exclusive file lock on [path]. Returns a (FileChannel, FileLock) pair on
@@ -203,6 +208,43 @@ fun main(args: Array<String>) {
                 }.getOrElse {
                     reply?.writeInt(HelperBinderProtocol.TASK_PROJECTION_UNAVAILABLE)
                     repeat(3) { reply?.writeInt(-1) }
+                    true
+                }
+
+                HelperBinderProtocol.TX_GET_CLUSTER_SYSTEM_PROBE -> runCatching {
+                    val report = buildClusterSystemProbe(lastAutoContainerTrace, ::shExec)
+                    reply?.writeInt(0)
+                    reply?.writeString(report)
+                    true
+                }.getOrElse {
+                    reply?.writeInt(-1)
+                    reply?.writeString("probe_error=${safeProbeValue(it.javaClass.simpleName)}")
+                    true
+                }
+
+                HelperBinderProtocol.TX_GET_SYSTEM_DISPLAYS -> runCatching {
+                    val manager = systemContext?.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+                    val displays = manager?.displays.orEmpty().take(MAX_SYSTEM_DISPLAYS)
+                    reply?.writeInt(if (manager == null) -1 else 0)
+                    reply?.writeInt(displays.size)
+                    displays.forEach { display ->
+                        val size = Point()
+                        @Suppress("DEPRECATION")
+                        display.getRealSize(size)
+                        val metrics = DisplayMetrics()
+                        @Suppress("DEPRECATION")
+                        display.getMetrics(metrics)
+                        reply?.writeInt(display.displayId)
+                        reply?.writeString(display.name.orEmpty().take(MAX_DISPLAY_NAME_CHARS))
+                        reply?.writeInt(size.x)
+                        reply?.writeInt(size.y)
+                        reply?.writeInt(metrics.densityDpi)
+                        reply?.writeInt(display.state)
+                    }
+                    true
+                }.getOrElse {
+                    reply?.writeInt(-1)
+                    reply?.writeInt(0)
                     true
                 }
 
@@ -736,7 +778,7 @@ private fun execShell(command: String): String {
     }.ifEmpty { "OK" }
 }
 
-private class CmdResult(val code: Int, val stdout: String)
+internal class CmdResult(val code: Int, val stdout: String)
 
 /**
  * Runs [script] under sh with [args] bound to positional params ($1, $2, …) so untrusted values
@@ -757,8 +799,22 @@ private fun shExec(script: String, vararg args: String): CmdResult {
 
 /** The single gateway for auto_container: hard whitelist {16, 18, 0}, device id fixed
  *  at 1000. Anything else is a programming error, not a runtime input. */
-private fun autoContainerCall(cmd: Int): Boolean =
-    autoContainerCall(cmd) { script, arg -> shExec(script, arg).code }
+private fun autoContainerCall(cmd: Int): Boolean {
+    require(cmd == 16 || cmd == 18 || cmd == 0) { "auto_container cmd $cmd not whitelisted" }
+    val attempts = listOf("auto_container", "AutoContainer")
+    attempts.forEach { serviceName ->
+        val result = shExec(
+            "service call $serviceName 2 i32 1000 i32 \"\$1\" s16 \"\"",
+            cmd.toString(),
+        )
+        lastAutoContainerTrace = autoContainerTrace(serviceName, cmd, result.code, result.stdout)
+        // Preserve the existing production behavior: Android's `service call` process status is
+        // the compatibility gate. The trace explicitly records whether a Parcel reply was seen so
+        // Cluster Lab no longer presents process exit 0 as proof that the hardware changed state.
+        if (result.code == 0) return true
+    }
+    return false
+}
 
 /** Testable core: [exec] runs a shell script with one positional arg and returns its exit code. */
 internal fun autoContainerCall(cmd: Int, exec: (String, String) -> Int): Boolean {
@@ -770,6 +826,71 @@ internal fun autoContainerCall(cmd: Int, exec: (String, String) -> Int): Boolean
     // never runs on platforms where the snake_case name works.
     return exec("service call AutoContainer 2 i32 1000 i32 \"$1\" s16 \"\"", cmd.toString()) == 0
 }
+
+internal fun autoContainerTrace(serviceName: String, cmd: Int, code: Int, stdout: String): String {
+    val normalized = safeProbeValue(stdout, maxChars = 320)
+    val parcelReply = stdout.contains("Parcel(", ignoreCase = true)
+    return "service=$serviceName transaction=2 device=1000 command=$cmd " +
+        "processExit=$code parcelReply=$parcelReply reply=$normalized"
+}
+
+/**
+ * Fixed, read-only cluster transport inventory. There is intentionally no caller-supplied command,
+ * service, filter or path: this privileged endpoint must never become a generic shell proxy.
+ */
+internal fun buildClusterSystemProbe(
+    autoContainerTrace: String,
+    exec: (String, Array<out String>) -> CmdResult,
+): String {
+    data class Probe(val label: String, val command: String)
+    val probes = listOf(
+        Probe(
+            "services",
+            "service list | grep -Ei 'auto.?container|cluster|instrument|projection|display' | head -n 80",
+        ),
+        Probe("auto_container_descriptor", "service call auto_container 1598968902"),
+        Probe("AutoContainer_descriptor", "service call AutoContainer 1598968902"),
+        Probe(
+            "display_manager",
+            "dumpsys display | grep -Ei 'DisplayDeviceInfo|DisplayInfo|mDisplayId|displayId=|uniqueId=|name=|ownerPackageName=|XDJAScreenProjection' | head -n 120",
+        ),
+        Probe(
+            "surface_flinger_displays",
+            "dumpsys SurfaceFlinger --display-id | head -n 80",
+        ),
+        Probe(
+            "surface_flinger_layers",
+            "dumpsys SurfaceFlinger --list | grep -Ei 'auto.?container|cluster|instrument|projection|xdja|navigation' | head -n 100",
+        ),
+        Probe(
+            "activity_displays",
+            "dumpsys activity displays | grep -Ei 'Display #[0-9]+|DisplayContent|mDisplayId|displayId=|DisplayArea' | head -n 120",
+        ),
+    )
+    return buildString {
+        appendLine("schema=1")
+        appendLine("last_auto_container=${safeProbeValue(autoContainerTrace, 480)}")
+        probes.forEach { probe ->
+            val result = runCatching { exec(probe.command, emptyArray()) }.getOrNull()
+            append("[").append(probe.label).append("] exit=")
+                .append(result?.code ?: -999).append('\n')
+            appendLine(safeProbeValue(result?.stdout.orEmpty(), MAX_PROBE_SECTION_CHARS))
+        }
+    }.take(MAX_CLUSTER_PROBE_CHARS)
+}
+
+internal fun safeProbeValue(value: String, maxChars: Int = 1_200): String = value
+    .replace(Regex("[\\r\\n\\t]+"), " ")
+    .replace(Regex("\\s{2,}"), " ")
+    .replace(Regex("[^\\p{L}\\p{N} _.,:;=+/@#()\\[\\]{}<>|!?*'\"-]"), "?")
+    .trim()
+    .ifEmpty { "(empty)" }
+    .take(maxChars)
+
+private const val MAX_PROBE_SECTION_CHARS = 2_400
+private const val MAX_CLUSTER_PROBE_CHARS = 16_000
+private const val MAX_SYSTEM_DISPLAYS = 16
+private const val MAX_DISPLAY_NAME_CHARS = 160
 
 /**
  * Testable core of the `wm density` op. [displayId] must be a NON-default display — the main

@@ -64,6 +64,16 @@ class ClusterLabLogStoreTest {
                 speedKmh = 0,
             ),
         )
+        ClusterLabLogStore.append(
+            context,
+            record.id,
+            ClusterLabEvent(
+                atMs = 1_300L,
+                elapsedMs = 300L,
+                kind = ClusterLabEventKind.VERDICT,
+                detail = "stage=activation pass=true renderPath=DIRECT expectedTaskDisplay=7",
+            ),
+        )
         ClusterLabLogStore.finish(
             context,
             record.id,
@@ -84,13 +94,16 @@ class ClusterLabLogStoreTest {
         assertEquals(true, restored.cleanupConfirmed)
         assertNull(restored.failure)
         assertEquals(ClusterLabObservation.VISIBLE, restored.observed)
-        assertEquals(4, restored.events.size)
+        assertEquals(2, restored.schemaVersion)
+        assertEquals(5, restored.events.size)
         assertEquals("XDJAScreenProjection_1", restored.events[1].displays.single().name)
+        assertEquals(ClusterLabEventKind.VERDICT, restored.events[2].kind)
 
         val section = ClusterLabLogStore.renderDiagnosticSection(context)
         assertTrue(section.contains("--- Instrument Cluster Lab ---"))
         assertTrue(section.contains("scenario=C03"))
         assertTrue(section.contains("kind=OVERLAY_ADDED"))
+        assertTrue(section.contains("kind=VERDICT"))
         assertTrue(section.contains("cleanupConfirmed=true"))
     }
 
@@ -143,5 +156,21 @@ class ClusterLabLogStoreTest {
         assertTrue(report.contains("kind=COMPLETE"))
         assertTrue(report.contains("vehicle:"))
     }
-}
 
+    @Test fun `clear removes only the stored cluster journal`() {
+        val scenario = checkNotNull(ClusterLabScenarioCatalog.byId("C06"))
+        ClusterLabLogStore.begin(
+            context,
+            scenario,
+            autoContainerEnabled = false,
+            compositorOwnershipPending = false,
+            gear = 1,
+            speedKmh = 0,
+            nowMs = 1_000L,
+        )
+
+        ClusterLabLogStore.clearRecords(context)
+
+        assertTrue(ClusterLabLogStore.records(context).isEmpty())
+    }
+}

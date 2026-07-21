@@ -1,6 +1,7 @@
 package com.bydmate.app.navdata
 
 import android.os.Build
+import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
 /**
@@ -138,6 +139,43 @@ object WazeAccessibilityReader {
             speedLimit = speedLimit,
             exitNumber = numberedExit(maneuver),
         )
+    }
+
+    /**
+     * Direction carried by the event that changed Waze's route bar.
+     *
+     * Several Waze/DiLink layouts update the distance node first and emit the arrow as a separate
+     * event whose semantic value is no longer present by the time the whole window is reread. The
+     * event is accepted only from the exact navigation package; raw values never leave memory.
+     */
+    internal fun maneuverFromEvent(event: AccessibilityEvent?): Int {
+        if (event == null) return 0
+        val pkg = runCatching { event.packageName?.toString() }.getOrNull()
+            ?.takeIf(NavPackages::isNavigationPackage)
+            ?: return 0
+        val values = linkedSetOf<String>()
+        runCatching { event.text }.getOrNull().orEmpty().forEach { value ->
+            value?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let(values::add)
+        }
+        runCatching { event.contentDescription }.getOrNull()
+            ?.toString()?.trim()?.takeIf(String::isNotEmpty)?.let(values::add)
+        val source = runCatching { event.source }.getOrNull()
+        if (source != null) {
+            try {
+                values += maneuverNodeValues(source, depth = EVENT_SOURCE_SCAN_DEPTH)
+            } finally {
+                recycle(source)
+            }
+        }
+        return values.asSequence()
+            .map(NavManeuverCodes::parseInstructionText)
+            .filter { it.gaode != 0 }
+            .maxWithOrNull(
+                compareBy<NavManeuverCodes.ParseResult> { it.recognizedCodes.size }
+                    .thenBy { it.gaode != NavManeuverCodes.GAODE_STRAIGHT },
+            )
+            ?.gaode
+            ?: 0
     }
 
     /** Shared route-window discriminator used by both the reader and window selection. */
@@ -341,4 +379,6 @@ object WazeAccessibilityReader {
     private fun numberedExit(value: String?): String? = value?.let {
         NUMBERED_EXIT.find(it)?.groupValues?.get(1)
     }
+
+    private const val EVENT_SOURCE_SCAN_DEPTH = 4
 }

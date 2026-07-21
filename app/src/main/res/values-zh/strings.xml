@@ -1449,13 +1449,22 @@
     <string name="diagnostics_hud_lab_failure_journal">无法保存测试。HUD 已安全清除，请重试。</string>
     <string name="diagnostics_hud_lab_failure_send">测试帧未收到 rc=0 确认。结果已记录，并已执行安全清除尝试。</string>
     <string name="diagnostics_cluster_lab_title">仪表屏实验室</string>
-    <string name="diagnostics_cluster_lab_description">先检查显示屏列表和投影状态。仅在实际检测到仪表屏后显示可视测试。</string>
-    <string name="diagnostics_cluster_lab_safety_hint">打开原厂 Navi/投影模式并运行 C01。实验室不会使用未验证的 auto_container 命令，并始终恢复 OFF。</string>
-    <string name="diagnostics_cluster_lab_display_required">未找到仪表屏，因此隐藏 C03–C05。打开原厂投影后再次运行 C01。</string>
+    <string name="diagnostics_cluster_lab_description">C06 验证完整链路：原厂仪表容器 → 显示屏 → Waze 地图 → Waze 返回中控屏 → OFF。导出会记录准确的失败阶段。</string>
+    <string name="diagnostics_cluster_lab_safety_hint">仅限 dev，挡位 P、车速 0 且无活动路线。C06 会临时探测白名单中的 16/18/0 容器命令；屏幕可能切换约 10 秒，随后始终执行清理。</string>
+    <string name="diagnostics_cluster_lab_display_required">检测到 Android 仪表屏前隐藏 C03–C06。请先运行 C07 或 C08。</string>
+    <string name="diagnostics_cluster_lab_run_e2e">C06 · 测试仪表屏 Waze 地图</string>
+    <string name="diagnostics_cluster_lab_run_transport">C07 · 检测 Sea Lion 显示传输</string>
+    <string name="diagnostics_cluster_lab_manual_transport">单独检查：按 C08 后立即手动切换到原厂仪表 Navi 模式。观察持续 20 秒。</string>
+    <string name="diagnostics_cluster_lab_support_tests">只读辅助诊断</string>
+    <string name="diagnostics_cluster_lab_show_advanced">显示旧版高级测试</string>
+    <string name="diagnostics_cluster_lab_hide_advanced">隐藏高级测试</string>
     <string name="diagnostics_cluster_lab_what_seen">测试 %1$s 时仪表屏发生了什么？</string>
     <string name="diagnostics_cluster_lab_cancel">停止并清理</string>
     <string name="diagnostics_cluster_lab_export_all">导出两个 HUD 实验室</string>
     <string name="diagnostics_cluster_lab_saved_count">已保存仪表屏测试：%1$d</string>
+    <string name="diagnostics_cluster_lab_delete_records">删除已保存的仪表屏测试</string>
+    <string name="diagnostics_cluster_lab_delete_title">清空仪表屏日志？</string>
+    <string name="diagnostics_cluster_lab_delete_message">应用内所有 Instrument Cluster Lab 测试都将被删除。已导出的文件和前挡 HUD 测试不会删除。</string>
     <string name="diagnostics_cluster_lab_seen_visible">显示正确</string>
     <string name="diagnostics_cluster_lab_seen_black">黑屏</string>
     <string name="diagnostics_cluster_lab_seen_flickered">闪烁/消失</string>

@@ -303,6 +303,35 @@ object NavGuidanceHub {
         clearNoRouteSequence()
     }
 
+    /**
+     * Merges a direction carried by a Waze accessibility event into the current route without
+     * replacing richer distance/street data from another source. It can never create a route.
+     */
+    @Synchronized
+    internal fun updateManeuverHint(
+        maneuverGaode: Int,
+        source: Source,
+        nowMs: Long = System.currentTimeMillis(),
+    ): Boolean {
+        if (maneuverGaode <= 0) return false
+        val current = snapshot(nowMs)
+        if (!current.active) return false
+        update(
+            NavGuidance(
+                maneuverGaode = maneuverGaode,
+                distanceMeters = current.distanceMeters,
+                road = current.road,
+                etaSeconds = current.etaSeconds,
+                arrivalTime = current.arrivalTime,
+                totalDistMeters = current.totalDistMeters,
+                speedLimit = current.speedLimit,
+            ),
+            source,
+            nowMs,
+        )
+        return true
+    }
+
     /** A window/probe failure says nothing about whether the route ended. */
     @Synchronized
     fun markRouteIndeterminate() {

@@ -7,8 +7,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ClusterLabScenarioTest {
-    @Test fun `catalog has five stable bounded scenarios`() {
-        assertEquals(listOf("C01", "C02", "C03", "C04", "C05"), ClusterLabScenarioCatalog.all.map { it.id })
+    @Test fun `catalog has eight stable bounded scenarios`() {
+        assertEquals(
+            listOf("C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08"),
+            ClusterLabScenarioCatalog.all.map { it.id },
+        )
         assertEquals(
             listOf(
                 ClusterLabMutation.NONE,
@@ -16,21 +19,30 @@ class ClusterLabScenarioTest {
                 ClusterLabMutation.APP_OVERLAY,
                 ClusterLabMutation.PROJECTION_PIPELINE,
                 ClusterLabMutation.PROJECTION_PIPELINE,
+                ClusterLabMutation.PROJECTION_PIPELINE,
+                ClusterLabMutation.PROJECTION_PIPELINE,
+                ClusterLabMutation.NONE,
             ),
             ClusterLabScenarioCatalog.all.map { it.mutation },
         )
-        assertTrue(ClusterLabScenarioCatalog.all.all { it.durationMs in 0L..14_000L })
+        assertTrue(ClusterLabScenarioCatalog.all.all { it.durationMs in 0L..20_000L })
         assertNull(ClusterLabScenarioCatalog.byId("C99"))
+        assertEquals("C07", ClusterLabScenarioCatalog.primary().id)
+        assertEquals(listOf("C08"), ClusterLabScenarioCatalog.manualTransport().map { it.id })
     }
 
     @Test fun `visual scenarios stay hidden until a cluster display was detected`() {
         assertEquals(
-            listOf("C01", "C02"),
+            listOf("C01", "C02", "C07", "C08"),
             ClusterLabScenarioCatalog.visible(clusterDisplayAvailable = false).map { it.id },
         )
         assertEquals(
-            listOf("C01", "C02", "C03", "C04", "C05"),
+            listOf("C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08"),
             ClusterLabScenarioCatalog.visible(clusterDisplayAvailable = true).map { it.id },
+        )
+        assertEquals(
+            listOf("C03", "C04", "C05", "C06"),
+            ClusterLabScenarioCatalog.advanced(clusterDisplayAvailable = true).map { it.id },
         )
     }
 
@@ -101,10 +113,12 @@ class ClusterLabScenarioTest {
         assertNull(preferredClusterDisplayId(listOf(4 to "Center display")))
     }
 
-    @Test fun `lab flag hard-disables auto container despite live preference`() {
+    @Test fun `lab auto container remains disabled unless allowed and preferred or forced`() {
         assertFalse(shouldUseAutoContainer(false, true))
         assertFalse(shouldUseAutoContainer(false, false))
         assertTrue(shouldUseAutoContainer(true, true))
         assertFalse(shouldUseAutoContainer(true, false))
+        assertTrue(shouldUseAutoContainer(true, false, forceForParkedLab = true))
+        assertFalse(shouldUseAutoContainer(false, true, forceForParkedLab = true))
     }
 }

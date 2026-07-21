@@ -42,6 +42,11 @@ import com.bydmate.app.BuildConfig
  *       -> [int status, int taskId, int displayId, int windowingMode].
  *       The daemon accepts only the exact Waze package. Status is one of
  *       TASK_PROJECTION_FOUND, TASK_PROJECTION_NOT_RUNNING or TASK_PROJECTION_UNAVAILABLE.
+ *   TX_GET_CLUSTER_SYSTEM_PROBE: (no args) -> [int status, String report].
+ *       Fixed, read-only system inventory for the parked Cluster Lab. The daemon runs only a
+ *       hardcoded command set and returns bounded, privacy-safe display/container metadata.
+ *   TX_GET_SYSTEM_DISPLAYS: (no args) -> [int status, int count,
+ *       count * (int id, String name, int width, int height, int densityDpi, int state)].
  *
  * Projection status: 0 = success, <0 = error/unavailable. Surface is written LAST so a
  * marshalling test can assert the scalar args without round-tripping the Surface.
@@ -122,6 +127,12 @@ object HelperBinderProtocol {
     /** Read-only projection snapshot for the exact Waze task. The daemon rejects every other
      *  package and reads ATMS state in-process; no generic task query or shell passthrough. */
     val TX_GET_TASK_PROJECTION_STATE: Int = IBinder.FIRST_CALL_TRANSACTION + 25 // 26
+
+    /** Fixed read-only container/display inventory for the parked Instrument Cluster Lab. */
+    val TX_GET_CLUSTER_SYSTEM_PROBE: Int = IBinder.FIRST_CALL_TRANSACTION + 26 // 27
+
+    /** Structured read-only display inventory from the daemon's system Context. */
+    val TX_GET_SYSTEM_DISPLAYS: Int = IBinder.FIRST_CALL_TRANSACTION + 27 // 28
 
     /** TX_GET_TASK_PROJECTION_STATE found a structurally valid live Waze task. */
     const val TASK_PROJECTION_FOUND: Int = 0

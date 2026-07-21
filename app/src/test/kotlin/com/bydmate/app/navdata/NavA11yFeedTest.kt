@@ -1,6 +1,7 @@
 package com.bydmate.app.navdata
 
 import android.view.accessibility.AccessibilityEvent
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -53,5 +54,28 @@ class NavA11yFeedTest {
     @Test fun `debounce blocks rapid events`() {
         assertFalse(NavA11yFeed.shouldProcess("com.waze", contentChanged, nowMs = 1400, lastMs = 1000))
         assertTrue(NavA11yFeed.shouldProcess("com.waze", contentChanged, nowMs = 1500, lastMs = 1000))
+    }
+
+    @Test fun `debounced Waze burst schedules one trailing probe`() {
+        assertEquals(400L, NavA11yFeed.deferredProbeDelayMs(nowMs = 1_100, lastMs = 1_000))
+        assertEquals(1L, NavA11yFeed.deferredProbeDelayMs(nowMs = 1_499, lastMs = 1_000))
+        assertEquals(null, NavA11yFeed.deferredProbeDelayMs(nowMs = 1_500, lastMs = 1_000))
+        assertEquals(null, NavA11yFeed.deferredProbeDelayMs(nowMs = 900, lastMs = 1_000))
+    }
+
+    @Test fun `event hint fills only an absent tree maneuver`() {
+        val routeWithoutArrow = NavGuidance(distanceMeters = 250, road = "Main Street")
+        val routeWithArrow = routeWithoutArrow.copy(
+            maneuverGaode = NavManeuverCodes.GAODE_LEFT,
+        )
+
+        assertEquals(
+            NavManeuverCodes.GAODE_RIGHT,
+            routeWithoutArrow.withManeuverHint(NavManeuverCodes.GAODE_RIGHT).maneuverGaode,
+        )
+        assertEquals(
+            NavManeuverCodes.GAODE_LEFT,
+            routeWithArrow.withManeuverHint(NavManeuverCodes.GAODE_RIGHT).maneuverGaode,
+        )
     }
 }

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -34,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -170,6 +172,7 @@ fun DiagnosticsScreen(
                             onObserved = viewModel::recordClusterLabObservation,
                             onCancel = viewModel::cancelClusterLab,
                             onExport = viewModel::exportHudLab,
+                            onDeleteRecords = viewModel::deleteClusterLabRecords,
                         )
                     }
                 }
@@ -244,11 +247,36 @@ private fun ClusterLabCard(
     onObserved: (ClusterLabObservation) -> Unit,
     onCancel: () -> Unit,
     onExport: () -> Unit,
+    onDeleteRecords: () -> Unit,
 ) {
     var parkConfirmed by remember { mutableStateOf(false) }
+    var showAdvanced by remember { mutableStateOf(false) }
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
     val pending = state.pendingObservationRecordId != null
     val canRun = parkConfirmed && !state.busy && !pending &&
         !exportState.busy && exportState.pending == null
+    if (showDeleteConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmation = false },
+            title = { Text(stringResource(R.string.diagnostics_cluster_lab_delete_title)) },
+            text = { Text(stringResource(R.string.diagnostics_cluster_lab_delete_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirmation = false
+                        onDeleteRecords()
+                    },
+                ) {
+                    Text(stringResource(R.string.diagnostics_hud_lab_delete_confirm), color = SocRed)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmation = false }) {
+                    Text(stringResource(R.string.diagnostics_hud_lab_delete_cancel))
+                }
+            },
+        )
+    }
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = AccentOrange.copy(alpha = 0.08f)),
@@ -299,15 +327,82 @@ private fun ClusterLabCard(
                 )
             }
 
-            val visibleScenarios = ClusterLabScenarioCatalog.visible(state.clusterDisplayAvailable)
-            visibleScenarios.chunked(2).forEach { row ->
+            val primaryScenario = ClusterLabScenarioCatalog.primary()
+            Button(
+                onClick = { onRun(primaryScenario.id, parkConfirmed) },
+                enabled = canRun,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 3.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = AccentOrange,
+                    contentColor = NavyDark,
+                ),
+            ) {
+                Text(
+                    stringResource(R.string.diagnostics_cluster_lab_run_transport),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+
+            Text(
+                stringResource(R.string.diagnostics_cluster_lab_manual_transport),
+                color = TextMuted,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                modifier = Modifier.padding(top = 7.dp, bottom = 2.dp),
+            )
+            ClusterLabScenarioCatalog.manualTransport().chunked(2).forEach { row ->
+                ClusterLabScenarioRow(
+                    scenarios = row,
+                    enabled = canRun,
+                    fillSingle = true,
+                    onRun = { onRun(it.id, parkConfirmed) },
+                )
+            }
+
+            Text(
+                stringResource(R.string.diagnostics_cluster_lab_support_tests),
+                color = TextMuted,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 7.dp, bottom = 2.dp),
+            )
+            ClusterLabScenarioCatalog.support().chunked(2).forEach { row ->
                 ClusterLabScenarioRow(
                     scenarios = row,
                     enabled = canRun,
                     onRun = { onRun(it.id, parkConfirmed) },
                 )
             }
-            if (!state.clusterDisplayAvailable) {
+            if (state.clusterDisplayAvailable) {
+                OutlinedButton(
+                    onClick = { showAdvanced = !showAdvanced },
+                    enabled = !state.busy && !pending,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(top = 4.dp),
+                    border = BorderStroke(1.dp, CardBorder),
+                ) {
+                    Text(
+                        stringResource(
+                            if (showAdvanced) {
+                                R.string.diagnostics_cluster_lab_hide_advanced
+                            } else {
+                                R.string.diagnostics_cluster_lab_show_advanced
+                            },
+                        ),
+                        fontSize = 11.sp,
+                    )
+                }
+                if (showAdvanced) {
+                    ClusterLabScenarioCatalog.advanced(clusterDisplayAvailable = true)
+                        .chunked(2)
+                        .forEach { row ->
+                            ClusterLabScenarioRow(
+                                scenarios = row,
+                                enabled = canRun,
+                                onRun = { onRun(it.id, parkConfirmed) },
+                            )
+                        }
+                }
+            } else {
                 Text(
                     stringResource(R.string.diagnostics_cluster_lab_display_required),
                     color = TextMuted,
@@ -429,6 +524,14 @@ private fun ClusterLabCard(
                 fontSize = 11.sp,
                 modifier = Modifier.padding(top = 5.dp),
             )
+            OutlinedButton(
+                onClick = { showDeleteConfirmation = true },
+                enabled = state.recordsCount > 0 && !state.busy && !pending && !exportState.busy,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(top = 5.dp),
+                border = BorderStroke(1.dp, CardBorder),
+            ) {
+                Text(stringResource(R.string.diagnostics_cluster_lab_delete_records), fontSize = 11.sp)
+            }
         }
     }
 }
@@ -437,6 +540,7 @@ private fun ClusterLabCard(
 private fun ClusterLabScenarioRow(
     scenarios: List<ClusterLabScenario>,
     enabled: Boolean,
+    fillSingle: Boolean = false,
     onRun: (ClusterLabScenario) -> Unit,
 ) {
     Row(
@@ -456,7 +560,7 @@ private fun ClusterLabScenarioRow(
                 Text("${scenario.id} · ${scenario.title}", fontSize = 11.sp, maxLines = 3)
             }
         }
-        if (scenarios.size == 1) Spacer(modifier = Modifier.weight(1f))
+        if (scenarios.size == 1 && !fillSingle) Spacer(modifier = Modifier.weight(1f))
     }
 }
 

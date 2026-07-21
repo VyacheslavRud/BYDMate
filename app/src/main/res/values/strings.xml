@@ -1486,13 +1486,22 @@
     <string name="diagnostics_hud_lab_failure_journal">Не удалось сохранить тест в журнал. HUD безопасно очищен; повторите попытку.</string>
     <string name="diagnostics_hud_lab_failure_send">Тестовый кадр не получил подтверждение rc=0. Результат записан; выполнена безопасная попытка очистки.</string>
     <string name="diagnostics_cluster_lab_title">Instrument Cluster Lab — приборка</string>
-    <string name="diagnostics_cluster_lab_description">Сначала проверяет список дисплеев и состояние проекции. Визуальные тесты появляются только после фактического обнаружения дисплея приборки.</string>
-    <string name="diagnostics_cluster_lab_safety_hint">Откройте штатный режим Navi/проекции и запустите C01. Lab не включает неподтверждённые команды auto_container и всегда возвращает режим OFF.</string>
-    <string name="diagnostics_cluster_lab_display_required">C03–C05 скрыты: дисплей приборки пока не найден. После открытия штатной проекции повторите C01.</string>
+    <string name="diagnostics_cluster_lab_description">C06 полностью проверяет цепочку: штатный контейнер приборки → display → карта Waze → возврат Waze на центральный экран → OFF. В экспорт попадёт точная стадия сбоя.</string>
+    <string name="diagnostics_cluster_lab_safety_hint">Только dev, селектор в P, скорость 0 и без активного маршрута. C06 временно проверяет whitelist-команды контейнера 16/18/0; экран может переключиться примерно на 10 секунд, затем всегда выполняется cleanup.</string>
+    <string name="diagnostics_cluster_lab_display_required">C03–C06 скрыты, пока Android display приборки не найден. Сначала запустите C07 или C08.</string>
+    <string name="diagnostics_cluster_lab_run_e2e">C06 · Проверить карту Waze на приборке</string>
+    <string name="diagnostics_cluster_lab_run_transport">C07 · Проверить транспорт дисплея Sea Lion</string>
+    <string name="diagnostics_cluster_lab_manual_transport">Отдельная проверка: нажмите C08 и сразу вручную включите штатный режим Navi на приборке. Наблюдение длится 20 секунд.</string>
+    <string name="diagnostics_cluster_lab_support_tests">Вспомогательная диагностика без проекции</string>
+    <string name="diagnostics_cluster_lab_show_advanced">Показать старые расширенные тесты</string>
+    <string name="diagnostics_cluster_lab_hide_advanced">Скрыть расширенные тесты</string>
     <string name="diagnostics_cluster_lab_what_seen">Что произошло на приборке в тесте %1$s?</string>
     <string name="diagnostics_cluster_lab_cancel">Остановить и очистить</string>
     <string name="diagnostics_cluster_lab_export_all">Экспорт обоих HUD</string>
     <string name="diagnostics_cluster_lab_saved_count">Тестов приборки сохранено: %1$d</string>
+    <string name="diagnostics_cluster_lab_delete_records">Удалить сохранённые тесты приборки</string>
+    <string name="diagnostics_cluster_lab_delete_title">Очистить журнал приборки?</string>
+    <string name="diagnostics_cluster_lab_delete_message">Все сохранённые тесты Instrument Cluster Lab будут удалены из приложения. Ранее экспортированные файлы и тесты лобового HUD останутся.</string>
     <string name="diagnostics_cluster_lab_seen_visible">Отображалось правильно</string>
     <string name="diagnostics_cluster_lab_seen_black">Чёрный экран</string>
     <string name="diagnostics_cluster_lab_seen_flickered">Мигало/пропадало</string>

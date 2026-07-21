@@ -5,7 +5,7 @@ import com.bydmate.app.navdata.NavGuidance
 import com.bydmate.app.navdata.NavGuidanceParser
 import com.bydmate.app.navdata.NavManeuverCodes
 
-/** Parses Waze's standard navigation-notification extras without private RemoteViews reflection. */
+/** Parses Waze's standard notification fields plus a bounded semantic RemoteViews arrow hint. */
 object NaviNotificationParser {
     private val STREET_PATTERNS = listOf(
         Regex(
@@ -53,7 +53,10 @@ object NaviNotificationParser {
         val hasGuidance: Boolean get() = guidance != null
     }
 
-    fun parse(notification: Notification): Parsed {
+    fun parse(
+        notification: Notification,
+        resolveName: (Int) -> String? = { null },
+    ): Parsed {
         val extras = notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
@@ -62,7 +65,16 @@ object NaviNotificationParser {
         val textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
             ?.map(CharSequence::toString)
             .orEmpty()
-        return fromText(title, text, subText, bigText, textLines)
+        val remoteViews = WazeRemoteViewsManeuverReader.inspect(notification, resolveName)
+        return fromText(
+            title,
+            text,
+            subText,
+            bigText,
+            textLines,
+            maneuverHints = semanticManeuverHints(notification) + remoteViews.semanticTextHints,
+            maneuverCodeHint = remoteViews.maneuverGaode,
+        )
     }
 
     /** Pure parser used by tests and by calibration of real Waze notification shapes. */
@@ -72,6 +84,8 @@ object NaviNotificationParser {
         subText: String?,
         bigText: String?,
         textLines: List<String> = emptyList(),
+        maneuverHints: List<String> = emptyList(),
+        maneuverCodeHint: Int = 0,
     ): Parsed {
         val lines = buildList {
             add(title)
@@ -84,12 +98,15 @@ object NaviNotificationParser {
             .distinct()
 
         val maneuverLine = lines.firstOrNull { NavManeuverCodes.fromInstructionText(it) != 0 }
+            ?: maneuverHints.firstOrNull { NavManeuverCodes.fromInstructionText(it) != 0 }
         val maneuverCode = NavManeuverCodes.fromInstructionText(maneuverLine)
+            .takeIf { it != 0 }
+            ?: maneuverCodeHint
         // A route summary such as "12 km · 18 min" is remaining distance, never distance to
         // the next maneuver. Accept maneuver distance only inside the instruction itself or as
         // a standalone title ("350 m") paired with a recognized instruction.
         val distanceLine = maneuverLine?.takeIf { NavGuidanceParser.parseDistanceText(it) > 0 }
-            ?: maneuverLine?.let { lines.firstOrNull(::isStandaloneDistance) }
+            ?: lines.firstOrNull(::isStandaloneDistance).takeIf { maneuverCode != 0 }
         val distanceLabel = extractDistanceLabel(distanceLine)
         val distanceMeters = NavGuidanceParser.parseDistanceText(distanceLine)
         val routeLines = lines.filter { it != maneuverLine && it != distanceLine }
@@ -128,24 +145,77 @@ object NaviNotificationParser {
         )
     }
 
-    fun dump(notification: Notification): String {
+    fun dump(
+        notification: Notification,
+        resolveName: (Int) -> String? = { null },
+    ): String {
         val e = notification.extras
         val title = e.getCharSequence(Notification.EXTRA_TITLE)?.toString()
         val text = e.getCharSequence(Notification.EXTRA_TEXT)?.toString()
         val sub = e.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()
         val big = e.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
         val lines = e.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.map(CharSequence::toString).orEmpty()
+        val maneuverHints = semanticManeuverHints(notification)
+        val remoteViews = WazeRemoteViewsManeuverReader.inspect(notification, resolveName)
         val parseResult = sequenceOf(title, text, sub, big)
             .plus(lines.asSequence())
+            .plus(maneuverHints.asSequence())
             .filterNotNull()
             .map(NavManeuverCodes::parseInstructionText)
             .firstOrNull { it.recognizedCodes.isNotEmpty() }
             ?: NavManeuverCodes.ParseResult(0, emptyList())
-        val parsed = runCatching { fromText(title, text, sub, big, lines) }.getOrNull()
+        val parsed = runCatching {
+            fromText(
+                title,
+                text,
+                sub,
+                big,
+                lines,
+                maneuverHints + remoteViews.semanticTextHints,
+                remoteViews.maneuverGaode,
+            )
+        }.getOrNull()
         return "source=notification category=${notification.category} channel=${notification.channelId} " +
             "title=${fieldShape(title)} text=${fieldShape(text)} sub=${fieldShape(sub)} " +
-            "big=${fieldShape(big)} lines=${lines.size} guidance=${parsed?.hasGuidance == true} " +
+            "big=${fieldShape(big)} lines=${lines.size} semanticHints=${maneuverHints.size} " +
+            "remoteViews=${remoteViews.remoteViewsPresent} " +
+            "remoteActions=${remoteViews.actionsInspected} " +
+            "remoteImageResources=${remoteViews.imageResourcesInspected} " +
+            "remoteManeuver=${NavManeuverCodes.codeName(remoteViews.maneuverGaode)}" +
+            "(${remoteViews.maneuverGaode}) " +
+            "remoteResource=${remoteViews.maneuverResource ?: "none"} " +
+            "guidance=${parsed?.hasGuidance == true} " +
             "${parseResult.diagnosticSummary()}"
+    }
+
+    /**
+     * Waze vendor builds sometimes keep the instruction in a non-standard string extra while the
+     * standard title/text contain only distance and street. Inspect string-like extras in memory,
+     * with strict count/length bounds; raw values are never logged or persisted.
+     */
+    @Suppress("DEPRECATION")
+    private fun semanticManeuverHints(notification: Notification): List<String> = buildList {
+        val extras = notification.extras ?: return@buildList
+        for (key in extras.keySet().sorted()) {
+            if (size >= MAX_SEMANTIC_HINTS) break
+            val value = runCatching { extras.get(key) }.getOrNull()
+            when (value) {
+                is CharSequence -> addBoundedHint(value.toString())
+                is Array<*> -> value.asSequence()
+                    .filterIsInstance<CharSequence>()
+                    .forEach { addBoundedHint(it.toString()) }
+                is Iterable<*> -> value.asSequence()
+                    .filterIsInstance<CharSequence>()
+                    .forEach { addBoundedHint(it.toString()) }
+            }
+        }
+    }.distinct()
+
+    private fun MutableList<String>.addBoundedHint(value: String) {
+        if (size >= MAX_SEMANTIC_HINTS) return
+        value.trim()
+            .takeIf { it.isNotEmpty() && it.length <= MAX_SEMANTIC_HINT_CHARS }
+            ?.let(::add)
     }
 
     private fun fieldShape(value: String?): String =
@@ -185,4 +255,7 @@ object NaviNotificationParser {
 
     private fun extractDistanceLabel(value: String?): String? =
         value?.let { DISTANCE_LABEL.find(it)?.value?.trim() }
+
+    private const val MAX_SEMANTIC_HINTS = 48
+    private const val MAX_SEMANTIC_HINT_CHARS = 256
 }
