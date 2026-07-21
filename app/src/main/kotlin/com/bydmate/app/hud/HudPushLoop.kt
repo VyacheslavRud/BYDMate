@@ -32,6 +32,8 @@ class HudPushLoop(
     private val nowMsProvider: () -> Long = { System.currentTimeMillis() },
     private val onDeliveryResult: (Int) -> Unit = {},
     private val onDeliveryAttempt: (HudFrameKind, Int) -> Unit = { _, _ -> },
+    private val onGuidanceAttempt: (maneuverGaode: Int, rawF28: Int?, rc: Int) -> Unit =
+        { _, _, _ -> },
     private val onLoopFailure: (Throwable) -> Unit = {},
     initialClearPending: Boolean = false,
     private val onClearExhausted: (Int) -> Unit = {},
@@ -167,12 +169,15 @@ class HudPushLoop(
         // Do not feed donor PNG fields or uncalibrated maneuver metadata to the Sea Lion gateway.
         // The Waze parser, route snapshot and service lifecycle stay untouched; only the native
         // SOME/IP payload is narrowed to the fields confirmed by parked tests on this car.
+        val rawF28 = HudProtobufBuilder.seaLionF28ForGaode(s.maneuverGaode)
         val frame = HudProtobufBuilder.buildSeaLionGuidanceFrame(
             maneuverGaode = s.maneuverGaode,
             distanceMeters = s.distanceMeters,
             road = s.road,
         )
-        deliver(HudFrameKind.GUIDANCE, frame)
+        deliver(HudFrameKind.GUIDANCE, frame)?.let { rc ->
+            onGuidanceAttempt(s.maneuverGaode, rawF28, rc)
+        }
         return true
     }
 

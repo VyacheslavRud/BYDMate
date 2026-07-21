@@ -15,6 +15,12 @@ object HudProtobufBuilder {
     const val MAX_ETA_CHARS = 16
     const val MAX_SPEED_LIMIT = 250
 
+    const val SEA_LION_F28_RIGHT = 2
+    const val SEA_LION_F28_LEFT = 3
+    const val SEA_LION_F28_UTURN_LEFT = 7
+    const val SEA_LION_F28_UTURN_RIGHT = 10
+    const val SEA_LION_F28_STRAIGHT = 11
+
     /** GAODE maneuver -> donor f28 maneuver metadata. It is not the f8 PNG arrow itself. */
     fun gaodeToF28(gaode: Int): Int = when (gaode) {
         0 -> 0
@@ -27,21 +33,26 @@ object HudProtobufBuilder {
     /**
      * Sea Lion 07 (2025 CN) native-arrow mapping confirmed by the parked HUD Lab.
      *
-     * Raw f28=2 renders right and f28=3 renders left when the real remaining distance is below
-     * the vehicle firmware's own turn threshold. Raw f28=1 is deliberately never used here: the
-     * car rendered it as left at close range, so using it as a straight/fallback value is unsafe.
-     * Uncalibrated maneuvers keep the route card but omit f28 rather than showing a false arrow.
+     * Raw f28=2/3 render right/left, 7/10 render circular left/right and 11 renders straight.
+     * All five values were confirmed by the parked HUD Lab on the target vehicle. The real Waze
+     * distance stays untouched so the firmware can apply its own near-turn threshold. Raw f28=1
+     * is deliberately never used: the car rendered it as left at close range. Uncalibrated
+     * maneuvers keep the route card but omit f28 rather than showing a false arrow.
      */
     fun seaLionF28ForGaode(gaode: Int): Int? = when (gaode) {
         NavManeuverCodes.GAODE_LEFT,
         NavManeuverCodes.GAODE_SLIGHT_LEFT,
         NavManeuverCodes.GAODE_HARD_LEFT,
-        -> 3
+        -> SEA_LION_F28_LEFT
 
         NavManeuverCodes.GAODE_RIGHT,
         NavManeuverCodes.GAODE_SLIGHT_RIGHT,
         NavManeuverCodes.GAODE_HARD_RIGHT,
-        -> 2
+        -> SEA_LION_F28_RIGHT
+
+        NavManeuverCodes.GAODE_UTURN -> SEA_LION_F28_UTURN_LEFT
+        NavManeuverCodes.GAODE_UTURN_RIGHT -> SEA_LION_F28_UTURN_RIGHT
+        NavManeuverCodes.GAODE_STRAIGHT -> SEA_LION_F28_STRAIGHT
 
         else -> null
     }
@@ -147,7 +158,7 @@ object HudProtobufBuilder {
         require(spec.effectiveRenderClass in setOf(1, 6)) {
             "unsupported HUD Lab f6=${spec.effectiveRenderClass}"
         }
-        require(spec.f28 == null || spec.f28 in setOf(1, 2, 3, 9, 13, 24)) {
+        require(spec.f28 == null || spec.f28 in HudF28ExplorerCatalog.donorValues) {
             "unsupported HUD Lab f28=${spec.f28}"
         }
         require(spec.iconCode == null || spec.iconCode in setOf(0, 1, 2, 9, 11)) {

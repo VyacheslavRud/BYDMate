@@ -58,6 +58,7 @@ data class HudLabState(
     val totalSteps: Int = 0,
     val currentPush: Int = 0,
     val totalPushes: Int = 0,
+    val completedExplorerScenarioIds: Set<String> = emptySet(),
 )
 
 /**
@@ -84,7 +85,10 @@ class HudLabManager @Inject constructor(
     internal var autoClearDelayMs: Long = AUTO_CLEAR_MS
     internal var scenarioDelay: suspend (Long) -> Unit = { delay(it) }
     private val _state = MutableStateFlow(
-        HudLabState(recordsCount = HudLabLogStore.records(context).size),
+        HudLabState(
+            recordsCount = HudLabLogStore.records(context).size,
+            completedExplorerScenarioIds = HudLabLogStore.completedExplorerScenarioIds(context),
+        ),
     )
     val state: StateFlow<HudLabState> = _state.asStateFlow()
 
@@ -374,9 +378,16 @@ class HudLabManager @Inject constructor(
             .getOrNull()
     }
 
-    fun recordObservation(observed: HudLabObserved) {
+    fun recordObservation(observed: HudLabObserved, userLabel: String? = null) {
+        if (observed == HudLabObserved.NAMED_INDICATOR && userLabel.isNullOrBlank()) return
         synchronized(actionLock) {
-            if (_state.value.busy || _state.value.pending == null) return
+            val current = _state.value
+            if (current.busy || current.pending == null) return
+            if (observed == HudLabObserved.NAMED_INDICATOR &&
+                !HudLabScenarioCatalog.isExplorerScenario(current.pending.record.scenarioId)
+            ) {
+                return
+            }
             _state.update { it.copy(busy = true, lastOutcome = null) }
         }
         scope.launch {
@@ -407,13 +418,18 @@ class HudLabManager @Inject constructor(
                         check(clear.journalSucceeded) { "hud_lab_clear_journal_failed" }
                     }
                     checkNotNull(
-                        HudLabLogStore.recordObservation(context, latest.id, observed),
+                        HudLabLogStore.recordObservation(
+                            context,
+                            latest.id,
+                            observed,
+                            userLabel = userLabel,
+                        ),
                     ) { "hud_lab_record_missing_on_observation" }
                 }.isSuccess
                 Log.i(
                     TAG,
                     "HUD Lab observation id=${pending.record.id} expected=${pending.record.expected} " +
-                        "observed=$observed saved=$saved",
+                        "observed=$observed labelChars=${userLabel?.length ?: 0} saved=$saved",
                 )
                 _state.value = if (saved) {
                     finishedState(
@@ -532,6 +548,8 @@ class HudLabManager @Inject constructor(
                 _state.value = _state.value.copy(
                     busy = false,
                     recordsCount = HudLabLogStore.records(context).size,
+                    completedExplorerScenarioIds =
+                        HudLabLogStore.completedExplorerScenarioIds(context),
                     lastOutcome = result.fold(
                         onSuccess = { file: File ->
                             Log.i(TAG, "HUD Lab exported path=${file.absolutePath}")
@@ -559,6 +577,8 @@ class HudLabManager @Inject constructor(
                 _state.value = _state.value.copy(
                     busy = false,
                     recordsCount = HudLabLogStore.records(context).size,
+                    completedExplorerScenarioIds =
+                        HudLabLogStore.completedExplorerScenarioIds(context),
                     lastOutcome = if (result.isSuccess) {
                         HudLabOutcome(HudLabOutcomeType.RECORDS_DELETED)
                     } else {
@@ -752,6 +772,7 @@ class HudLabManager @Inject constructor(
         totalSteps = 0,
         currentPush = 0,
         totalPushes = 0,
+        completedExplorerScenarioIds = HudLabLogStore.completedExplorerScenarioIds(context),
     )
 
     private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256")

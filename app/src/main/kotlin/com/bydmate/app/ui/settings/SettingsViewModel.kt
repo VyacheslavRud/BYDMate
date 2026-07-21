@@ -1536,6 +1536,12 @@ class SettingsViewModel @Inject constructor(
                         "nextReconnectAtMs=${sample.nextReconnectAtMs}",
                 )
                 appendLine(
+                    "mapping: Waze maneuver=${sample.lastGuidanceManeuverName}" +
+                        "(${sample.lastGuidanceManeuverGaode}) -> SeaLion f28=" +
+                        "${sample.lastGuidanceRawF28 ?: "OMITTED"} -> " +
+                        "rc=${sample.lastGuidanceResultCode}",
+                )
+                appendLine(
                     "waze_a11y: connected=${sample.accessibilityConnected} " +
                         "feed=${sample.feedEnabled} window=${sample.wazeWindowReachable} " +
                         "probe=${sample.wazeProbeResult} eventAgeMs=${sample.wazeEventAgeMs} " +

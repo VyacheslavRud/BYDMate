@@ -60,6 +60,8 @@ enum class HudLabObserved {
     REVERSED_SEQUENCE,
     FIRST_PHASE_ONLY,
     SECOND_PHASE_ONLY,
+    VISIBLE_UNDESCRIBED,
+    NAMED_INDICATOR,
     OTHER,
     NOT_REPORTED,
 }
@@ -119,6 +121,7 @@ data class HudLabRecord(
     val autoCleared: Boolean = false,
     val observed: HudLabObserved? = null,
     val observedAtMs: Long? = null,
+    val userLabel: String? = null,
     val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
     val sessionId: String = id,
     val scenarioId: String? = null,
@@ -133,7 +136,7 @@ data class HudLabRecord(
     val buildFingerprint: String = Build.FINGERPRINT,
 ) {
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 3
+        const val CURRENT_SCHEMA_VERSION = 4
     }
 }
 
@@ -144,7 +147,8 @@ data class HudLabRecord(
 object HudLabLogStore {
     private const val PREFS_NAME = "hud_lab_log"
     private const val KEY_RECORDS = "records_json"
-    private const val MAX_RECORDS = 100
+    private const val MAX_RECORDS = 250
+    internal const val MAX_USER_LABEL_CHARS = 160
 
     @Synchronized
     fun beginScenario(
@@ -279,10 +283,24 @@ object HudLabLogStore {
         context: Context,
         id: String,
         observed: HudLabObserved,
+        userLabel: String? = null,
         nowMs: Long = System.currentTimeMillis(),
     ): HudLabRecord? = update(context, id) {
-        it.copy(observed = observed, observedAtMs = nowMs)
+        it.copy(
+            observed = observed,
+            observedAtMs = nowMs,
+            userLabel = if (observed == HudLabObserved.NAMED_INDICATOR) {
+                normalizeUserLabel(userLabel)
+            } else {
+                null
+            },
+        )
     }
+
+    fun completedExplorerScenarioIds(context: Context): Set<String> = records(context)
+        .filter(::isCompletedExplorerRecord)
+        .mapNotNull(HudLabRecord::scenarioId)
+        .toSet()
 
     @Synchronized
     fun records(context: Context): List<HudLabRecord> {
@@ -304,6 +322,7 @@ object HudLabLogStore {
         appendLine("schema: ${HudLabRecord.CURRENT_SCHEMA_VERSION}")
         appendLine("runtime_output_may_be_owned: ${HudLabRuntimeState.outputMayBeOwned(context)}")
         appendLine("saved_tests: ${records.size}")
+        appendExplorerDictionary(records)
         records.forEachIndexed { index, record ->
             appendLine("  #${index + 1} ${recordLine(record)}")
             record.events.forEach { event -> appendLine("    ${eventLine(event)}") }
@@ -396,6 +415,7 @@ object HudLabLogStore {
         put("autoCleared", record.autoCleared)
         putNullable("observed", record.observed?.name)
         putNullable("observedAtMs", record.observedAtMs)
+        putNullable("userLabel", record.userLabel)
         putNullable("scenarioId", record.scenarioId)
         putNullable("scenarioTitle", record.scenarioTitle)
         putNullable("scenarioSummary", record.scenarioSummary)
@@ -461,6 +481,7 @@ object HudLabLogStore {
             autoCleared = json.optBoolean("autoCleared", false),
             observed = json.optNullableString("observed")?.let(HudLabObserved::valueOf),
             observedAtMs = json.optNullableLong("observedAtMs"),
+            userLabel = json.optNullableString("userLabel"),
             schemaVersion = json.optInt("schemaVersion", 1),
             scenarioId = json.optNullableString("scenarioId"),
             scenarioTitle = json.optNullableString("scenarioTitle"),
@@ -542,7 +563,8 @@ object HudLabLogStore {
             "rcHistogram=[$rcHistogram] sendRc=${record.sendRc} sendFailure=${record.sendFailure} " +
             "gear=${record.gear} speedKmh=${record.speedKmh} clearedAtMs=${record.clearedAtMs} " +
             "clearRc=${record.clearRc} autoCleared=${record.autoCleared} observed=$observed " +
-            "observedAtMs=${record.observedAtMs} completedAtMs=${record.deliveryCompletedAtMs} " +
+            "userLabel=${jsonQuoted(record.userLabel)} observedAtMs=${record.observedAtMs} " +
+            "completedAtMs=${record.deliveryCompletedAtMs} " +
             "abortedFailure=${record.abortedFailure} verdict=$verdict summary=${quoted(record.scenarioSummary)} " +
             "app=${record.appVersion}(${record.appVersionCode}) fingerprint=${quoted(record.buildFingerprint)}"
     }
@@ -556,6 +578,51 @@ object HudLabLogStore {
             "speedKmh=${event.speedKmh} outputMayBeOwned=${event.outputMayBeOwned}"
 
     private fun quoted(value: String?): String = value?.replace(' ', '_') ?: "null"
+
+    private fun StringBuilder.appendExplorerDictionary(records: List<HudLabRecord>) {
+        val explorer = records.filter { HudLabScenarioCatalog.isExplorerScenario(it.scenarioId) }
+        val labeled = explorer.count {
+            it.observed == HudLabObserved.NAMED_INDICATOR && !it.userLabel.isNullOrBlank()
+        }
+        val noOutput = explorer.count { it.observed == HudLabObserved.NOTHING }
+        val flashed = explorer.count { it.observed == HudLabObserved.FLASHED }
+        val visibleUndescribed = explorer.count {
+            it.observed == HudLabObserved.VISIBLE_UNDESCRIBED
+        }
+        val notReported = explorer.count { it.observed == HudLabObserved.NOT_REPORTED }
+        val failed = explorer.count { it.abortedFailure != null || it.sendFailure != null }
+        val uniqueCompleted = explorer.filter(::isCompletedExplorerRecord)
+            .mapNotNull(HudLabRecord::scenarioId).toSet().size
+        appendLine("--- HUD f28 Indicator Explorer dictionary ---")
+        appendLine(
+            "candidates_total=${HudF28ExplorerCatalog.candidates.size} " +
+                "unique_completed=$uniqueCompleted records=${explorer.size} labeled=$labeled " +
+                "no_output=$noOutput flashed=$flashed visible_undescribed=$visibleUndescribed " +
+                "repeat_requested=$notReported failed=$failed",
+        )
+        explorer.forEach { record ->
+            val raw = record.rawF28
+            val hex = raw?.toString(16)?.uppercase()?.padStart(2, '0') ?: "??"
+            appendLine(
+                "  scenario=${record.scenarioId} f28=${raw ?: "?"}/0x$hex " +
+                    "rc=${record.sendRc} observed=${record.observed ?: "PENDING"} " +
+                    "label=${jsonQuoted(record.userLabel)} aborted=${record.abortedFailure}",
+            )
+        }
+    }
+
+    private fun normalizeUserLabel(value: String?): String? = value
+        ?.replace(Regex("[\\r\\n\\t]+"), " ")
+        ?.trim()
+        ?.take(MAX_USER_LABEL_CHARS)
+        ?.takeIf(String::isNotEmpty)
+
+    private fun jsonQuoted(value: String?): String = value?.let(JSONObject::quote) ?: "null"
+
+    private fun isCompletedExplorerRecord(record: HudLabRecord): Boolean =
+        HudLabScenarioCatalog.isExplorerScenario(record.scenarioId) &&
+            ((record.observed != null && record.observed != HudLabObserved.NOT_REPORTED) ||
+                record.abortedFailure != null || record.sendFailure != null)
 
     private fun JSONObject.putNullable(key: String, value: Any?) {
         put(key, value ?: JSONObject.NULL)

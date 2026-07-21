@@ -91,6 +91,44 @@ class HudLabManagerTest {
         assertEquals(0, saved.clearRc)
     }
 
+    @Test fun `explorer uses a three packet burst and stores the driver label`() {
+        every { controller.checkHudLabSafety(true) } returns HudLabTransportResult(
+            rc = 0,
+            gear = 1,
+            speedKmh = 0,
+        )
+        every { controller.sendHudLabFrame(any(), true) } returns HudLabTransportResult(
+            rc = 0,
+            gear = 1,
+            speedKmh = 0,
+        )
+        every { controller.clearHudLabFrameSafely(true) } returns HudLabTransportResult(
+            rc = 0,
+            gear = 1,
+            speedKmh = 0,
+        )
+        every { controller.clearHudLabFrame() } returns 0
+        val manager = HudLabManager(context, controller).apply {
+            autoClearDelayMs = 0L
+            scenarioDelay = {}
+        }
+
+        manager.sendScenario("E04", parkConfirmedByUser = true)
+
+        awaitTrue { manager.state.value.pending?.autoCleared == true }
+        verify(exactly = 3) { controller.sendHudLabFrame(any(), true) }
+        assertEquals(4, manager.state.value.pending?.record?.rawF28)
+        assertTrue(manager.state.value.completedExplorerScenarioIds.isEmpty())
+
+        manager.recordObservation(HudLabObserved.NAMED_INDICATOR, "двойная стрелка")
+
+        awaitTrue { manager.state.value.pending == null }
+        val saved = HudLabLogStore.records(context).single()
+        assertEquals("двойная стрелка", saved.userLabel)
+        assertEquals(HudLabObserved.NAMED_INDICATOR, saved.observed)
+        assertEquals(setOf("E04"), manager.state.value.completedExplorerScenarioIds)
+    }
+
     @Test fun `post-delivery watchdog clear does not rewrite a completed test as aborted`() {
         var safetyChecks = 0
         every { controller.checkHudLabSafety(true) } answers {

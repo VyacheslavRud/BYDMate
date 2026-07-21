@@ -1231,13 +1231,24 @@
 
     <!-- Dev-only factory HUD calibration -->
     <string name="diagnostics_hud_lab_title">HUD Lab — calibração do HUD original</string>
-    <string name="diagnostics_hud_lab_description">O contrato confirmado do Sea Lion 07 e os testes antigos de compatibilidade ficam separados.</string>
+    <string name="diagnostics_hud_lab_description">O contrato confirmado do Sea Lion 07, os testes antigos e o Explorer seguro ficam em secções separadas.</string>
     <string name="diagnostics_hud_lab_native_hint">O conjunto principal reproduz o frame production seguro sem PNG, sinal de velocidade, ETA ou progresso.</string>
     <string name="diagnostics_hud_lab_catalog_title">Conjunto de testes</string>
     <string name="diagnostics_hud_lab_catalog_confirmed">Sea Lion 07</string>
     <string name="diagnostics_hud_lab_catalog_compatibility">Outros BYD</string>
+    <string name="diagnostics_hud_lab_catalog_explorer">Explorer de indicadores</string>
     <string name="diagnostics_hud_lab_catalog_confirmed_hint">5 smoke tests curtos verificam RIGHT/LEFT, o limite nativo de 50/100 m e o texto da via.</string>
-    <string name="diagnostics_hud_lab_catalog_compatibility_hint">Os testes antigos de U-turn, rotunda e f11 ficam disponíveis para calibrar outro firmware BYD.</string>
+    <string name="diagnostics_hud_lab_catalog_compatibility_hint">Os testes antigos de U-turn, rotunda e f11 ficam para outro firmware BYD. O f28 Explorer concluído está disponível abaixo como ferramenta avançada.</string>
+    <string name="diagnostics_hud_lab_catalog_explorer_hint">Pesquisa segura e separada de 41 valores f28 desconhecidos. Só muda o seletor de manobra; códigos conhecidos, PNG e outros campos ficam excluídos.</string>
+    <string name="diagnostics_hud_lab_explorer_progress">Códigos únicos testados: %1$d de %2$d</string>
+    <string name="diagnostics_hud_lab_explorer_what_seen">Se apareceu um indicador, descreva-o brevemente. A descrição é guardada com o código e o resultado SOME/IP.</string>
+    <string name="diagnostics_hud_lab_explorer_label">Por exemplo: seta ligeiramente à direita</string>
+    <string name="diagnostics_hud_lab_explorer_label_counter">%1$d / %2$d caracteres</string>
+    <string name="diagnostics_hud_lab_explorer_save_next">Guardar descrição e continuar</string>
+    <string name="diagnostics_hud_lab_explorer_straight">Seta em frente</string>
+    <string name="diagnostics_hud_lab_explorer_nothing">Nada apareceu</string>
+    <string name="diagnostics_hud_lab_explorer_skip">Ignorar descrição — havia uma seta</string>
+    <string name="diagnostics_hud_lab_explorer_repeat">Não tenho certeza — guardar e repetir</string>
     <string name="diagnostics_hud_lab_launcher_description">O laboratório compacto passo a passo abre separado do ecrã longo de diagnóstico.</string>
     <string name="diagnostics_hud_lab_open">Abrir</string>
     <string name="diagnostics_hud_lab_test_counter">Teste %1$d de %2$d</string>
@@ -1282,6 +1293,8 @@
     <string name="diagnostics_hud_lab_saw_first_only">Apenas a primeira fase</string>
     <string name="diagnostics_hud_lab_saw_second_only">Apenas a segunda fase</string>
     <string name="diagnostics_hud_lab_saw_other">Outro símbolo</string>
+    <string name="diagnostics_hud_lab_saw_named_indicator">Indicador descrito</string>
+    <string name="diagnostics_hud_lab_saw_visible_undescribed">Indicador visível sem descrição</string>
     <string name="diagnostics_hud_lab_not_reported">Não informado</string>
     <string name="diagnostics_hud_lab_clear">Limpar HUD</string>
     <string name="diagnostics_hud_lab_export">Exportar</string>

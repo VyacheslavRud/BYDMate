@@ -36,12 +36,40 @@ class HudLabScenarioCatalogTest {
             HudLabScenarioCatalog.compatibility.map(HudLabScenario::id),
         )
         assertEquals(
-            confirmedIds + compatibilityIds,
+            confirmedIds + compatibilityIds + HudLabScenarioCatalog.explorer.map(HudLabScenario::id),
             HudLabScenarioCatalog.all.map(HudLabScenario::id),
         )
-        assertEquals(13, HudLabScenarioCatalog.all.map(HudLabScenario::id).toSet().size)
+        assertEquals(54, HudLabScenarioCatalog.all.map(HudLabScenario::id).toSet().size)
         assertNull(HudLabScenarioCatalog.byId("X01"))
         assertNull(HudLabScenarioCatalog.byId("W01"))
+    }
+
+    @Test
+    fun `explorer covers only unknown values from the bounded donor inventory`() {
+        val expectedDonor = ((0..4) + (7..49)).toSet()
+        val excluded = setOf(0, 1, 2, 3, 9, 13, 24)
+
+        assertEquals(48, HudF28ExplorerCatalog.donorValues.size)
+        assertEquals(expectedDonor, HudF28ExplorerCatalog.donorValues)
+        assertEquals(excluded, HudF28ExplorerCatalog.alreadyTestedValues)
+        assertEquals(41, HudF28ExplorerCatalog.candidates.size)
+        assertTrue(HudF28ExplorerCatalog.candidates.none(excluded::contains))
+        assertFalse(HudF28ExplorerCatalog.donorValues.contains(5))
+        assertFalse(HudF28ExplorerCatalog.donorValues.contains(6))
+        assertEquals("E04", HudF28ExplorerCatalog.scenarioId(4))
+        assertEquals("E0A", HudF28ExplorerCatalog.scenarioId(10))
+        assertEquals("E31", HudF28ExplorerCatalog.scenarioId(49))
+
+        HudLabScenarioCatalog.explorer.forEach { explorer ->
+            val send = explorer.steps.filterIsInstance<HudLabScenarioStep.Send>().single()
+            assertEquals(HudLabScenarioGroup.F28_EXPLORER, explorer.group)
+            assertEquals(HudLabObserved.NAMED_INDICATOR, explorer.expected)
+            assertEquals(HudLabFrameSpec(f28 = send.frame.f28, distanceMeters = 50, road = ""), send.frame)
+            assertEquals(3, send.repeatCount)
+            assertEquals(300L, send.cadenceMs)
+            assertNull(send.frame.iconCode)
+            assertFalse(send.frame.includeSpeedSign)
+        }
     }
 
     @Test
@@ -107,7 +135,7 @@ class HudLabScenarioCatalogTest {
             val clear = scenario.steps.first() as HudLabScenarioStep.Clear
             val send = scenario.steps.last() as HudLabScenarioStep.Send
             assertEquals(3, clear.attempts)
-            assertEquals(10, send.repeatCount)
+            assertEquals(if (scenario.group == HudLabScenarioGroup.F28_EXPLORER) 3 else 10, send.repeatCount)
             assertEquals(300L, send.cadenceMs)
             assertEquals(350L, send.gapBeforeMs)
             assertNull(send.frame.iconCode)

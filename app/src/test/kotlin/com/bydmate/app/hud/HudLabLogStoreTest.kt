@@ -194,6 +194,79 @@ class HudLabLogStoreTest {
         assertTrue(HudLabLogStore.renderDiagnosticSection(context).contains("rawF28=2"))
     }
 
+    @Test fun `explorer label survives reload and gets a concise export dictionary`() {
+        val scenario = requireNotNull(HudLabScenarioCatalog.byId("E04"))
+        val record = HudLabLogStore.beginScenario(context, scenario, nowMs = 1_000L)
+        HudLabLogStore.completeDelivery(context, record.id, nowMs = 1_100L)
+        HudLabLogStore.recordObservation(
+            context,
+            record.id,
+            HudLabObserved.NAMED_INDICATOR,
+            userLabel = "  стрелка\nслегка вправо  ",
+            nowMs = 1_200L,
+        )
+
+        val restored = HudLabLogStore.records(context).single()
+        assertEquals("стрелка слегка вправо", restored.userLabel)
+        assertEquals(setOf("E04"), HudLabLogStore.completedExplorerScenarioIds(context))
+
+        val report = HudLabLogStore.renderDiagnosticSection(context)
+        assertTrue(report.contains("--- HUD f28 Indicator Explorer dictionary ---"))
+        assertTrue(report.contains("candidates_total=41"))
+        assertTrue(report.contains("unique_completed=1"))
+        assertTrue(report.contains("scenario=E04 f28=4/0x04"))
+        assertTrue(report.contains("label=\"стрелка слегка вправо\""))
+        assertTrue(report.contains("userLabel=\"стрелка слегка вправо\""))
+        assertTrue(report.contains("verdict=MATCH"))
+    }
+
+    @Test fun `explorer label is bounded and pending records do not count as complete`() {
+        val scenario = requireNotNull(HudLabScenarioCatalog.byId("E07"))
+        val record = HudLabLogStore.beginScenario(context, scenario, nowMs = 1_000L)
+
+        assertTrue(HudLabLogStore.completedExplorerScenarioIds(context).isEmpty())
+        HudLabLogStore.recordObservation(
+            context,
+            record.id,
+            HudLabObserved.NOT_REPORTED,
+            nowMs = 1_050L,
+        )
+        assertTrue(HudLabLogStore.completedExplorerScenarioIds(context).isEmpty())
+
+        HudLabLogStore.recordObservation(
+            context,
+            record.id,
+            HudLabObserved.NAMED_INDICATOR,
+            userLabel = "x".repeat(HudLabLogStore.MAX_USER_LABEL_CHARS + 50),
+            nowMs = 1_100L,
+        )
+
+        assertEquals(
+            HudLabLogStore.MAX_USER_LABEL_CHARS,
+            HudLabLogStore.records(context).single().userLabel?.length,
+        )
+        assertEquals(setOf("E07"), HudLabLogStore.completedExplorerScenarioIds(context))
+    }
+
+    @Test fun `visible without description is distinct from no HUD output`() {
+        val scenario = requireNotNull(HudLabScenarioCatalog.byId("E08"))
+        val record = HudLabLogStore.beginScenario(context, scenario, nowMs = 1_000L)
+        HudLabLogStore.completeDelivery(context, record.id, nowMs = 1_100L)
+        HudLabLogStore.recordObservation(
+            context,
+            record.id,
+            HudLabObserved.VISIBLE_UNDESCRIBED,
+            nowMs = 1_200L,
+        )
+
+        val restored = HudLabLogStore.records(context).single()
+        assertEquals(HudLabObserved.VISIBLE_UNDESCRIBED, restored.observed)
+        assertEquals(setOf("E08"), HudLabLogStore.completedExplorerScenarioIds(context))
+        val report = HudLabLogStore.renderDiagnosticSection(context)
+        assertTrue(report.contains("no_output=0"))
+        assertTrue(report.contains("visible_undescribed=1"))
+    }
+
     @Test fun `guard rejection before transport is classified as not sent`() {
         val event = HudLabEvent(
             type = HudLabEventType.SEND,

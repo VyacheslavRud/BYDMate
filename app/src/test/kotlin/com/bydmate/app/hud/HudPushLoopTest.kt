@@ -346,7 +346,14 @@ class HudPushLoopTest {
             nowMs = 1000L,
         )
         val sink = FakeSink()
-        val loop = HudPushLoop(sink, nowMsProvider = { 1000L })
+        val mappings = mutableListOf<Triple<Int, Int?, Int>>()
+        val loop = HudPushLoop(
+            sink,
+            nowMsProvider = { 1000L },
+            onGuidanceAttempt = { gaode, rawF28, rc ->
+                mappings += Triple(gaode, rawF28, rc)
+            },
+        )
 
         assertTrue(loop.tick(wasActive = false))
         assertArrayEquals(
@@ -357,6 +364,23 @@ class HudPushLoopTest {
             ),
             sink.events.single().second,
         )
+        assertEquals(listOf(Triple(11, 11, 0)), mappings)
+    }
+
+    @Test fun `suppressed HUD Lab output does not report a production mapping attempt`() {
+        activeHub(nowMs = 1000L)
+        val mappings = mutableListOf<Triple<Int, Int?, Int>>()
+        val loop = HudPushLoop(
+            FakeSink(),
+            nowMsProvider = { 1000L },
+            outputSuspended = { true },
+            onGuidanceAttempt = { gaode, rawF28, rc ->
+                mappings += Triple(gaode, rawF28, rc)
+            },
+        )
+
+        assertFalse(loop.tick(wasActive = false))
+        assertTrue(mappings.isEmpty())
     }
 
     @Test fun `delivery result reports gateway rejection`() {

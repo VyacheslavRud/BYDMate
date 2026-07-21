@@ -510,6 +510,10 @@ class HudControllerTest {
         val guidanceAt = c.deliveryDiagnostics.value.lastGuidanceFrameSuccessAtMs
         assertTrue(guidanceAt != null)
         assertEquals(HudFrameKind.GUIDANCE, c.deliveryDiagnostics.value.lastDeliveryKind)
+        assertEquals(2, c.deliveryDiagnostics.value.lastGuidanceManeuverGaode)
+        assertEquals("RIGHT", c.deliveryDiagnostics.value.lastGuidanceManeuverName)
+        assertEquals(2, c.deliveryDiagnostics.value.lastGuidanceRawF28)
+        assertEquals(0, c.deliveryDiagnostics.value.lastGuidanceResultCode)
 
         c.setEnabled(false)
 

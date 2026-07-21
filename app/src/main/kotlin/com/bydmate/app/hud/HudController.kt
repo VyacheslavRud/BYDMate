@@ -11,6 +11,7 @@ import com.bydmate.app.data.vehicle.HelperBootstrap
 import com.bydmate.app.data.vehicle.HelperClient
 import com.bydmate.app.navdata.NavA11yFeed
 import com.bydmate.app.navdata.NavGuidanceHub
+import com.bydmate.app.navdata.NavManeuverCodes
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -81,6 +82,10 @@ class HudController @Inject constructor(
         val lastClearSuccessAtMs: Long? = null,
         val lastDeliveryKind: HudFrameKind? = null,
         val lastResultCode: Int? = null,
+        val lastGuidanceManeuverGaode: Int? = null,
+        val lastGuidanceManeuverName: String? = null,
+        val lastGuidanceRawF28: Int? = null,
+        val lastGuidanceResultCode: Int? = null,
         val lastFailure: String? = null,
         val reconnectAttempt: Int = 0,
         val nextReconnectAtMs: Long? = null,
@@ -583,6 +588,27 @@ class HudController @Inject constructor(
                         ) {
                             consecutiveSendFailures = 0
                             scope.launch { rebuildChannel("frame_rejected:$rc") }
+                        }
+                    },
+                    onGuidanceAttempt = { maneuverGaode, rawF28, rc ->
+                        val name = NavManeuverCodes.codeName(maneuverGaode)
+                        val previous = _deliveryDiagnostics.value
+                        val mappingChanged =
+                            previous.lastGuidanceManeuverGaode != maneuverGaode ||
+                                previous.lastGuidanceRawF28 != rawF28 ||
+                                previous.lastGuidanceResultCode != rc
+                        _deliveryDiagnostics.value = previous.copy(
+                            lastGuidanceManeuverGaode = maneuverGaode,
+                            lastGuidanceManeuverName = name,
+                            lastGuidanceRawF28 = rawF28,
+                            lastGuidanceResultCode = rc,
+                        )
+                        if (mappingChanged) {
+                            Log.i(
+                                TAG,
+                                "Waze maneuver=$name($maneuverGaode) -> " +
+                                    "SeaLion f28=${rawF28 ?: "OMITTED"} -> rc=$rc",
+                            )
                         }
                     },
                     onLoopFailure = { error ->

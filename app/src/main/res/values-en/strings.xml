@@ -1234,13 +1234,24 @@
 
     <!-- Dev-only factory HUD calibration -->
     <string name="diagnostics_hud_lab_title">HUD Lab — factory HUD calibration</string>
-    <string name="diagnostics_hud_lab_description">The confirmed Sea Lion 07 contract and older compatibility probes are kept in separate sets.</string>
+    <string name="diagnostics_hud_lab_description">The confirmed Sea Lion 07 contract, older compatibility probes and safe Explorer are kept in separate sections.</string>
     <string name="diagnostics_hud_lab_native_hint">The primary set reproduces the safe production frame without PNG, speed sign, ETA or progress.</string>
     <string name="diagnostics_hud_lab_catalog_title">Test set</string>
     <string name="diagnostics_hud_lab_catalog_confirmed">Sea Lion 07</string>
     <string name="diagnostics_hud_lab_catalog_compatibility">Other BYD</string>
+    <string name="diagnostics_hud_lab_catalog_explorer">Indicator Explorer</string>
     <string name="diagnostics_hud_lab_catalog_confirmed_hint">5 short smoke tests cover RIGHT/LEFT, the native 50/100 m threshold and road text.</string>
-    <string name="diagnostics_hud_lab_catalog_compatibility_hint">Older working U-turn, roundabout and f11 variants remain available to calibrate another BYD firmware.</string>
+    <string name="diagnostics_hud_lab_catalog_compatibility_hint">Older working U-turn, roundabout and f11 variants remain for other BYD firmware. The completed f28 Explorer is available below as an advanced tool.</string>
+    <string name="diagnostics_hud_lab_catalog_explorer_hint">A separate safe scan of 41 unknown f28 values. Only the maneuver selector changes; known codes, PNG and other fields are excluded.</string>
+    <string name="diagnostics_hud_lab_explorer_progress">Unique codes tested: %1$d of %2$d</string>
+    <string name="diagnostics_hud_lab_explorer_what_seen">If an indicator appeared, briefly describe it. The description is saved with the code and SOME/IP result.</string>
+    <string name="diagnostics_hud_lab_explorer_label">For example: slight right arrow</string>
+    <string name="diagnostics_hud_lab_explorer_label_counter">Label length: %1$d / %2$d</string>
+    <string name="diagnostics_hud_lab_explorer_save_next">Save description and continue</string>
+    <string name="diagnostics_hud_lab_explorer_straight">Straight arrow</string>
+    <string name="diagnostics_hud_lab_explorer_nothing">Nothing appeared</string>
+    <string name="diagnostics_hud_lab_explorer_skip">Skip description — an arrow was visible</string>
+    <string name="diagnostics_hud_lab_explorer_repeat">Not sure — save and repeat code</string>
     <string name="diagnostics_hud_lab_launcher_description">The compact step-by-step lab opens separately from the long diagnostics screen.</string>
     <string name="diagnostics_hud_lab_open">Open</string>
     <string name="diagnostics_hud_lab_test_counter">Test %1$d of %2$d</string>
@@ -1285,6 +1296,8 @@
     <string name="diagnostics_hud_lab_saw_first_only">First phase only</string>
     <string name="diagnostics_hud_lab_saw_second_only">Second phase only</string>
     <string name="diagnostics_hud_lab_saw_other">Different symbol</string>
+    <string name="diagnostics_hud_lab_saw_named_indicator">Described indicator</string>
+    <string name="diagnostics_hud_lab_saw_visible_undescribed">Indicator visible without description</string>
     <string name="diagnostics_hud_lab_not_reported">Not reported</string>
     <string name="diagnostics_hud_lab_clear">Clear HUD</string>
     <string name="diagnostics_hud_lab_export">Export</string>
