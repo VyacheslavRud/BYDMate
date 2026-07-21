@@ -33,7 +33,9 @@ import com.bydmate.app.hud.HudLabLogStore
 import com.bydmate.app.cluster.ClusterLabLogStore
 import com.bydmate.app.navdata.NavA11yFeed
 import com.bydmate.app.navdata.NavManeuverCodes
+import com.bydmate.app.navdata.WazeAccessibilityReader
 import com.bydmate.app.navdata.WazeVisualManeuverReader
+import com.bydmate.app.media.WazeNotificationCensus
 import com.bydmate.app.media.WazeRemoteViewsManeuverReader
 import com.bydmate.app.demo.DemoDataSeeder
 import com.bydmate.app.demo.DemoMode
@@ -1594,6 +1596,91 @@ class SettingsViewModel @Inject constructor(
                         "foreground=${visualDiagnostics.foregroundRatio} " +
                         "failure=${visualDiagnostics.failure}",
                 )
+                val visualCounters = WazeVisualManeuverReader.counters()
+                val lastVisual = visualCounters.lastCompleted
+                appendLine(
+                    "waze_visual_arrow_counts: feedRequests=" +
+                        "${a11yDiagnostics.visualRequests}/" +
+                        "${a11yDiagnostics.visualRequestsAccepted} " +
+                        "requested=${visualCounters.requested} " +
+                        "started=${visualCounters.started} " +
+                        "completed=${visualCounters.completed} " +
+                        "lastSource=${lastVisual?.targetSource ?: "none"} " +
+                        "lastTarget=${lastVisual?.targetWidth}x${lastVisual?.targetHeight} " +
+                        "lastManeuver=" +
+                        "${NavManeuverCodes.codeName(lastVisual?.maneuverGaode ?: 0)}" +
+                        "(${lastVisual?.maneuverGaode ?: 0}) " +
+                        "lastFailure=${lastVisual?.failure ?: "none"}",
+                )
+                val a11yCensus = WazeAccessibilityReader.census()
+                val censusAgeMs = a11yCensus.readAtMs.takeIf { it > 0L }?.let {
+                    (System.currentTimeMillis() - it).coerceAtLeast(0L)
+                }
+                appendLine(
+                    "waze_a11y_census: readAgeMs=$censusAgeMs " +
+                        "maneuverNodes=${a11yCensus.maneuverNodes} " +
+                        "maneuverVisible=${a11yCensus.maneuverVisibleNodes} " +
+                        "maneuverValues=${a11yCensus.maneuverValues} " +
+                        "maneuverRecognized=${a11yCensus.maneuverRecognized} " +
+                        "distance=${a11yCensus.distancePresent} " +
+                        "street=${a11yCensus.streetPresent} " +
+                        "fallbackScanned=${a11yCensus.fallbackScanned} " +
+                        "fallbackVisited=${a11yCensus.fallbackNodesVisited} " +
+                        "fallbackCapped=${a11yCensus.fallbackCapped} " +
+                        "fallbackValues=${a11yCensus.fallbackValues} " +
+                        "fallbackRecognized=${a11yCensus.fallbackRecognized} " +
+                        "fallbackNonDirectional=${a11yCensus.fallbackNonDirectional}",
+                )
+                appendLine(
+                    "waze_a11y_events: total=${a11yDiagnostics.wazeEventCount} " +
+                        "withManeuver=${a11yDiagnostics.wazeEventManeuverCount} " +
+                        "types=" +
+                        a11yDiagnostics.eventTypeCounts.entries
+                            .sortedByDescending { it.value }
+                            .joinToString(",") { "0x${it.key.toString(16)}:${it.value}" }
+                            .ifEmpty { "none" },
+                )
+                val notificationCensus = WazeNotificationCensus.snapshot()
+                val notificationAgeMs = notificationCensus.lastPostAtMs?.let {
+                    (System.currentTimeMillis() - it).coerceAtLeast(0L)
+                }
+                appendLine(
+                    "waze_notification_census: posted=${notificationCensus.posted} " +
+                        "accepted=${notificationCensus.accepted} " +
+                        "rejected=${notificationCensus.rejected} " +
+                        "lastAgeMs=$notificationAgeMs " +
+                        "lastAccepted=${notificationCensus.lastAccepted}",
+                )
+                // Accepted and rejected shapes are printed separately: a community alert arriving
+                // late in the route must not be the only notification shape the export carries.
+                listOf(
+                    "accepted" to notificationCensus.lastAcceptedShape,
+                    "rejected" to notificationCensus.lastRejectedShape,
+                ).forEach { (verdict, shape) ->
+                    if (shape == null) {
+                        appendLine("waze_notification_$verdict: none")
+                        appendLine("waze_notification_${verdict}_extras: none")
+                        return@forEach
+                    }
+                    val shapeAgeMs =
+                        (System.currentTimeMillis() - shape.postAtMs).coerceAtLeast(0L)
+                    appendLine(
+                        "waze_notification_$verdict: ageMs=$shapeAgeMs " +
+                            "category=${shape.category ?: "none"} " +
+                            "channel=${shape.channelId ?: "none"} " +
+                            "contentView=${shape.contentView} " +
+                            "bigContentView=${shape.bigContentView} " +
+                            "headsUpContentView=${shape.headsUpContentView} " +
+                            "smallIcon=${shape.smallIconType}/" +
+                            "${shape.smallIconResource ?: "none"} " +
+                            "largeIcon=${shape.largeIconType}/" +
+                            "${shape.largeIconResource ?: "none"}",
+                    )
+                    appendLine(
+                        "waze_notification_${verdict}_extras: " +
+                            shape.extras.joinToString(",").ifEmpty { "none" },
+                    )
+                }
             } catch (e: Exception) {
                 appendLine("(failed to gather live HUD pipeline: ${e.message})")
             }

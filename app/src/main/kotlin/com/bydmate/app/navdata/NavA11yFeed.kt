@@ -23,6 +23,8 @@ object NavA11yFeed {
     private const val DEBOUNCE_MS = 500L
     internal const val REFRESH_INTERVAL_MS = 15_000L
     private const val EVIDENCE_PERSIST_INTERVAL_MS = 60_000L
+    /** AccessibilityEvent types are a small fixed set; the bound only guards a hostile stream. */
+    private const val MAX_EVENT_TYPE_BUCKETS = 32
 
     enum class ProbeResult {
         GUIDANCE,
@@ -53,6 +55,15 @@ object NavA11yFeed {
     @Volatile private var pendingEventManeuverGaode: Int = 0
     @Volatile private var lastGuidanceEvidencePersistElapsedMs: Long = 0L
     @Volatile private var lastGuidanceEvidenceScope: String? = null
+
+    // Shape-only census. Without it an export cannot separate "Waze emits no accessibility events"
+    // from "events arrive but carry no direction" from "the visual fallback is never requested".
+    // Only event type ids and counts are retained; no event text ever enters this state.
+    @Volatile private var wazeEventCount: Int = 0
+    @Volatile private var wazeEventManeuverCount: Int = 0
+    @Volatile private var visualRequests: Int = 0
+    @Volatile private var visualRequestsAccepted: Int = 0
+    private val eventTypeCounts = java.util.concurrent.ConcurrentHashMap<Int, Int>()
 
     private val mainHandler by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         Handler(Looper.getMainLooper())
@@ -145,6 +156,12 @@ object NavA11yFeed {
         val lastGuidanceEvidenceScope: String?,
         val lastEventManeuverGaode: Int,
         val lastEventManeuverAtMs: Long?,
+        val wazeEventCount: Int = 0,
+        val wazeEventManeuverCount: Int = 0,
+        /** AccessibilityEvent type id -> count, Waze package only. */
+        val eventTypeCounts: Map<Int, Int> = emptyMap(),
+        val visualRequests: Int = 0,
+        val visualRequestsAccepted: Int = 0,
     )
 
     fun diagnostics(): Diagnostics = Diagnostics(
@@ -161,6 +178,11 @@ object NavA11yFeed {
         lastGuidanceEvidenceScope = lastGuidanceEvidenceScope,
         lastEventManeuverGaode = lastEventManeuverGaode,
         lastEventManeuverAtMs = lastEventManeuverAtMs.takeIf { it > 0L },
+        wazeEventCount = wazeEventCount,
+        wazeEventManeuverCount = wazeEventManeuverCount,
+        eventTypeCounts = eventTypeCounts.toMap(),
+        visualRequests = visualRequests,
+        visualRequestsAccepted = visualRequestsAccepted,
     )
 
     fun enable() {
@@ -192,6 +214,11 @@ object NavA11yFeed {
         lastEventManeuverGaode = 0
         lastEventManeuverAtMs = 0L
         pendingEventManeuverGaode = 0
+        wazeEventCount = 0
+        wazeEventManeuverCount = 0
+        visualRequests = 0
+        visualRequestsAccepted = 0
+        eventTypeCounts.clear()
         NavGuidanceHub.markRouteIndeterminate()
     }
 
@@ -202,13 +229,22 @@ object NavA11yFeed {
         val eventType = event?.eventType ?: 0
         val pkg = event?.packageName?.toString()
         val fromWaze = NavPackages.isNavigationPackage(pkg)
-        if (fromWaze) lastWazeEventAtMs = nowMs
+        if (fromWaze) {
+            lastWazeEventAtMs = nowMs
+            wazeEventCount++
+            if (eventTypeCounts.size < MAX_EVENT_TYPE_BUCKETS ||
+                eventTypeCounts.containsKey(eventType)
+            ) {
+                eventTypeCounts.merge(eventType, 1) { old, added -> old + added }
+            }
+        }
         val eventManeuver = if (fromWaze && eventType != 0) {
             WazeAccessibilityReader.maneuverFromEvent(event)
         } else {
             0
         }
         if (eventManeuver > 0) {
+            wazeEventManeuverCount++
             val previousEventManeuver = lastEventManeuverGaode
             pendingEventManeuverGaode = eventManeuver
             lastEventManeuverGaode = eventManeuver
@@ -367,7 +403,8 @@ object NavA11yFeed {
         service: SteeringWheelKeyService,
         root: AccessibilityNodeInfo,
     ) {
-        WazeVisualManeuverReader.request(service, root) { maneuverGaode ->
+        visualRequests++
+        val accepted = WazeVisualManeuverReader.request(service, root) { maneuverGaode ->
             if (!enabled) return@request
             val nowMs = System.currentTimeMillis()
             if (NavGuidanceHub.updateManeuverHint(
@@ -385,6 +422,7 @@ object NavA11yFeed {
                 NavGuidanceHub.requestHudRefresh()
             }
         }
+        if (accepted) visualRequestsAccepted++
     }
 
     private fun hasRouteAnchor(root: AccessibilityNodeInfo): Boolean = runCatching {

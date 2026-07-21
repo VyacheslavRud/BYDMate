@@ -40,11 +40,53 @@ object WazeVisualManeuverReader {
         val foregroundRatio: Float,
     )
 
+    /**
+     * Attempt counters plus the last *completed* attempt.
+     *
+     * [diagnostics] is overwritten at request time with `failure="pending"`, so an export taken
+     * while a screenshot is in flight loses the previous verdict. Distinguishing "the visual path
+     * is never requested" from "it is requested and the screenshot fails" from "it succeeds but
+     * the shape is unrecognized" is exactly what a single instrumented route has to answer.
+     */
+    data class Counters(
+        val requested: Int = 0,
+        val started: Int = 0,
+        val completed: Int = 0,
+        val lastCompleted: Diagnostics? = null,
+    )
+
     private val inFlight = AtomicBoolean(false)
     @Volatile private var lastAttemptElapsedMs: Long = 0L
     @Volatile private var latest = Diagnostics()
+    @Volatile private var latestCounters = Counters()
 
     fun diagnostics(): Diagnostics = latest
+
+    fun counters(): Counters = latestCounters
+
+    /** Test hook; the reader never clears its own counters during a route. */
+    internal fun resetCounters() {
+        latestCounters = Counters()
+        latest = Diagnostics()
+    }
+
+    @Synchronized
+    private fun countRequest() {
+        latestCounters = latestCounters.copy(requested = latestCounters.requested + 1)
+    }
+
+    @Synchronized
+    private fun countStart() {
+        latestCounters = latestCounters.copy(started = latestCounters.started + 1)
+    }
+
+    @Synchronized
+    private fun countCompletion(result: Diagnostics) {
+        latestCounters = latestCounters.copy(
+            completed = latestCounters.completed + 1,
+            lastCompleted = result,
+        )
+    }
 
     /** Schedules at most one bounded screenshot per second. Returns false when no safe crop exists. */
     fun request(
@@ -52,12 +94,15 @@ object WazeVisualManeuverReader {
         root: AccessibilityNodeInfo,
         callback: (Int) -> Unit,
     ): Boolean {
+        countRequest()
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
         val target = findTarget(root) ?: run {
-            latest = Diagnostics(
+            val result = Diagnostics(
                 attemptedAtMs = System.currentTimeMillis(),
                 failure = "maneuver_bounds_not_found",
             )
+            latest = result
+            countCompletion(result)
             return false
         }
         val nowElapsed = SystemClock.elapsedRealtime()
@@ -74,6 +119,7 @@ object WazeVisualManeuverReader {
             targetHeight = target.bounds.height(),
             failure = "pending",
         )
+        countStart()
         return runCatching {
             service.takeScreenshot(
                 target.displayId,
@@ -87,7 +133,7 @@ object WazeVisualManeuverReader {
                             wrapped = Bitmap.wrapHardwareBuffer(buffer, screenshot.colorSpace)
                             software = wrapped?.copy(Bitmap.Config.ARGB_8888, false)
                             val classification = software?.let { classify(it, target.bounds) }
-                            latest = Diagnostics(
+                            val result = Diagnostics(
                                 attemptedAtMs = System.currentTimeMillis(),
                                 displayId = target.displayId,
                                 targetSource = target.source,
@@ -98,9 +144,13 @@ object WazeVisualManeuverReader {
                                 foregroundRatio = classification?.foregroundRatio,
                                 failure = if (classification == null) "shape_unrecognized" else null,
                             )
+                            latest = result
+                            countCompletion(result)
                             classification?.maneuverGaode?.takeIf { it != 0 }?.let(callback)
                         } catch (_: Throwable) {
-                            latest = latest.copy(failure = "bitmap_processing_failed")
+                            val result = latest.copy(failure = "bitmap_processing_failed")
+                            latest = result
+                            countCompletion(result)
                         } finally {
                             software?.recycle()
                             wrapped?.recycle()
@@ -110,14 +160,18 @@ object WazeVisualManeuverReader {
                     }
 
                     override fun onFailure(errorCode: Int) {
-                        latest = latest.copy(failure = "screenshot_error_$errorCode")
+                        val result = latest.copy(failure = "screenshot_error_$errorCode")
+                        latest = result
+                        countCompletion(result)
                         inFlight.set(false)
                     }
                 },
             )
             true
         }.getOrElse {
-            latest = latest.copy(failure = "screenshot_request_failed")
+            val result = latest.copy(failure = "screenshot_request_failed")
+            latest = result
+            countCompletion(result)
             inFlight.set(false)
             false
         }

@@ -22,6 +22,26 @@ object NavManeuverCodes {
     const val GAODE_ARRIVE = 48
     const val GAODE_TUNNEL = 49
 
+    /**
+     * Codes that describe where the car must steer, as opposed to a route-lifecycle or road-feature
+     * state.
+     *
+     * Only these may be inferred by an untargeted tree scan. ARRIVE, WAYPOINT, FERRY and TUNNEL are
+     * legitimate maneuvers when Waze publishes them on its own maneuver node, but they are also
+     * ordinary words in ETA, destination and progress panels ("Прибытие 19:12"), so a scan that is
+     * allowed to return them will label a still-running route from unrelated screen text.
+     */
+    private val DIRECTIONAL_CODES = setOf(
+        GAODE_LEFT, GAODE_RIGHT,
+        GAODE_SLIGHT_LEFT, GAODE_SLIGHT_RIGHT,
+        GAODE_HARD_LEFT, GAODE_HARD_RIGHT,
+        GAODE_UTURN, GAODE_UTURN_RIGHT,
+        GAODE_STRAIGHT,
+        GAODE_ROUNDABOUT_ENTER, GAODE_ROUNDABOUT_EXIT,
+    )
+
+    fun isDirectionalManeuver(gaode: Int): Boolean = gaode in DIRECTIONAL_CODES
+
     /** Privacy-safe parsing result used by diagnostics: it exposes only recognized directions,
      *  never Waze's raw instruction or road names. [recognizedCodes] is in textual order. */
     data class ParseResult(

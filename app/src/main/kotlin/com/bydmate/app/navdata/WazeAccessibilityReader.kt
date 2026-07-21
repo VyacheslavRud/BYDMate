@@ -46,6 +46,61 @@ object WazeAccessibilityReader {
         val exitNumber: String?,
     )
 
+    /**
+     * Privacy-safe shape census of the last route-tree read performed on the chosen Waze window.
+     *
+     * The live HUD keeps distance and street but never a maneuver, which means this reader returns
+     * [Fields] whose `maneuver` is absent or unrecognized. Only counts and booleans distinguish
+     * "the maneuver id does not exist on this Waze build" from "the node exists but exposes no
+     * semantic value" from "the bounded fallback scan hit its node cap". No parsed string, street
+     * or instruction is retained.
+     */
+    data class Census(
+        val readAtMs: Long = 0L,
+        val maneuverNodes: Int = 0,
+        val maneuverVisibleNodes: Int = 0,
+        val maneuverValues: Int = 0,
+        val maneuverRecognized: Boolean = false,
+        val distancePresent: Boolean = false,
+        val streetPresent: Boolean = false,
+        val fallbackScanned: Boolean = false,
+        val fallbackNodesVisited: Int = 0,
+        val fallbackCapped: Boolean = false,
+        val fallbackValues: Int = 0,
+        val fallbackRecognized: Boolean = false,
+        /**
+         * Values the scan parsed to a real maneuver code but refused because that code is not a
+         * steering direction. A non-zero count is the signature of the Sea Lion 07 defect: a text
+         * panel that used to be published as the route's maneuver.
+         */
+        val fallbackNonDirectional: Int = 0,
+    )
+
+    @Volatile private var latestCensus = Census()
+
+    fun census(): Census = latestCensus
+
+    /** Test hook; the reader never clears its own census during a route. */
+    internal fun resetCensus() {
+        latestCensus = Census()
+    }
+
+    private data class ManeuverScan(
+        val text: String?,
+        val nodes: Int,
+        val visibleNodes: Int,
+        val values: Int,
+        val recognized: Boolean,
+    )
+
+    private data class FallbackScan(
+        val text: String?,
+        val visited: Int,
+        val capped: Boolean,
+        val values: Int,
+        val nonDirectional: Int,
+    )
+
     /** Stable ranking for choosing between multiple Waze windows/displays. An anchor-only
      *  surface stays eligible, while a complete current route bar wins over a stale icon or
      *  minimized shell. No field contents are retained or logged. */
@@ -66,12 +121,17 @@ object WazeAccessibilityReader {
         return score
     }
 
-    fun read(root: AccessibilityNodeInfo?): Fields? {
+    /**
+     * [recordCensus] is set only for the single window the feed actually consumes. Window scoring
+     * in `findNavigatorRoot` reads every Waze surface and must not overwrite the census with a
+     * minimized or stale shell.
+     */
+    fun read(root: AccessibilityNodeInfo?, recordCensus: Boolean = false): Fields? {
         if (root == null) return null
         val pkg = runCatching { root.packageName?.toString() }.getOrNull()
             ?.takeIf(NavPackages::isNavigationPackage)
             ?: return null
-        val exactManeuver = maneuverValue(
+        val maneuverRead = maneuverScan(
             root,
             "$pkg:id/navBarDirectionText",
             "$pkg:id/navBarInstructionText",
@@ -79,6 +139,7 @@ object WazeAccessibilityReader {
             "$pkg:id/instructionView",
             "$pkg:id/navBarDirection",
         )
+        val exactManeuver = maneuverRead.text
         val maneuverDistance = firstValue(root, "$pkg:id/navBarDistance")
         val street = firstValue(
             root,
@@ -89,13 +150,31 @@ object WazeAccessibilityReader {
         // build exposes distance/street under known ids but keeps the direction on an unlisted
         // child node, which previously left every route at maneuver=0. Once a known route anchor
         // is present, perform one bounded visible-tree scan for a semantically valid direction.
-        val exactManeuverRecognized = NavManeuverCodes.fromInstructionText(exactManeuver) != 0
-        val fallbackManeuver = if (!exactManeuverRecognized &&
+        val exactManeuverRecognized = maneuverRead.recognized
+        val fallbackScan = if (!exactManeuverRecognized &&
             (maneuverDistance != null || street != null)
         ) {
-            fallbackManeuverValue(root)
+            fallbackManeuverScan(root)
         } else {
             null
+        }
+        val fallbackManeuver = fallbackScan?.text
+        if (recordCensus) {
+            latestCensus = Census(
+                readAtMs = System.currentTimeMillis(),
+                maneuverNodes = maneuverRead.nodes,
+                maneuverVisibleNodes = maneuverRead.visibleNodes,
+                maneuverValues = maneuverRead.values,
+                maneuverRecognized = exactManeuverRecognized,
+                distancePresent = maneuverDistance != null,
+                streetPresent = street != null,
+                fallbackScanned = fallbackScan != null,
+                fallbackNodesVisited = fallbackScan?.visited ?: 0,
+                fallbackCapped = (fallbackScan?.capped == true),
+                fallbackValues = fallbackScan?.values ?: 0,
+                fallbackRecognized = fallbackManeuver != null,
+                fallbackNonDirectional = fallbackScan?.nonDirectional ?: 0,
+            )
         }
         // Keep the exact raw value as a final fallback so the route anchor remains observable,
         // but prefer a semantic direction found elsewhere when the known id contains only a
@@ -214,7 +293,7 @@ object WazeAccessibilityReader {
     /** Prefer a full spoken instruction over a short arrow description when both are visible.
      *  On Waze 5.x the icon and text can coexist briefly during a reroute; the text describes the
      *  current first maneuver while the icon node may still expose its previous LEFT/RIGHT value. */
-    private fun maneuverValue(root: AccessibilityNodeInfo, vararg ids: String): String? {
+    private fun maneuverScan(root: AccessibilityNodeInfo, vararg ids: String): ManeuverScan {
         data class Value(
             val text: String,
             val idIndex: Int,
@@ -223,11 +302,15 @@ object WazeAccessibilityReader {
             val parsed: NavManeuverCodes.ParseResult,
         )
         val values = mutableListOf<Value>()
+        var nodeTotal = 0
+        var visibleTotal = 0
         ids.forEachIndexed { idIndex, id ->
             val nodes = runCatching { root.findAccessibilityNodeInfosByViewId(id) }.getOrNull()
                 ?: return@forEachIndexed
+            nodeTotal += nodes.size
             nodes.forEachIndexed { nodeIndex, node ->
                 if (runCatching { node.isVisibleToUser }.getOrDefault(false)) {
+                    visibleTotal++
                     runCatching { maneuverNodeValues(node, depth = 2) }
                         .getOrDefault(emptyList())
                         .forEachIndexed { valueIndex, value ->
@@ -243,32 +326,61 @@ object WazeAccessibilityReader {
                 recycle(node)
             }
         }
-        if (values.isEmpty()) return null
         val recognized = values.filter { it.parsed.gaode != 0 }
-        if (recognized.isEmpty()) return values.minWith(
-            compareBy<Value> { it.idIndex }.thenBy { it.nodeIndex }.thenBy { it.valueIndex },
-        ).text
-        return recognized.maxWith(
-            compareBy<Value> { isDetailedInstruction(it.text) }
-                .thenBy { it.parsed.recognizedCodes.size }
-                .thenBy { it.text.length }
-                .thenBy { -it.idIndex }
-                .thenBy { -it.nodeIndex }
-                .thenBy { -it.valueIndex },
-        ).text
+        val text = when {
+            values.isEmpty() -> null
+            recognized.isEmpty() -> values.minWith(
+                compareBy<Value> { it.idIndex }.thenBy { it.nodeIndex }.thenBy { it.valueIndex },
+            ).text
+            else -> recognized.maxWith(
+                compareBy<Value> { isDetailedInstruction(it.text) }
+                    .thenBy { it.parsed.recognizedCodes.size }
+                    .thenBy { it.text.length }
+                    .thenBy { -it.idIndex }
+                    .thenBy { -it.nodeIndex }
+                    .thenBy { -it.valueIndex },
+            ).text
+        }
+        return ManeuverScan(
+            text = text,
+            nodes = nodeTotal,
+            visibleNodes = visibleTotal,
+            values = values.size,
+            recognized = recognized.isNotEmpty(),
+        )
     }
 
-    private fun fallbackManeuverValue(root: AccessibilityNodeInfo): String? {
+    /**
+     * Unlike [maneuverScan], this walks the whole visible Waze window rather than the maneuver ids,
+     * so it must accept only a value whose primary meaning is a steering direction.
+     *
+     * Sea Lion 07 runtime evidence (2026-07-21, three exports across one drive): the maneuver ids
+     * carry no semantic value at all on Waze 4.105 (`maneuverValues=0`), the arrow is image-only,
+     * and this scan reached a non-maneuver panel whose text parsed as ARRIVE(48). That fake
+     * terminal maneuver held for the whole drive — it mapped to `f28=OMITTED` so the windshield
+     * card kept distance, street and speed but never an arrow, and because it is non-zero it also
+     * suppressed the visual arrow classifier, which is the only source that can read an image-only
+     * arrow. Restricting the scan to directional codes leaves `maneuver=0`, which is both honest
+     * and what re-enables the visual path.
+     */
+    private fun fallbackManeuverScan(root: AccessibilityNodeInfo): FallbackScan {
         var visited = 0
+        var seenValues = 0
+        var nonDirectional = 0
         var result: String? = null
 
         fun visit(node: AccessibilityNodeInfo) {
             if (result != null || visited++ >= MAX_FALLBACK_TREE_NODES) return
             if (!runCatching { node.isVisibleToUser }.getOrDefault(false)) return
             val values = maneuverSemanticValues(node)
+            seenValues += values.size
             values.forEach { value ->
                 val parsed = NavManeuverCodes.parseInstructionText(value)
-                if (parsed.gaode != 0 && result == null) result = value
+                if (result != null) return@forEach
+                when {
+                    NavManeuverCodes.isDirectionalManeuver(parsed.gaode) -> result = value
+                    parsed.gaode != 0 -> nonDirectional++
+                }
             }
             if (result != null) return
             val childCount = runCatching { node.childCount }.getOrDefault(0)
@@ -286,13 +398,19 @@ object WazeAccessibilityReader {
         visit(root)
         // Accessibility traversal order mirrors the visual route hierarchy; return the first
         // semantic maneuver found inside that anchored route tree.
-        return result
+        return FallbackScan(
+            text = result,
+            visited = visited,
+            capped = result == null && visited >= MAX_FALLBACK_TREE_NODES,
+            values = seenValues,
+            nonDirectional = nonDirectional,
+        )
     }
 
     /** Unlike generic text fields, maneuver nodes need every public semantic channel. Depending
      *  on the Waze/DiLink build, the arrow can be exposed as text, content/state description,
      *  tooltip, action label or a Compose test tag promoted to viewIdResourceName. Detailed text
-     *  still wins later in [maneuverValue]. */
+     *  still wins later in [maneuverScan]. */
     private fun maneuverNodeValues(node: AccessibilityNodeInfo, depth: Int): List<String> {
         if (!runCatching { node.isVisibleToUser }.getOrDefault(false)) return emptyList()
         val values = maneuverSemanticValues(node)

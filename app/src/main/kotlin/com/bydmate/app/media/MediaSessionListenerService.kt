@@ -122,22 +122,30 @@ class MediaSessionListenerService : NotificationListenerService() {
         super.onListenerConnected()
         isConnected = true
         runCatching {
-            val active = activeNotifications.orEmpty()
-                .filter(::isAcceptedNavigationNotification)
+            // Census must observe every active Waze notification, not only the accepted subset:
+            // filtering before processPosted left posted=0 covering both "Waze posts nothing" and
+            // "Waze posts something we reject", which is the ambiguity the census exists to break.
+            // processPosted records the census first and mirrors only accepted notifications.
+            val navigation = activeNotifications.orEmpty()
+                .filter { NavPackages.isNavigationPackage(it.packageName) }
                 .sortedBy(StatusBarNotification::getPostTime)
+            val accepted = navigation.filter(::isAcceptedNavigationNotification)
             navigationNotifications.clear()
             // Reconcile any source retained across a listener disconnect. A replayed
             // guidance-bearing notification immediately cancels the end marker.
             com.bydmate.app.navdata.NavGuidanceHub.markNotificationEnded()
-            if (active.isEmpty()) {
+            if (accepted.isEmpty()) {
                 // The platform's active list is authoritative for the notification mirror. Do not
                 // clear A11Y: markNotificationEnded removes only the notification source and keeps
                 // recent accessibility guidance alive.
                 NaviRouteHolder.clear(NaviRouteHolder.NAVI_PACKAGE)
-            } else {
-                active.forEach(::processPosted)
             }
-            Log.i(TAG, "listener connected; restored ${active.size} active navigation notification(s)")
+            navigation.forEach(::processPosted)
+            Log.i(
+                TAG,
+                "listener connected; restored ${accepted.size} of ${navigation.size} " +
+                    "active navigation notification(s)",
+            )
         }.onFailure {
             // A transient SecurityException or vendor listener race is recoverable: normal post
             // callbacks continue to work, and the accessibility feed remains the primary source.
@@ -170,13 +178,17 @@ class MediaSessionListenerService : NotificationListenerService() {
         }
             .onFailure { Log.w(TAG, "Waze notification parse failed", it) }
             .getOrNull()
-        if (!shouldAcceptNavigationNotification(
-                category = sbn.notification.category,
-                channelId = sbn.notification.channelId,
-                parsedHasGuidance = parsed?.hasGuidance == true,
-                hasStrongRouteEvidence = hasStrongRouteEvidence(parsed),
-            )
-        ) {
+        val accepted = shouldAcceptNavigationNotification(
+            category = sbn.notification.category,
+            channelId = sbn.notification.channelId,
+            parsedHasGuidance = parsed?.hasGuidance == true,
+            hasStrongRouteEvidence = hasStrongRouteEvidence(parsed),
+        )
+        // Shape-only census: without it a diagnostic export cannot distinguish "Waze posts no
+        // navigation notification" from "it posts one we reject" or "it uses a standard template
+        // whose RemoteViews are null". Counters and type names only, never notification content.
+        runCatching { WazeNotificationCensus.record(sbn.notification, accepted, resolveName) }
+        if (!accepted) {
             // DiLink's progress phase can update an already accepted vendor key with distance
             // only. Preserve the last strong instruction and use this weak update solely as an
             // overlay-recovery signal; deleting it here made the HUD disappear at the 500 m card.

@@ -18,7 +18,10 @@ object NavA11yExtractor {
         val pkg = runCatching { root.packageName?.toString() }.getOrNull()
             ?: return ReadResult.NotNavigator
         if (!NavPackages.isNavigationPackage(pkg)) return ReadResult.NotNavigator
-        val fields = WazeAccessibilityReader.read(root) ?: return ReadResult.NoGuidance
+        // Census is recorded here, not during window scoring: this is the single chosen root the
+        // guidance feed actually consumes.
+        val fields = WazeAccessibilityReader.read(root, recordCensus = true)
+            ?: return ReadResult.NoGuidance
         val raw = NavGuidanceParser.RawFields(
             maneuverDesc = fields.maneuver,
             exitNumber = fields.exitNumber,
