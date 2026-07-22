@@ -253,7 +253,7 @@ class ClusterNativePathTest {
         val line = clusterNativeDeltaLine(identical, identical)
 
         assertTrue(line.contains("status=NO_VENDOR_STATE_CHANGE_OBSERVED"))
-        assertTrue(line.contains("nativeClusterPath=UNVERIFIED_BY_THIS_LAB"))
+        assertTrue(line.contains("nativeClusterPath=NOT_OBSERVABLE_FROM_THIS_CELL"))
         assertFalse(line.contains("IMPOSSIBLE"))
         assertFalse(line.contains("unreachable"))
     }
@@ -273,5 +273,39 @@ class ClusterNativePathTest {
         assertFalse(line.contains("directAndroidTaskProjectionAvailable"))
         assertFalse(line.contains("androidVerdict"))
         assertTrue(line.startsWith("cluster_native_path "))
+    }
+
+    // --- settled architecture must reach the export -------------------------------------------
+
+    /**
+     * The 2026-07-22 system stack resolved what the runtime probes cannot see: the cluster UI is a
+     * root-owned Qt process in the Fission host cell. The export carries that conclusion so a
+     * reader is not sent back to the car to re-run a settled question.
+     */
+    @Test fun `every export line carries the settled cluster architecture`() {
+        val identical = probe()
+
+        listOf(
+            clusterNativePathLine("aidl_contract", identical),
+            clusterNativeDeltaLine(identical, identical),
+        ).forEach { line ->
+            assertTrue(line, line.contains("clusterNativeArchitecture=$CLUSTER_NATIVE_ARCHITECTURE"))
+        }
+        assertEquals(
+            "FISSION_HOST_CELL_QT_RUNTIME_STRUCTURED_DATA_NO_ANDROID_SURFACE",
+            CLUSTER_NATIVE_ARCHITECTURE,
+        )
+    }
+
+    /**
+     * The runtime status stays scoped to what a probe inside this Android cell can observe. It must
+     * never claim the cluster is impossible, and never claim silence means nothing is there.
+     */
+    @Test fun `the runtime status describes observability rather than possibility`() {
+        assertEquals("NOT_OBSERVABLE_FROM_THIS_CELL", NATIVE_CLUSTER_PATH_STATUS)
+
+        val line = clusterNativePathLine("aidl_contract", probe())
+        assertFalse(line.contains("IMPOSSIBLE"))
+        assertFalse(line.contains("unreachable"))
     }
 }

@@ -167,7 +167,7 @@ class ClusterPlatformVerdictTest {
         val line = clusterPlatformVerdictLine("final_after_container_watch", seaLionProbe)
 
         assertTrue(line.contains("directAndroidTaskProjectionAvailable=false"))
-        assertTrue(line.contains("nativeClusterPath=UNVERIFIED_BY_THIS_LAB"))
+        assertTrue(line.contains("nativeClusterPath=NOT_OBSERVABLE_FROM_THIS_CELL"))
         // The old wording claimed far more than the probe can see.
         assertFalse(line.contains("clusterDisplayUnreachable"))
         assertFalse(line.contains("unreachable"))
@@ -384,7 +384,7 @@ class ClusterPlatformVerdictTest {
         assertTrue(line.contains("containerReplyStatus=-1"))
         assertTrue(line.contains("containerReplyMeaning=NON_ZERO_SERVICE_REPLY_HARDWARE_UNVERIFIED"))
         assertTrue(line.contains("effect=NO_ANDROID_DISPLAY_CHANGE_OBSERVED"))
-        assertTrue(line.contains("nativeClusterPath=UNVERIFIED_BY_THIS_LAB"))
+        assertTrue(line.contains("nativeClusterPath=NOT_OBSERVABLE_FROM_THIS_CELL"))
         // No wording anywhere may claim the command was rejected or changed nothing at all.
         assertFalse(line.contains("REJECTED"))
         assertFalse(line.contains("NO_HARDWARE_CHANGE"))

@@ -81,6 +81,17 @@ The factory `libxdjacontainerservice_jni.so` establishes two additional details:
 `C09` mirrors both read-only operations. It records only safe scalar metadata and producer presence;
 the Surface binders never leave the helper process and no frame is rendered.
 
+## Instrument cluster: settled
+
+The offline system stack of 2026-07-22 resolved the cluster question. `/system/bin/BydClusterManager`
+(alternatively `qtandroidnative panel /system/lib64/libBydCluster.so`) is a root-owned Qt process in
+the Fission *host* cell; this Android system is guest `cell2`. The cluster renders navigation itself
+from a 739-item `DataSourceManager` fed by CAN and in-process SOME/IP plugin messages, and
+`libbydautoservice.so` exposes no navigation channel. There is no Android render target and no
+app-reachable data channel, so graphical Waze output on the cluster is a platform boundary rather
+than a missing implementation. Full evidence and the resolved hypothesis table live in
+`sea-lion-07-instrument-cluster-architecture.md`. Further on-car cluster scenarios are not planned.
+
 ## Display topology
 
 The only additional Android display found in the collected runtime is:

@@ -86,10 +86,25 @@ internal enum class ClusterAndroidProjectionVerdict {
  * Status of every cluster mechanism this laboratory cannot observe.
  *
  * A native BYD compositor, a separate cluster ECU, a system-owned Surface or a vendor route-data
- * protocol leave no trace in `DisplayManager` or `SurfaceFlinger`. The export states this
- * explicitly so a negative Android verdict is never read as "the feature is impossible".
+ * protocol leave no trace in `DisplayManager` or `SurfaceFlinger`, so no runtime probe in this file
+ * may report on them. The value stays negative-only on purpose: a failed Android verdict must never
+ * be read as "the feature is impossible", and a silent probe must never be read as "nothing there".
  */
-internal const val NATIVE_CLUSTER_PATH_STATUS = "UNVERIFIED_BY_THIS_LAB"
+internal const val NATIVE_CLUSTER_PATH_STATUS = "NOT_OBSERVABLE_FROM_THIS_CELL"
+
+/**
+ * Architecture settled offline, so the export stops sending readers back to the car.
+ *
+ * The 2026-07-22 system stack established that `/system/bin/BydClusterManager` (and the alternative
+ * `qtandroidnative panel libBydCluster.so`) is a root-owned Qt process in the Fission *host* cell,
+ * while this Android system is guest `cell2`. The cluster renders navigation itself from a 739-item
+ * `DataSourceManager` fed by CAN and in-process SOME/IP plugin messages. There is no Android render
+ * target to reach from here, which is why every display-based verdict above is negative.
+ *
+ * See `docs/guides/sea-lion-07-instrument-cluster-architecture.md`.
+ */
+internal const val CLUSTER_NATIVE_ARCHITECTURE =
+    "FISSION_HOST_CELL_QT_RUNTIME_STRUCTURED_DATA_NO_ANDROID_SURFACE"
 
 /** How the Android display inventory responded to the container command over the whole window. */
 internal enum class ClusterContainerEffect {
@@ -401,7 +416,8 @@ internal fun clusterNativePathLine(stage: String, report: String?): String {
         append("vendorServices=${facts.vendorServices.joinToString("|").ifEmpty { "none" }} ")
         append("navClusterPackages=${facts.navClusterPackages.joinToString("|").ifEmpty { "none" }} ")
         append("runningNavServices=${facts.runningNavServices.joinToString("|").ifEmpty { "none" }} ")
-        append("foreground=${facts.foregroundActivities.joinToString("|").ifEmpty { "none" }}")
+        append("foreground=${facts.foregroundActivities.joinToString("|").ifEmpty { "none" }} ")
+        append("clusterNativeArchitecture=$CLUSTER_NATIVE_ARCHITECTURE")
     }
 }
 
@@ -440,6 +456,7 @@ internal fun clusterNativeDeltaLine(before: String?, afterWatch: String?): Strin
         // Even a completely empty delta cannot rule the native path out; it only moves it below
         // what these dumps can see.
         append(" nativeClusterPath=$NATIVE_CLUSTER_PATH_STATUS")
+    append(" clusterNativeArchitecture=$CLUSTER_NATIVE_ARCHITECTURE")
     }
 }
 
@@ -458,6 +475,7 @@ internal fun clusterPlatformVerdictLine(
             "${verdict.directAndroidTaskProjectionAvailable ?: "unknown"} ",
     )
     append("nativeClusterPath=$NATIVE_CLUSTER_PATH_STATUS ")
+    append("clusterNativeArchitecture=$CLUSTER_NATIVE_ARCHITECTURE ")
     append("capturedAtMs=${capturedAtMs ?: "unknown"} ")
     append("captureDurationMs=${captureDurationMs ?: "unknown"} ")
     append("evidenceComplete=${facts.evidenceComplete} ")
@@ -505,5 +523,6 @@ internal fun clusterContainerEffectLine(
     // VISIBLE while the reply was -1 and the Android inventory was unchanged. Neither axis may
     // overrule the other, and neither decides the native cluster state.
     append("visualObservation=${if (visualObservationPending) "PENDING_USER_REPORT" else "RECORDED"} ")
-    append("nativeClusterPath=$NATIVE_CLUSTER_PATH_STATUS")
+    append("nativeClusterPath=$NATIVE_CLUSTER_PATH_STATUS ")
+    append("clusterNativeArchitecture=$CLUSTER_NATIVE_ARCHITECTURE")
 }
