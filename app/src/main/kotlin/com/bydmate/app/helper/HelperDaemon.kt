@@ -94,8 +94,8 @@ fun main(args: Array<String>) {
 
     // Step 2: resolve autoservice Binder.
     val smCls = Class.forName("android.os.ServiceManager")
-    val svc: IBinder = smCls.getMethod("getService", String::class.java)
-        .invoke(null, "autoservice") as? IBinder
+    val getServiceMethod = smCls.getMethod("getService", String::class.java)
+    val svc: IBinder = getServiceMethod.invoke(null, "autoservice") as? IBinder
         ?: run {
             System.err.println("ERR: autoservice not found")
             // exitProcess so the OS releases the file lock we already hold above;
@@ -223,7 +223,21 @@ fun main(args: Array<String>) {
                 }
 
                 HelperBinderProtocol.TX_GET_AUTO_CONTAINER_PROJECTION_INFO -> runCatching {
-                    val report = buildAutoContainerProjectionInfoProbe(::shExec)
+                    val attempts = AUTO_CONTAINER_SERVICE_CANDIDATES.map { serviceName ->
+                        val binder = getServiceMethod.invoke(null, serviceName) as? IBinder
+                        readAutoContainerProjectionInfo(
+                            binder = binder,
+                            serviceName = serviceName,
+                            allowMissingDescriptor = serviceName == AUTO_CONTAINER_NATIVE_SERVICE,
+                        )
+                    }
+                    val report = buildAutoContainerProjectionInfoProbe(
+                        selected = selectAutoContainerProjectionInfo(attempts),
+                        attempts = attempts,
+                        fission = readFissionProjectionDisplays(
+                            getServiceMethod.invoke(null, FISSION_HOST_SERVICE) as? IBinder,
+                        ),
+                    )
                     reply?.writeInt(0)
                     reply?.writeString(report)
                     true
@@ -948,27 +962,303 @@ internal fun buildClusterSystemProbe(
 }
 
 /**
- * C09-only fixed probe. Decompiled framework.jar proves transaction 5 constructs a new
- * ProjectionDisplayInfoParcel in Stub.onTransact before calling the implementation, so the
- * parameter is AIDL `out` and the request carries no parcel argument. Keeping this operation out
- * of [buildClusterSystemProbe] guarantees C07/C08 never invoke an implementation method while
- * collecting their common read-only inventory.
+ * Privacy-safe result of the fixed C09 transaction. The Surface binder never crosses back into
+ * the app; only its presence is reported.
  */
+internal data class AutoContainerProjectionInfoResult(
+    val serviceName: String = AUTO_CONTAINER_JAVA_SERVICE,
+    val descriptor: String? = null,
+    val status: String,
+    val serviceResult: Int? = null,
+    val parcelPresent: Boolean? = null,
+    val parcelCaptured: Boolean = false,
+    val name: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+    val surfacePresent: Boolean? = null,
+    val error: String? = null,
+)
+
+/**
+ * C09-only direct Binder getter. Decompiled framework.jar proves transaction 5 constructs a new
+ * ProjectionDisplayInfoParcel in Stub.onTransact before calling the implementation, so the
+ * parameter is AIDL `out` and the request carries only the interface token. Reading the reply as a
+ * typed AIDL parcel also avoids the `service call` CLI's `Not a data message` failure when it tries
+ * to print the returned strong Surface binder.
+ */
+internal fun readAutoContainerProjectionInfo(
+    binder: IBinder?,
+    serviceName: String = AUTO_CONTAINER_JAVA_SERVICE,
+    allowMissingDescriptor: Boolean = false,
+): AutoContainerProjectionInfoResult {
+    if (binder == null) {
+        return AutoContainerProjectionInfoResult(
+            serviceName = serviceName,
+            status = "SERVICE_UNAVAILABLE",
+        )
+    }
+    val descriptor = runCatching { binder.interfaceDescriptor }.getOrNull()
+    val descriptorAccepted = descriptor == AUTO_CONTAINER_DESCRIPTOR ||
+        (allowMissingDescriptor && descriptor.isNullOrBlank())
+    if (!descriptorAccepted) {
+        return AutoContainerProjectionInfoResult(
+            serviceName = serviceName,
+            descriptor = descriptor,
+            status = "DESCRIPTOR_MISMATCH",
+            error = safeProbeValue(descriptor ?: "null"),
+        )
+    }
+    val data = Parcel.obtain()
+    val reply = Parcel.obtain()
+    return try {
+        data.writeInterfaceToken(AUTO_CONTAINER_DESCRIPTOR)
+        if (!binder.transact(AUTO_CONTAINER_TX_GET_PROJECTION_INFO, data, reply, 0)) {
+            AutoContainerProjectionInfoResult(
+                serviceName = serviceName,
+                descriptor = descriptor,
+                status = "TRANSACT_REJECTED",
+            )
+        } else {
+            reply.readException()
+            if (reply.dataAvail() < 8) {
+                AutoContainerProjectionInfoResult(
+                    serviceName = serviceName,
+                    descriptor = descriptor,
+                    status = "REPLY_TRUNCATED",
+                )
+            } else {
+                val serviceResult = reply.readInt()
+                val parcelPresent = reply.readInt() != 0
+                if (!parcelPresent) {
+                    AutoContainerProjectionInfoResult(
+                        serviceName = serviceName,
+                        descriptor = descriptor,
+                        status = "PARCEL_ABSENT",
+                        serviceResult = serviceResult,
+                        parcelPresent = false,
+                    )
+                } else {
+                    readProjectionDisplayInfoParcel(
+                        reply = reply,
+                        serviceName = serviceName,
+                        descriptor = descriptor,
+                        serviceResult = serviceResult,
+                    )
+                }
+            }
+        }
+    } catch (error: Throwable) {
+        AutoContainerProjectionInfoResult(
+            serviceName = serviceName,
+            descriptor = descriptor,
+            status = "BINDER_EXCEPTION",
+            error = safeProbeValue(error.javaClass.simpleName),
+        )
+    } finally {
+        data.recycle()
+        reply.recycle()
+    }
+}
+
+private fun readProjectionDisplayInfoParcel(
+    reply: Parcel,
+    serviceName: String,
+    descriptor: String?,
+    serviceResult: Int,
+): AutoContainerProjectionInfoResult {
+    if (reply.dataAvail() < 4) {
+        return AutoContainerProjectionInfoResult(
+            serviceName = serviceName,
+            descriptor = descriptor,
+            status = "PARCEL_TRUNCATED",
+            serviceResult = serviceResult,
+            parcelPresent = true,
+        )
+    }
+    val start = reply.dataPosition()
+    val size = reply.readInt()
+    val end = start.toLong() + size.toLong()
+    if (size < 4 || end > reply.dataSize().toLong() || end > Int.MAX_VALUE) {
+        return AutoContainerProjectionInfoResult(
+            serviceName = serviceName,
+            descriptor = descriptor,
+            status = "PARCEL_MALFORMED",
+            serviceResult = serviceResult,
+            parcelPresent = true,
+            error = "size=$size dataSize=${reply.dataSize()}",
+        )
+    }
+    return try {
+        val name = if (reply.dataPosition() < end) reply.readString() else null
+        val width = if (reply.dataPosition() < end) reply.readInt() else null
+        val height = if (reply.dataPosition() < end) reply.readInt() else null
+        val surfacePresent = if (reply.dataPosition() < end) reply.readStrongBinder() != null else null
+        reply.setDataPosition(end.toInt())
+        AutoContainerProjectionInfoResult(
+            serviceName = serviceName,
+            descriptor = descriptor,
+            status = if (serviceResult == 0) "PARCEL_CAPTURED" else "SERVICE_NON_ZERO",
+            serviceResult = serviceResult,
+            parcelPresent = true,
+            parcelCaptured = true,
+            name = name,
+            width = width,
+            height = height,
+            surfacePresent = surfacePresent,
+        )
+    } catch (error: Throwable) {
+        AutoContainerProjectionInfoResult(
+            serviceName = serviceName,
+            descriptor = descriptor,
+            status = "PARCEL_DECODE_FAILED",
+            serviceResult = serviceResult,
+            parcelPresent = true,
+            error = safeProbeValue(error.javaClass.simpleName),
+        )
+    }
+}
+
+/** Prefer the vendor-native endpoint used by BYD's own JNI, then the Java bridge fallback. */
+internal fun selectAutoContainerProjectionInfo(
+    attempts: List<AutoContainerProjectionInfoResult>,
+): AutoContainerProjectionInfoResult = attempts.firstOrNull {
+    it.parcelCaptured && it.serviceResult == 0
+} ?: attempts.firstOrNull {
+    it.parcelCaptured
+} ?: attempts.firstOrNull {
+    it.status != "SERVICE_UNAVAILABLE"
+} ?: attempts.firstOrNull()
+    ?: AutoContainerProjectionInfoResult(status = "SERVICE_UNAVAILABLE")
+
+internal data class FissionProjectionDisplayInfo(
+    val name: String?,
+    val width: Int,
+    val height: Int,
+    val surfacePresent: Boolean,
+)
+
+internal data class FissionProjectionInventoryResult(
+    val status: String,
+    val displays: List<FissionProjectionDisplayInfo> = emptyList(),
+    val reportedCount: Int? = null,
+    val error: String? = null,
+)
+
+/**
+ * Read-only mirror of BYD's `getQtProjectionDispInfoArrayNative`: the vendor JNI sends an empty
+ * Parcel to `FissionHostSvc` transaction 101 and reads count + (String16, width, height, Binder).
+ * The producer binders never leave the helper daemon.
+ */
+internal fun readFissionProjectionDisplays(binder: IBinder?): FissionProjectionInventoryResult {
+    if (binder == null) return FissionProjectionInventoryResult(status = "SERVICE_UNAVAILABLE")
+    val data = Parcel.obtain()
+    val reply = Parcel.obtain()
+    return try {
+        if (!binder.transact(FISSION_HOST_TX_GET_PROJECTION_DISPLAYS, data, reply, 0)) {
+            FissionProjectionInventoryResult(status = "TRANSACT_REJECTED")
+        } else if (reply.dataAvail() < 4) {
+            FissionProjectionInventoryResult(status = "REPLY_TRUNCATED")
+        } else {
+            val count = reply.readInt()
+            if (count < 0 || count > MAX_FISSION_PROJECTION_DISPLAYS) {
+                FissionProjectionInventoryResult(
+                    status = "COUNT_INVALID",
+                    reportedCount = count,
+                )
+            } else {
+                val displays = ArrayList<FissionProjectionDisplayInfo>(count)
+                for (index in 0 until count) {
+                    if (reply.dataAvail() < 12) {
+                        break
+                    }
+                    displays += FissionProjectionDisplayInfo(
+                        name = reply.readString(),
+                        width = reply.readInt(),
+                        height = reply.readInt(),
+                        surfacePresent = reply.readStrongBinder() != null,
+                    )
+                }
+                FissionProjectionInventoryResult(
+                    status = when {
+                        displays.size != count -> "PARCEL_TRUNCATED"
+                        count == 0 -> "EMPTY"
+                        else -> "CAPTURED"
+                    },
+                    displays = displays,
+                    reportedCount = count,
+                )
+            }
+        }
+    } catch (error: Throwable) {
+        FissionProjectionInventoryResult(
+            status = "BINDER_EXCEPTION",
+            error = safeProbeValue(error.javaClass.simpleName),
+        )
+    } finally {
+        data.recycle()
+        reply.recycle()
+    }
+}
+
 internal fun buildAutoContainerProjectionInfoProbe(
-    exec: (String, Array<out String>) -> CmdResult,
+    selected: AutoContainerProjectionInfoResult,
+    attempts: List<AutoContainerProjectionInfoResult> = listOf(selected),
+    fission: FissionProjectionInventoryResult? = null,
 ): String {
-    val command = "service call auto_container 5"
-    val result = runCatching { exec(command, emptyArray()) }.getOrNull()
     return buildString {
-        appendLine("schema=1")
+        appendLine("schema=4")
         appendLine(
             "aidl=android.os.IAutoContainer method=getProjectionDisplayInfo " +
                 "transaction=5 direction=out mutation=NONE",
         )
-        appendLine("[auto_container_projection_info] exit=${result?.code ?: -999}")
-        appendLine(safeProbeValue(result?.stdout.orEmpty(), MAX_PROBE_SECTION_CHARS))
+        append("[auto_container_projection_info] status=").appendLine(selected.status)
+        append("source=").append(safeProbeValue(selected.serviceName, 80)).append(' ')
+        append("descriptor=").append(safeProbeValue(selected.descriptor ?: "unpublished", 120)).append(' ')
+        append("serviceResult=").append(selected.serviceResult ?: "unknown").append(' ')
+        append("parcelPresent=").append(selected.parcelPresent ?: "unknown").append(' ')
+        append("parcelCaptured=").append(selected.parcelCaptured).append(' ')
+        append("usable=").append(selected.parcelCaptured && selected.serviceResult == 0).append(' ')
+        append("name=").append(safeProbeValue(selected.name.orEmpty(), 160)).append(' ')
+        append("width=").append(selected.width ?: "unknown").append(' ')
+        append("height=").append(selected.height ?: "unknown").append(' ')
+        append("surfacePresent=").append(selected.surfacePresent ?: "unknown").append(' ')
+        append("error=").appendLine(safeProbeValue(selected.error.orEmpty(), 160))
+        attempts.forEachIndexed { index, attempt ->
+            append("[auto_container_attempt_").append(index + 1).append("] ")
+            append("source=").append(safeProbeValue(attempt.serviceName, 80)).append(' ')
+            append("descriptor=").append(safeProbeValue(attempt.descriptor ?: "unpublished", 120)).append(' ')
+            append("status=").append(attempt.status).append(' ')
+            append("serviceResult=").append(attempt.serviceResult ?: "unknown").append(' ')
+            append("parcelCaptured=").append(attempt.parcelCaptured).append(' ')
+            append("surfacePresent=").append(attempt.surfacePresent ?: "unknown").appendLine()
+        }
+        if (fission != null) {
+            append("[fission_projection_inventory] status=").append(fission.status).append(' ')
+            append("reportedCount=").append(fission.reportedCount ?: "unknown").append(' ')
+            append("capturedCount=").append(fission.displays.size).append(' ')
+            append("error=").appendLine(safeProbeValue(fission.error.orEmpty(), 160))
+            fission.displays.forEachIndexed { index, display ->
+                append("[fission_projection_").append(index + 1).append("] ")
+                append("name=").append(safeProbeValue(display.name.orEmpty(), 160)).append(' ')
+                append("width=").append(display.width).append(' ')
+                append("height=").append(display.height).append(' ')
+                append("surfacePresent=").append(display.surfacePresent).appendLine()
+            }
+        }
     }.take(MAX_AUTO_CONTAINER_PROBE_CHARS)
 }
+
+private const val AUTO_CONTAINER_DESCRIPTOR = "android.os.IAutoContainer"
+private const val AUTO_CONTAINER_TX_GET_PROJECTION_INFO = 5
+private const val AUTO_CONTAINER_NATIVE_SERVICE = "AutoContainerNative"
+private const val AUTO_CONTAINER_JAVA_SERVICE = "auto_container"
+private const val FISSION_HOST_SERVICE = "FissionHostSvc"
+private const val FISSION_HOST_TX_GET_PROJECTION_DISPLAYS = 101
+private const val MAX_FISSION_PROJECTION_DISPLAYS = 16
+private val AUTO_CONTAINER_SERVICE_CANDIDATES = listOf(
+    AUTO_CONTAINER_NATIVE_SERVICE,
+    AUTO_CONTAINER_JAVA_SERVICE,
+)
 
 internal fun safeProbeValue(value: String, maxChars: Int = 1_200): String = value
     .replace(Regex("[\\r\\n\\t]+"), " ")
@@ -979,7 +1269,7 @@ internal fun safeProbeValue(value: String, maxChars: Int = 1_200): String = valu
     .take(maxChars)
 
 private const val MAX_PROBE_SECTION_CHARS = 2_400
-private const val MAX_AUTO_CONTAINER_PROBE_CHARS = 4_000
+private const val MAX_AUTO_CONTAINER_PROBE_CHARS = 8_000
 // Eleven sections now. The old 16 000 cap silently truncated the report from the middle of the
 // display inventory onwards, which would have dropped exactly the new native-path sections.
 private const val MAX_CLUSTER_PROBE_CHARS = 30_000

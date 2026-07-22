@@ -908,8 +908,7 @@ class ClusterLabManager @Inject constructor(
         requireSafe(parkConfirmedByUser)
         val report = capture.report.orEmpty()
         val descriptorCaptured = report.contains("[auto_container_descriptor] exit=0")
-        val projectionInfoCaptured =
-            projectionInfo?.contains("[auto_container_projection_info] exit=0") == true
+        val projectionFacts = parseAutoContainerProjectionInfoProbe(projectionInfo)
         append(
             record,
             startedElapsed,
@@ -917,7 +916,18 @@ class ClusterLabManager @Inject constructor(
             "auto_container_contract descriptor=android.os.IAutoContainer " +
                 "tx1=sendJson tx2=sendInfo tx3=sendInfo2 tx4=registerCallback " +
                 "tx5=getProjectionDisplayInfo descriptorCaptured=$descriptorCaptured " +
-                "projectionInfoCaptured=$projectionInfoCaptured direction=out mutation=NONE",
+                "projectionInfoSource=${projectionFacts.source ?: "unknown"} " +
+                "projectionInfoStatus=${projectionFacts.status} " +
+                "projectionInfoCaptured=${projectionFacts.parcelCaptured} " +
+                "projectionInfoUsable=${projectionFacts.usable} " +
+                "serviceResult=${projectionFacts.serviceResult ?: "unknown"} " +
+                "fissionStatus=${projectionFacts.fissionStatus ?: "unknown"} " +
+                "fissionReportedCount=${projectionFacts.fissionReportedCount ?: "unknown"} " +
+                "fissionCapturedCount=${projectionFacts.fissionCapturedCount ?: "unknown"} " +
+                "fissionDisplays=${projectionFacts.fissionDisplays.joinToString("|") { display ->
+                    "${display.name}:${display.width}x${display.height}:surface=${display.surfacePresent}"
+                }.ifEmpty { "none" }} " +
+                "direction=out mutation=NONE",
             safety = null,
         )
         updateProgress("auto_container_contract_complete", 1f)

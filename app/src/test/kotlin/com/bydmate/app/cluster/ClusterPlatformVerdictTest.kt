@@ -20,6 +20,54 @@ import org.junit.Test
  */
 class ClusterPlatformVerdictTest {
 
+    @Test fun `C09 CLI printer error is never reported as a captured projection parcel`() {
+        val facts = parseAutoContainerProjectionInfoProbe(
+            "[auto_container_projection_info] exit=0 " +
+                "Result: Parcel(Error: 0xffffffffffffffb6 \"Not a data message\")",
+        )
+
+        assertEquals("CLI_REPLY_UNREADABLE", facts.status)
+        assertFalse(facts.parcelCaptured)
+        assertFalse(facts.usable)
+    }
+
+    @Test fun `C09 typed parcel distinguishes capture from usable success`() {
+        val captured = parseAutoContainerProjectionInfoProbe(
+            "[auto_container_projection_info] status=PARCEL_CAPTURED " +
+                "serviceResult=0 parcelCaptured=true usable=true",
+        )
+        val rejected = parseAutoContainerProjectionInfoProbe(
+            "[auto_container_projection_info] status=SERVICE_NON_ZERO " +
+                "serviceResult=-1 parcelCaptured=true usable=false",
+        )
+
+        assertEquals(0, captured.serviceResult)
+        assertTrue(captured.parcelCaptured)
+        assertTrue(captured.usable)
+        assertEquals(-1, rejected.serviceResult)
+        assertTrue(rejected.parcelCaptured)
+        assertFalse(rejected.usable)
+    }
+
+    @Test fun `C09 parses native source and bounded Fission surface inventory`() {
+        val facts = parseAutoContainerProjectionInfoProbe(
+            """
+            [auto_container_projection_info] status=PARCEL_CAPTURED
+            source=AutoContainerNative serviceResult=0 parcelCaptured=true usable=true
+            [fission_projection_inventory] status=CAPTURED reportedCount=2 capturedCount=2 error=
+            [fission_projection_1] name=projection_main width=1920 height=720 surfacePresent=true
+            [fission_projection_2] name=projection_aux width=1280 height=480 surfacePresent=false
+            """.trimIndent(),
+        )
+
+        assertEquals("AutoContainerNative", facts.source)
+        assertEquals("CAPTURED", facts.fissionStatus)
+        assertEquals(2, facts.fissionReportedCount)
+        assertEquals(2, facts.fissionCapturedCount)
+        assertEquals("projection_aux", facts.fissionDisplays[1].name)
+        assertFalse(facts.fissionDisplays[1].surfacePresent)
+    }
+
     private fun probe(
         displayManager: String,
         surfaceFlinger: String = """Display 4630946674560563842 (HWC display 0): port=130 pnpId=QCM""",

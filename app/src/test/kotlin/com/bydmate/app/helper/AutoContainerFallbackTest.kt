@@ -120,17 +120,26 @@ class AutoContainerFallbackTest {
     }
 
     @Test
-    fun `C09 projection info probe performs the exact out getter once`() {
-        val commands = mutableListOf<String>()
-        val report = buildAutoContainerProjectionInfoProbe { command, args ->
-            commands += command
-            assertTrue(args.isEmpty())
-            CmdResult(0, "Result: Parcel(00000000 00000001)")
-        }
+    fun `C09 projection info report exposes only decoded safe metadata`() {
+        val report = buildAutoContainerProjectionInfoProbe(
+            AutoContainerProjectionInfoResult(
+                status = "PARCEL_CAPTURED",
+                serviceResult = 0,
+                parcelPresent = true,
+                parcelCaptured = true,
+                name = "cluster_projection",
+                width = 1920,
+                height = 720,
+                surfacePresent = true,
+            ),
+        )
 
-        assertEquals(listOf("service call auto_container 5"), commands)
+        assertTrue(report.startsWith("schema=4"))
         assertTrue(report.contains("method=getProjectionDisplayInfo"))
         assertTrue(report.contains("transaction=5 direction=out mutation=NONE"))
-        assertTrue(report.contains("[auto_container_projection_info] exit=0"))
+        assertTrue(report.contains("status=PARCEL_CAPTURED"))
+        assertTrue(report.contains("parcelCaptured=true usable=true"))
+        assertTrue(report.contains("name=cluster_projection width=1920 height=720"))
+        assertTrue(report.contains("surfacePresent=true"))
     }
 }

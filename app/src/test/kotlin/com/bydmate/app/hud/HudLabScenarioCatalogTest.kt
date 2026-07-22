@@ -29,20 +29,19 @@ class HudLabScenarioCatalogTest {
         val compatibilityIds = listOf(
             "U01", "U02", "R01", "R02", "S01", "S02", "N17", "N18",
         )
-        val extendedIds = listOf("HX01", "HX02", "HX03", "HX04", "HX05")
-
         assertEquals(confirmedIds, HudLabScenarioCatalog.confirmed.map(HudLabScenario::id))
         assertEquals(
             compatibilityIds,
             HudLabScenarioCatalog.compatibility.map(HudLabScenario::id),
         )
         assertEquals(
-            confirmedIds + extendedIds + compatibilityIds +
+            confirmedIds + compatibilityIds +
                 HudLabScenarioCatalog.explorer.map(HudLabScenario::id),
             HudLabScenarioCatalog.all.map(HudLabScenario::id),
         )
-        assertEquals(extendedIds, HudLabScenarioCatalog.extended.map(HudLabScenario::id))
-        assertEquals(59, HudLabScenarioCatalog.all.map(HudLabScenario::id).toSet().size)
+        assertEquals(54, HudLabScenarioCatalog.all.map(HudLabScenario::id).toSet().size)
+        assertNull(HudLabScenarioCatalog.byId("HX01"))
+        assertNull(HudLabScenarioCatalog.byId("HX05"))
         assertNull(HudLabScenarioCatalog.byId("X01"))
         assertNull(HudLabScenarioCatalog.byId("W01"))
     }
@@ -129,39 +128,6 @@ class HudLabScenarioCatalogTest {
             HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
             scenario("N17").expected,
         )
-    }
-
-    @Test
-    fun `Sea Lion extensions isolate scalar fields without PNG`() {
-        val speed = onlySend("HX01").frame
-        assertEquals(50, speed.speedLimit)
-        assertNull(speed.etaString)
-        assertEquals(0, speed.totalDistanceMeters)
-        assertEquals(1, speed.effectiveRenderClass)
-
-        val eta = onlySend("HX02").frame
-        assertEquals("12:34", eta.etaString)
-        assertEquals(0, eta.speedLimit)
-        assertEquals(0, eta.totalDistanceMeters)
-
-        val progress = onlySend("HX03").frame
-        assertEquals(100, progress.totalDistanceMeters)
-        assertNull(progress.etaString)
-        assertEquals(0, progress.speedLimit)
-
-        val full = onlySend("HX04").frame
-        assertEquals("HUD LAB FULL", full.road)
-        assertEquals("12:34", full.etaString)
-        assertEquals(100, full.totalDistanceMeters)
-        assertEquals(50, full.speedLimit)
-
-        assertEquals(6, onlySend("HX05").frame.effectiveRenderClass)
-        HudLabScenarioCatalog.extended.forEach { scenario ->
-            val frame = onlySend(scenario.id).frame
-            assertEquals(HudLabScenarioGroup.SEA_LION_EXTENDED, scenario.group)
-            assertNull(frame.iconCode)
-            assertFalse(frame.includeSpeedSign)
-        }
     }
 
     @Test

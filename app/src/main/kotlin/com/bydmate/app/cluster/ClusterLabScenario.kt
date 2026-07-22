@@ -81,8 +81,8 @@ object ClusterLabScenarioCatalog {
         ),
         ClusterLabScenario(
             id = "C09",
-            title = "IAutoContainer contract snapshot",
-            summary = "Reads the exact interface descriptor and projection-display parcel through transaction 5 without changing cluster state.",
+            title = "Fission projection contract snapshot",
+            summary = "Reads the vendor-native and Java projection parcel plus all Fission surfaces without changing cluster state.",
             mutation = ClusterLabMutation.NONE,
             durationMs = 0L,
         ),

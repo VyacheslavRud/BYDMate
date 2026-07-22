@@ -67,7 +67,19 @@ calibration commands, not a confirmed Sea Lion API.
 The decompiled `Stub.onTransact` constructs a new `ProjectionDisplayInfoParcel`, calls transaction
 5 with that object, and writes it to the reply. This proves the AIDL direction is `out`: the request
 contains only the interface token and no caller-provided parcel. Transaction 5 is a read-only getter,
-is executed exactly once only by Cluster Lab `C09`, and is not part of the shared `C07/C08` probe.
+is executed once per known endpoint only by Cluster Lab `C09`, and is not part of the shared
+`C07/C08` probe.
+
+The factory `libxdjacontainerservice_jni.so` establishes two additional details:
+
+- the single-surface getter uses service `AutoContainerNative`, wraps it as the same
+  `android.os.IAutoContainer`, and calls transaction 5;
+- the array getter sends an empty Parcel to `FissionHostSvc` transaction 101 and reads
+  `count` followed by repeated `String16 name`, `int width`, `int height`, and strong producer
+  Binder fields.
+
+`C09` mirrors both read-only operations. It records only safe scalar metadata and producer presence;
+the Surface binders never leave the helper process and no frame is rendered.
 
 ## Display topology
 
@@ -116,6 +128,21 @@ rich navigation model including:
 This proves the native cluster can display structured route guidance. It does not yet prove which
 public Binder/SOME-IP method a third-party app may use to populate those fields.
 
+The dependency chain is now narrower than that initial statement: `libBydCluster.so` links directly
+to `libBydDataSource.so`, which in turn links to `libacquisition.so`, `libzmq.so`, Binder and
+FlatBuffers. Exported entry points include `BydDataSourceInit`, `BydDataSourceSendPluginMsg*`, and
+the cluster-side `receiveData/receiveData2` callbacks. Its `BusinessUi1` owns the native navigation
+state and methods such as `updateNaviDisplay`, `updateNaviRoadName`, `sendNaviMessage*`, and
+`resetNaviDataItem`. This establishes two separate mechanisms:
+
+1. Fission projection surfaces carry rendered pixels;
+2. BydDataSource plugin messages populate structured cluster fields and select the native Navi UI.
+
+Neither mechanism is promoted to production yet. The dump does not establish a safe external
+publisher identity, message IDs, arbitration rules, or cleanup contract for BydDataSource, and the
+five priority APK implementations are still missing from collector v1. Guessing plugin IDs or
+loading the vendor library into BYDMate would risk competing with the real cluster process.
+
 ## SOME/IP and windshield HUD
 
 The runtime exposes `vendor.ts.someip@1.0` interfaces `ISomeIp`, `ISomeIpClient`, and
@@ -140,8 +167,10 @@ The production Waze windshield-HUD contract remains deliberately minimal and con
   remain straight.
 
 Production omits PNG fields `f7/f8`, speed `f11`, ETA `f26`, and non-zero progress `f33` until the
-separate Dev tests confirm them. The `HUD extensions` catalog tests these scalar fields without
-changing production Waze output.
+firmware behavior is separately understood. The parked `HX01-HX05` run on this Sea Lion firmware
+showed no distinct speed, ETA, or progress UI: every scenario only reproduced known navigation
+arrows. Those scenarios are therefore retired from the runnable catalog; the production Waze frame
+remains unchanged and historical lab records stay readable.
 
 ## Dev test matrix
 
@@ -151,18 +180,16 @@ durable logging and automatic cleanup.
 ### Windshield HUD
 
 - `SL01-SL05`: confirmed production smoke tests.
-- `HX01`: `f11=50` with render class `f6=1`.
-- `HX02`: ETA `f26=12:34`.
-- `HX03`: progress `f33=0.5`.
-- `HX04`: combined road, speed, ETA and progress scalar frame.
-- `HX05`: comparison frame with `f6=6` and `f11=50`, still without PNG.
+- `K01-K41` and supported explorer cases remain available for compatibility/calibration work.
+- `HX01-HX05` are historical only and cannot be launched again on this build.
 
 ### Instrument cluster
 
 - `C07`: bounded donor container sequence with guaranteed 18 -> 0 cleanup and native/display
   snapshots. It may show the factory native map shell; it does not project Waze by itself.
 - `C08`: read-only before/after watch while the driver manually selects the factory Navi panel.
-- `C09`: read-only `IAutoContainer` descriptor plus transaction-5 projection parcel snapshot.
+- `C09`: read-only native/Java `IAutoContainer` transaction-5 snapshots plus the exact
+  `FissionHostSvc` transaction-101 projection-surface inventory.
 
 Never run HUD Lab and Cluster Lab concurrently. Export the journal after tests; a visual observation
 is required before any field or path is promoted to production.

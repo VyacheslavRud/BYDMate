@@ -1393,11 +1393,9 @@
     <string name="diagnostics_hud_lab_native_hint">Основной набор повторяет безопасный production-кадр без PNG, знака скорости, ETA и progress.</string>
     <string name="diagnostics_hud_lab_catalog_title">Набор тестов</string>
     <string name="diagnostics_hud_lab_catalog_confirmed">Sea Lion 07</string>
-    <string name="diagnostics_hud_lab_catalog_extended">Расширение HUD</string>
     <string name="diagnostics_hud_lab_catalog_compatibility">Другие BYD</string>
     <string name="diagnostics_hud_lab_catalog_explorer">Explorer индикаторов</string>
     <string name="diagnostics_hud_lab_catalog_confirmed_hint">5 коротких smoke-тестов проверяют RIGHT/LEFT, штатный порог 50/100 м и текст дороги.</string>
-    <string name="diagnostics_hud_lab_catalog_extended_hint">5 изолированных Dev-тестов проверяют f11 speed, f26 ETA, f33 progress, полный scalar-кадр и разницу f6=1/6. Production Waze не меняется.</string>
     <string name="diagnostics_hud_lab_catalog_compatibility_hint">Старые рабочие UTURN, roundabout и f11-варианты сохранены для другой прошивки BYD. Завершённый f28 Explorer доступен ниже как расширенный инструмент.</string>
     <string name="diagnostics_hud_lab_catalog_explorer_hint">Отдельный безопасный перебор 41 неизвестного значения f28. Меняется только selector манёвра; известные коды, PNG и другие поля исключены.</string>
     <string name="diagnostics_hud_lab_explorer_progress">Проверено уникальных кодов: %1$d из %2$d</string>

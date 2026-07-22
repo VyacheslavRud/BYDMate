@@ -105,6 +105,83 @@ private val HWC_DISPLAY = Regex("""\(HWC display \d+\)""")
 private val DISPLAY_DEVICE_NAME = Regex("""DisplayDeviceInfo\{"([^"]*)"""")
 private val VIRTUAL_UNIQUE_ID = Regex("""uniqueId="virtual:([^,"]+),""")
 private val REPLY_STATUS = Regex("""replyStatus=(-?\d+)""")
+private val AUTO_CONTAINER_PROJECTION_STATUS =
+    Regex("""\[auto_container_projection_info]\s+status=([A-Z_]+)""")
+private val AUTO_CONTAINER_PROJECTION_SERVICE_RESULT = Regex("""serviceResult=(-?\d+)""")
+private val AUTO_CONTAINER_PROJECTION_CAPTURED = Regex("""parcelCaptured=(true|false)""")
+private val AUTO_CONTAINER_PROJECTION_USABLE = Regex("""usable=(true|false)""")
+private val AUTO_CONTAINER_PROJECTION_SOURCE = Regex("""source=([^\s]+)""")
+private val FISSION_PROJECTION_INVENTORY =
+    Regex("""\[fission_projection_inventory]\s+status=([A-Z_]+)""")
+private val FISSION_PROJECTION_REPORTED_COUNT = Regex("""reportedCount=(\d+)""")
+private val FISSION_PROJECTION_CAPTURED_COUNT = Regex("""capturedCount=(\d+)""")
+private val FISSION_PROJECTION_DISPLAY =
+    Regex("""\[fission_projection_\d+]\s+name=([^\s]*)\s+width=(\d+)\s+height=(\d+)\s+surfacePresent=(true|false)""")
+
+internal data class FissionProjectionDisplayFacts(
+    val name: String,
+    val width: Int,
+    val height: Int,
+    val surfacePresent: Boolean,
+)
+
+internal data class AutoContainerProjectionInfoFacts(
+    val status: String,
+    val source: String? = null,
+    val serviceResult: Int? = null,
+    val parcelCaptured: Boolean = false,
+    val usable: Boolean = false,
+    val fissionStatus: String? = null,
+    val fissionReportedCount: Int? = null,
+    val fissionCapturedCount: Int? = null,
+    val fissionDisplays: List<FissionProjectionDisplayFacts> = emptyList(),
+)
+
+/** Interprets the typed C09 report and the retired CLI response without treating exit=0 as data. */
+internal fun parseAutoContainerProjectionInfoProbe(
+    report: String?,
+): AutoContainerProjectionInfoFacts {
+    if (report.isNullOrBlank()) return AutoContainerProjectionInfoFacts(status = "UNAVAILABLE")
+    val status = AUTO_CONTAINER_PROJECTION_STATUS.find(report)?.groupValues?.get(1)
+        ?: if (report.contains("Not a data message", ignoreCase = true)) {
+            "CLI_REPLY_UNREADABLE"
+        } else {
+            "UNKNOWN_FORMAT"
+        }
+    return AutoContainerProjectionInfoFacts(
+        status = status,
+        source = AUTO_CONTAINER_PROJECTION_SOURCE.find(report)?.groupValues?.get(1),
+        serviceResult = AUTO_CONTAINER_PROJECTION_SERVICE_RESULT.find(report)
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull(),
+        parcelCaptured = AUTO_CONTAINER_PROJECTION_CAPTURED.find(report)
+            ?.groupValues
+            ?.get(1)
+            ?.toBooleanStrictOrNull() == true,
+        usable = AUTO_CONTAINER_PROJECTION_USABLE.find(report)
+            ?.groupValues
+            ?.get(1)
+            ?.toBooleanStrictOrNull() == true,
+        fissionStatus = FISSION_PROJECTION_INVENTORY.find(report)?.groupValues?.get(1),
+        fissionReportedCount = FISSION_PROJECTION_REPORTED_COUNT.find(report)
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull(),
+        fissionCapturedCount = FISSION_PROJECTION_CAPTURED_COUNT.find(report)
+            ?.groupValues
+            ?.get(1)
+            ?.toIntOrNull(),
+        fissionDisplays = FISSION_PROJECTION_DISPLAY.findAll(report).map { match ->
+            FissionProjectionDisplayFacts(
+                name = match.groupValues[1],
+                width = match.groupValues[2].toInt(),
+                height = match.groupValues[3].toInt(),
+                surfacePresent = match.groupValues[4].toBoolean(),
+            )
+        }.toList(),
+    )
+}
 
 internal fun parseClusterProbeSections(report: String?): List<ClusterProbeSection> {
     if (report.isNullOrBlank()) return emptyList()

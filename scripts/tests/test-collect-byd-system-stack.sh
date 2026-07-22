@@ -108,7 +108,7 @@ run_collector() {
 
 # COMPLETE: five packages survive stdin-draining adb, successful stderr is only a warning, split
 # APK paths are safe, compiled artifacts stay out of the priority archive, and both manifests work.
-FAKE_SUCCESS_STDERR=1 run_collector "$OUTPUT_DIR"
+(FAKE_SUCCESS_STDERR=1 run_collector "$OUTPUT_DIR")
 
 grep -Fq 'Collection status: COMPLETE' "$OUTPUT_DIR/README.txt"
 grep -Fq 'Collector version: 3' "$OUTPUT_DIR/README.txt"
@@ -172,11 +172,11 @@ test ! -e "$ROOT_DIR/$SYMLINK_OUTPUT_NAME"
 
 # Guard: a non-BYD target is rejected before the output directory is created.
 NON_BYD_OUTPUT="$TEST_ROOT/non-byd-output"
-if FAKE_MANUFACTURER=ACME \
+if (FAKE_MANUFACTURER=ACME \
     FAKE_MODEL=Generic \
     FAKE_PRODUCT=Generic \
     FAKE_FINGERPRINT='ACME/generic/test:12/mock/user/release-keys' \
-    run_collector "$NON_BYD_OUTPUT" --no-archive 2>/dev/null; then
+    run_collector "$NON_BYD_OUTPUT" --no-archive 2>/dev/null); then
     printf 'collector accepted a non-BYD target\n' >&2
     exit 1
 fi
@@ -184,23 +184,23 @@ test ! -e "$NON_BYD_OUTPUT"
 
 # One failed priority APK pull leaves useful evidence and must report PARTIAL.
 PARTIAL_OUTPUT="$TEST_ROOT/BYD-System-Dump-partial"
-FAKE_FAIL_REMOTE_CONTAINS='com.byd.clusterdebug/base.apk' \
-    run_collector "$PARTIAL_OUTPUT" --no-archive
+(FAKE_FAIL_REMOTE_CONTAINS='com.byd.clusterdebug/base.apk' \
+    run_collector "$PARTIAL_OUTPUT" --no-archive)
 grep -Fq 'Collection status: PARTIAL' "$PARTIAL_OUTPUT/README.txt"
 grep -Fq 'FAILED pull: /system/app/com.byd.clusterdebug/base.apk' \
     "$PARTIAL_OUTPUT/collection-errors.log"
 
 # A real failed inventory command records its stderr as an error and also reports PARTIAL.
 PERMISSION_OUTPUT="$TEST_ROOT/BYD-System-Dump-permission-denied"
-FAKE_FAIL_INVENTORY_CONTAINS='service list' \
-    run_collector "$PERMISSION_OUTPUT" --no-archive
+(FAKE_FAIL_INVENTORY_CONTAINS='service list' \
+    run_collector "$PERMISSION_OUTPUT" --no-archive)
 grep -Fq 'Collection status: PARTIAL' "$PERMISSION_OUTPUT/README.txt"
 grep -Fq 'Permission denied: service list' "$PERMISSION_OUTPUT/collection-errors.log"
 grep -Fq 'FAILED inventory: Binder services' "$PERMISSION_OUTPUT/collection-errors.log"
 
 # If every artifact pull fails, there is no usable APK corpus and status must be INSUFFICIENT.
 INSUFFICIENT_OUTPUT="$TEST_ROOT/BYD-System-Dump-insufficient"
-FAKE_FAIL_ALL_PULLS=1 run_collector "$INSUFFICIENT_OUTPUT" --no-archive
+(FAKE_FAIL_ALL_PULLS=1 run_collector "$INSUFFICIENT_OUTPUT" --no-archive)
 grep -Fq 'Collection status: INSUFFICIENT' "$INSUFFICIENT_OUTPUT/README.txt"
 
 printf 'collector regression suite: PASS\n'

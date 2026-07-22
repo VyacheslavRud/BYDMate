@@ -1235,11 +1235,9 @@
     <string name="diagnostics_hud_lab_native_hint">O conjunto principal reproduz o frame production seguro sem PNG, sinal de velocidade, ETA ou progresso.</string>
     <string name="diagnostics_hud_lab_catalog_title">Conjunto de testes</string>
     <string name="diagnostics_hud_lab_catalog_confirmed">Sea Lion 07</string>
-    <string name="diagnostics_hud_lab_catalog_extended">Extensões HUD</string>
     <string name="diagnostics_hud_lab_catalog_compatibility">Outros BYD</string>
     <string name="diagnostics_hud_lab_catalog_explorer">Explorer de indicadores</string>
     <string name="diagnostics_hud_lab_catalog_confirmed_hint">5 smoke tests curtos verificam RIGHT/LEFT, o limite nativo de 50/100 m e o texto da via.</string>
-    <string name="diagnostics_hud_lab_catalog_extended_hint">5 testes Dev isolados verificam f11 speed, f26 ETA, f33 progress, um quadro scalar completo e f6=1/6. O Waze de produção não muda.</string>
     <string name="diagnostics_hud_lab_catalog_compatibility_hint">Os testes antigos de U-turn, rotunda e f11 ficam para outro firmware BYD. O f28 Explorer concluído está disponível abaixo como ferramenta avançada.</string>
     <string name="diagnostics_hud_lab_catalog_explorer_hint">Pesquisa segura e separada de 41 valores f28 desconhecidos. Só muda o seletor de manobra; códigos conhecidos, PNG e outros campos ficam excluídos.</string>
     <string name="diagnostics_hud_lab_explorer_progress">Códigos únicos testados: %1$d de %2$d</string>

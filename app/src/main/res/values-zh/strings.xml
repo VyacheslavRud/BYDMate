@@ -1356,11 +1356,9 @@
     <string name="diagnostics_hud_lab_native_hint">主测试集复现安全的 production 帧，不包含 PNG、限速标志、ETA 或进度。</string>
     <string name="diagnostics_hud_lab_catalog_title">测试集合</string>
     <string name="diagnostics_hud_lab_catalog_confirmed">Sea Lion 07</string>
-    <string name="diagnostics_hud_lab_catalog_extended">HUD 扩展</string>
     <string name="diagnostics_hud_lab_catalog_compatibility">其他 BYD</string>
     <string name="diagnostics_hud_lab_catalog_explorer">指示符探索器</string>
     <string name="diagnostics_hud_lab_catalog_confirmed_hint">5 个简短 smoke test 验证 RIGHT/LEFT、原厂 50/100 米阈值和道路文字。</string>
-    <string name="diagnostics_hud_lab_catalog_extended_hint">5 个独立 Dev 测试验证 f11 speed、f26 ETA、f33 progress、完整 scalar 帧和 f6=1/6。不会更改正式 Waze。</string>
     <string name="diagnostics_hud_lab_catalog_compatibility_hint">旧版 U-turn、环岛和 f11 测试保留用于其他 BYD 固件。已完成的 f28 探索器作为高级工具显示在下方。</string>
     <string name="diagnostics_hud_lab_catalog_explorer_hint">单独安全扫描 41 个未知 f28 值。仅更改转向选择器；已知代码、PNG 和其他字段均排除。</string>
     <string name="diagnostics_hud_lab_explorer_progress">已测试唯一代码：%1$d / %2$d</string>

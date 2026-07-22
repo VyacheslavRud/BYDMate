@@ -61,7 +61,6 @@ import com.bydmate.app.hud.HudLabState
 import com.bydmate.app.ui.theme.AccentBlue
 import com.bydmate.app.ui.theme.AccentGreen
 import com.bydmate.app.ui.theme.AccentOrange
-import com.bydmate.app.ui.theme.AccentPurple
 import com.bydmate.app.ui.theme.CardBorder
 import com.bydmate.app.ui.theme.NavyDark
 import com.bydmate.app.ui.theme.NavyDeep
@@ -80,11 +79,11 @@ fun HudLabScreen(
     val externalLabBusy = clusterState.busy || clusterState.pendingObservationRecordId != null
     var selectedCatalog by rememberSaveable { mutableIntStateOf(0) }
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
-    val scenarios = when (selectedCatalog) {
+    val activeCatalog = selectedCatalog.takeIf { it in 0..2 } ?: 0
+    val scenarios = when (activeCatalog) {
         0 -> HudLabScenarioCatalog.confirmed
         1 -> HudLabScenarioCatalog.compatibility
-        2 -> HudLabScenarioCatalog.explorer
-        else -> HudLabScenarioCatalog.extended
+        else -> HudLabScenarioCatalog.explorer
     }
     val safeSelectedIndex = selectedIndex.coerceIn(0, scenarios.lastIndex.coerceAtLeast(0))
     var parkConfirmed by rememberSaveable { mutableStateOf(false) }
@@ -131,7 +130,7 @@ fun HudLabScreen(
             }
             item(span = { GridItemSpan(maxLineSpan) }) {
                 HudLabCatalogCard(
-                    selectedCatalog = selectedCatalog,
+                    selectedCatalog = activeCatalog,
                     enabled = canSwitchCatalog,
                     onSelectConfirmed = {
                         selectedCatalog = 0
@@ -140,11 +139,6 @@ fun HudLabScreen(
                     },
                     onSelectCompatibility = {
                         selectedCatalog = 1
-                        selectedIndex = 0
-                        parkConfirmed = false
-                    },
-                    onSelectExtended = {
-                        selectedCatalog = 3
                         selectedIndex = 0
                         parkConfirmed = false
                     },
@@ -164,7 +158,7 @@ fun HudLabScreen(
                         scenario = scenarios[safeSelectedIndex],
                         selectedIndex = safeSelectedIndex,
                         totalScenarios = scenarios.size,
-                        explorerMode = selectedCatalog == 2,
+                        explorerMode = activeCatalog == 2,
                         explorerCompletedCount = state.completedExplorerScenarioIds.size,
                         parkConfirmed = parkConfirmed,
                         externalLabBusy = externalLabBusy,
@@ -212,14 +206,12 @@ private fun HudLabCatalogCard(
     enabled: Boolean,
     onSelectConfirmed: () -> Unit,
     onSelectCompatibility: () -> Unit,
-    onSelectExtended: () -> Unit,
     onSelectExplorer: () -> Unit,
 ) {
     val accent = when (selectedCatalog) {
         0 -> AccentBlue
         1 -> AccentOrange
-        2 -> AccentGreen
-        else -> AccentPurple
+        else -> AccentGreen
     }
     Card(
         shape = RoundedCornerShape(14.dp),
@@ -247,19 +239,6 @@ private fun HudLabCatalogCard(
                     modifier = Modifier.weight(1f),
                 )
                 HudLabCatalogButton(
-                    selected = selectedCatalog == 3,
-                    label = stringResource(R.string.diagnostics_hud_lab_catalog_extended),
-                    accent = AccentPurple,
-                    enabled = enabled,
-                    onClick = onSelectExtended,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                HudLabCatalogButton(
                     selected = selectedCatalog == 1,
                     label = stringResource(R.string.diagnostics_hud_lab_catalog_compatibility),
                     accent = AccentOrange,
@@ -267,6 +246,11 @@ private fun HudLabCatalogCard(
                     onClick = onSelectCompatibility,
                     modifier = Modifier.weight(1f),
                 )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 HudLabCatalogButton(
                     selected = selectedCatalog == 2,
                     label = stringResource(R.string.diagnostics_hud_lab_catalog_explorer),
@@ -281,8 +265,7 @@ private fun HudLabCatalogCard(
                     when (selectedCatalog) {
                         0 -> R.string.diagnostics_hud_lab_catalog_confirmed_hint
                         1 -> R.string.diagnostics_hud_lab_catalog_compatibility_hint
-                        2 -> R.string.diagnostics_hud_lab_catalog_explorer_hint
-                        else -> R.string.diagnostics_hud_lab_catalog_extended_hint
+                        else -> R.string.diagnostics_hud_lab_catalog_explorer_hint
                     },
                 ),
                 color = if (selectedCatalog == 0) TextSecondary else accent,
