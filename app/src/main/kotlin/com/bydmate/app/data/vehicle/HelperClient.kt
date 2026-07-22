@@ -89,6 +89,8 @@ interface HelperClient {
     suspend fun getTaskProjectionState(packageName: String): TaskProjectionQueryResult
     /** Fixed, read-only daemon-side inventory of BYD container and display services. */
     suspend fun getClusterSystemProbe(): String?
+    /** Fixed read-only IAutoContainer transaction-5 probe, exposed only for Cluster Lab C09. */
+    suspend fun getAutoContainerProjectionInfoProbe(): String?
     /** Structured read-only display inventory, including system-only projection displays. */
     suspend fun getSystemDisplays(): List<SystemDisplayInfo>?
     suspend fun moveTaskToDisplay(taskId: Int, displayId: Int): Boolean
@@ -259,6 +261,17 @@ open class HelperClientImpl @Inject constructor() : HelperClient {
 
     override suspend fun getClusterSystemProbe(): String? = transactParsed(
         HelperBinderProtocol.TX_GET_CLUSTER_SYSTEM_PROBE,
+        writeArgs = { },
+        timeoutMs = CLUSTER_PROBE_TIMEOUT_MS,
+    ) { reply ->
+        if (reply.dataAvail() < 4) return@transactParsed null
+        val status = reply.readInt()
+        if (status != 0 || reply.dataAvail() <= 0) return@transactParsed null
+        reply.readString()?.takeIf(String::isNotBlank)
+    }
+
+    override suspend fun getAutoContainerProjectionInfoProbe(): String? = transactParsed(
+        HelperBinderProtocol.TX_GET_AUTO_CONTAINER_PROJECTION_INFO,
         writeArgs = { },
         timeoutMs = CLUSTER_PROBE_TIMEOUT_MS,
     ) { reply ->

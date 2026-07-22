@@ -222,6 +222,17 @@ fun main(args: Array<String>) {
                     true
                 }
 
+                HelperBinderProtocol.TX_GET_AUTO_CONTAINER_PROJECTION_INFO -> runCatching {
+                    val report = buildAutoContainerProjectionInfoProbe(::shExec)
+                    reply?.writeInt(0)
+                    reply?.writeString(report)
+                    true
+                }.getOrElse {
+                    reply?.writeInt(-1)
+                    reply?.writeString("probe_error=${safeProbeValue(it.javaClass.simpleName)}")
+                    true
+                }
+
                 HelperBinderProtocol.TX_GET_SYSTEM_DISPLAYS -> runCatching {
                     val manager = systemContext?.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
                     val displays = manager?.displays.orEmpty().take(MAX_SYSTEM_DISPLAYS)
@@ -847,10 +858,11 @@ private val HEX_WORD = Regex("""^[0-9a-fA-F]{8}$""")
  * command 16 — no Binder exception, return value -1 — while the process still exits 0, so the two
  * are worth reporting separately.
  *
- * This is transport evidence only. Without a published AIDL contract for `IAutoContainer` a
- * non-zero return says the service answered with an error-shaped int; it does not establish that
- * no native compositor or cluster UI side effect occurred. Callers must keep it separate from
- * display-inventory evidence and from what the driver actually saw.
+ * Static analysis of this Sea Lion framework.jar confirms transaction 2 is
+ * `sendInfo(int type, int infoInt, String infoStr)`. A non-zero return is therefore a service-level
+ * error from `sendInfo`; it still does not establish whether vendor code produced a transient
+ * native compositor side effect. Callers must keep it separate from display-inventory evidence
+ * and from what the driver actually saw.
  *
  * Null means the output was not a compact status reply (a descriptor dump, an error, or empty).
  */
@@ -920,7 +932,11 @@ internal fun buildClusterSystemProbe(
         ),
     )
     return buildString {
-        appendLine("schema=2")
+        appendLine("schema=3")
+        appendLine(
+            "aidl=android.os.IAutoContainer tx1=sendJson tx2=sendInfo " +
+                "tx3=sendInfo2 tx4=registerCallback tx5=getProjectionDisplayInfo",
+        )
         appendLine("last_auto_container=${safeProbeValue(autoContainerTrace, 480)}")
         probes.forEach { probe ->
             val result = runCatching { exec(probe.command, emptyArray()) }.getOrNull()
@@ -929,6 +945,29 @@ internal fun buildClusterSystemProbe(
             appendLine(safeProbeValue(result?.stdout.orEmpty(), MAX_PROBE_SECTION_CHARS))
         }
     }.take(MAX_CLUSTER_PROBE_CHARS)
+}
+
+/**
+ * C09-only fixed probe. Decompiled framework.jar proves transaction 5 constructs a new
+ * ProjectionDisplayInfoParcel in Stub.onTransact before calling the implementation, so the
+ * parameter is AIDL `out` and the request carries no parcel argument. Keeping this operation out
+ * of [buildClusterSystemProbe] guarantees C07/C08 never invoke an implementation method while
+ * collecting their common read-only inventory.
+ */
+internal fun buildAutoContainerProjectionInfoProbe(
+    exec: (String, Array<out String>) -> CmdResult,
+): String {
+    val command = "service call auto_container 5"
+    val result = runCatching { exec(command, emptyArray()) }.getOrNull()
+    return buildString {
+        appendLine("schema=1")
+        appendLine(
+            "aidl=android.os.IAutoContainer method=getProjectionDisplayInfo " +
+                "transaction=5 direction=out mutation=NONE",
+        )
+        appendLine("[auto_container_projection_info] exit=${result?.code ?: -999}")
+        appendLine(safeProbeValue(result?.stdout.orEmpty(), MAX_PROBE_SECTION_CHARS))
+    }.take(MAX_AUTO_CONTAINER_PROBE_CHARS)
 }
 
 internal fun safeProbeValue(value: String, maxChars: Int = 1_200): String = value
@@ -940,6 +979,7 @@ internal fun safeProbeValue(value: String, maxChars: Int = 1_200): String = valu
     .take(maxChars)
 
 private const val MAX_PROBE_SECTION_CHARS = 2_400
+private const val MAX_AUTO_CONTAINER_PROBE_CHARS = 4_000
 // Eleven sections now. The old 16 000 cap silently truncated the report from the middle of the
 // display inventory onwards, which would have dropped exactly the new native-path sections.
 private const val MAX_CLUSTER_PROBE_CHARS = 30_000

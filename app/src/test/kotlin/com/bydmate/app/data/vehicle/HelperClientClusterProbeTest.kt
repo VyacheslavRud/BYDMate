@@ -15,7 +15,12 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
 class HelperClientClusterProbeTest {
-    private fun client(status: Int, report: String?, handled: Boolean = true): HelperClientImpl {
+    private fun client(
+        status: Int,
+        report: String?,
+        handled: Boolean = true,
+        expectedCode: Int = HelperBinderProtocol.TX_GET_CLUSTER_SYSTEM_PROBE,
+    ): HelperClientImpl {
         val binder = object : IBinder {
             override fun isBinderAlive() = true
             override fun pingBinder() = true
@@ -28,7 +33,7 @@ class HelperClientClusterProbeTest {
             override fun unlinkToDeath(recipient: IBinder.DeathRecipient, flags: Int) = true
             override fun transact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {
                 if (!handled) return false
-                assertEquals(HelperBinderProtocol.TX_GET_CLUSTER_SYSTEM_PROBE, code)
+                assertEquals(expectedCode, code)
                 data.setDataPosition(0)
                 data.enforceInterface(HelperBinderProtocol.DESCRIPTOR)
                 reply!!.writeInt(status)
@@ -51,5 +56,16 @@ class HelperClientClusterProbeTest {
         assertNull(client(-1, "error").getClusterSystemProbe())
         assertNull(client(0, "").getClusterSystemProbe())
         assertNull(client(0, "unused", handled = false).getClusterSystemProbe())
+    }
+
+    @Test fun `client uses isolated C09 transaction for projection info`() = runBlocking {
+        val report = "schema=1\n[auto_container_projection_info] exit=0"
+        val client = client(
+            status = 0,
+            report = report,
+            expectedCode = HelperBinderProtocol.TX_GET_AUTO_CONTAINER_PROJECTION_INFO,
+        )
+
+        assertEquals(report, client.getAutoContainerProjectionInfoProbe())
     }
 }

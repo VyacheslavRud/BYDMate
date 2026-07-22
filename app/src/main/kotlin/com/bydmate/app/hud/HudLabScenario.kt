@@ -3,6 +3,7 @@ package com.bydmate.app.hud
 /** Stable groups shared by the Sea Lion smoke tests and compatibility calibration catalog. */
 enum class HudLabScenarioGroup {
     SEA_LION_CONFIRMED,
+    SEA_LION_EXTENDED,
     F28_EXPLORER,
     UTURN,
     ROUNDABOUT,
@@ -230,6 +231,73 @@ object HudLabScenarioCatalog {
         legacyCoexistence("N18", "LEGACY · LEFT + f6=6 + f11=50", 3),
     )
 
+    private fun extendedSeaLion(
+        id: String,
+        title: String,
+        frame: HudLabFrameSpec,
+        expected: HudLabObserved,
+    ) = HudLabScenario(
+        id = id,
+        group = HudLabScenarioGroup.SEA_LION_EXTENDED,
+        title = title,
+        command = null,
+        expected = expected,
+        steps = burst(id.lowercase(), frame),
+    )
+
+    /**
+     * Scalar extensions present in the donor SOME/IP frame but deliberately excluded from
+     * production until this exact Sea Lion firmware confirms them. Each scenario changes one
+     * bounded variable over the confirmed RIGHT-at-50-m baseline; HX04 combines them only after
+     * the isolated checks, and HX05 compares the donor render class without either PNG field. The
+     * HX namespace avoids reusing retired X01-X18 journal identifiers from older Dev builds.
+     */
+    val extended: List<HudLabScenario> = listOf(
+        extendedSeaLion(
+            "HX01", "SPEED · f11=50, f6=1",
+            HudLabFrameSpec(f28 = 2, distanceMeters = 50, road = "", speedLimit = 50),
+            HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
+        ),
+        extendedSeaLion(
+            "HX02", "ETA · f26=12:34",
+            HudLabFrameSpec(f28 = 2, distanceMeters = 50, road = "", etaString = "12:34"),
+            HudLabObserved.ETA_VISIBLE,
+        ),
+        extendedSeaLion(
+            "HX03", "PROGRESS · f33=0.5",
+            HudLabFrameSpec(
+                f28 = 2,
+                distanceMeters = 50,
+                road = "",
+                totalDistanceMeters = 100,
+            ),
+            HudLabObserved.PROGRESS_VISIBLE,
+        ),
+        extendedSeaLion(
+            "HX04", "FULL SCALAR · road + speed + ETA + progress",
+            HudLabFrameSpec(
+                f28 = 3,
+                distanceMeters = 50,
+                road = "HUD LAB FULL",
+                etaString = "12:34",
+                totalDistanceMeters = 100,
+                speedLimit = 50,
+            ),
+            HudLabObserved.FULL_SCALAR_VISIBLE,
+        ),
+        extendedSeaLion(
+            "HX05", "RENDER CLASS · f6=6 + f11=50",
+            HudLabFrameSpec(
+                renderClass = 6,
+                f28 = 2,
+                distanceMeters = 50,
+                road = "",
+                speedLimit = 50,
+            ),
+            HudLabObserved.SPEED_NUMBER_WITH_MANEUVER_VISIBLE,
+        ),
+    )
+
     /**
      * Safe unknown-symbol explorer. It reuses the minimal confirmed Sea Lion frame and changes
      * only f28. Three sends are enough for a parked visual check while keeping bus traffic below
@@ -255,7 +323,7 @@ object HudLabScenarioCatalog {
         )
     }
 
-    val all: List<HudLabScenario> = confirmed + compatibility + explorer
+    val all: List<HudLabScenario> = confirmed + extended + compatibility + explorer
 
     fun byId(id: String): HudLabScenario? = all.firstOrNull { it.id == id }
 

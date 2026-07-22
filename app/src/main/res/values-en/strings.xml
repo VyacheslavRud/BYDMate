@@ -1234,13 +1234,15 @@
 
     <!-- Dev-only factory HUD calibration -->
     <string name="diagnostics_hud_lab_title">HUD Lab — factory HUD calibration</string>
-    <string name="diagnostics_hud_lab_description">The confirmed Sea Lion 07 contract, older compatibility probes and safe Explorer are kept in separate sections.</string>
+    <string name="diagnostics_hud_lab_description">The confirmed contract, Sea Lion 07 extensions, older compatibility probes and Explorer are kept separate.</string>
     <string name="diagnostics_hud_lab_native_hint">The primary set reproduces the safe production frame without PNG, speed sign, ETA or progress.</string>
     <string name="diagnostics_hud_lab_catalog_title">Test set</string>
     <string name="diagnostics_hud_lab_catalog_confirmed">Sea Lion 07</string>
+    <string name="diagnostics_hud_lab_catalog_extended">HUD extensions</string>
     <string name="diagnostics_hud_lab_catalog_compatibility">Other BYD</string>
     <string name="diagnostics_hud_lab_catalog_explorer">Indicator Explorer</string>
     <string name="diagnostics_hud_lab_catalog_confirmed_hint">5 short smoke tests cover RIGHT/LEFT, the native 50/100 m threshold and road text.</string>
+    <string name="diagnostics_hud_lab_catalog_extended_hint">5 isolated Dev tests cover f11 speed, f26 ETA, f33 progress, a full scalar frame and f6=1/6. Production Waze is unchanged.</string>
     <string name="diagnostics_hud_lab_catalog_compatibility_hint">Older working U-turn, roundabout and f11 variants remain for other BYD firmware. The completed f28 Explorer is available below as an advanced tool.</string>
     <string name="diagnostics_hud_lab_catalog_explorer_hint">A separate safe scan of 41 unknown f28 values. Only the maneuver selector changes; known codes, PNG and other fields are excluded.</string>
     <string name="diagnostics_hud_lab_explorer_progress">Unique codes tested: %1$d of %2$d</string>
@@ -1336,7 +1338,7 @@
     <string name="diagnostics_cluster_lab_display_required">C03–C06 stay hidden until an Android cluster display is found. Run C07 or C08 first.</string>
     <string name="diagnostics_cluster_lab_run_e2e">C06 · Test Waze map on cluster</string>
     <string name="diagnostics_cluster_lab_run_transport">C07 · Probe Sea Lion display transport</string>
-    <string name="diagnostics_cluster_lab_manual_transport">Separate check: press C08, then immediately switch the cluster to its factory Navi mode. The watch lasts 20 seconds.</string>
+    <string name="diagnostics_cluster_lab_manual_transport">Separate check: press C08, wait for the switch_factory_navi_now step, then manually switch the cluster to its factory Navi mode. The watch lasts 20 seconds.</string>
     <string name="diagnostics_cluster_lab_support_tests">Read-only support diagnostics</string>
     <string name="diagnostics_cluster_lab_show_advanced">Show legacy advanced tests</string>
     <string name="diagnostics_cluster_lab_hide_advanced">Hide advanced tests</string>

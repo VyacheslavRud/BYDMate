@@ -73,8 +73,39 @@ class ClusterPlatformVerdictTest {
         assertTrue(facts.surfaceFlingerParsed)
         assertTrue(facts.evidenceComplete)
         assertTrue(facts.centralFloatingCompositorPresent)
+        assertTrue(facts.autoContainerServicePresent)
         assertEquals(emptyList<String>(), facts.clusterCandidateNames)
         assertEquals(listOf("com.xdja.containerservice"), facts.virtualDisplayOwners)
+    }
+
+    @Test fun `AIDL schema header alone does not prove auto container is running`() {
+        val report = """
+            schema=3
+            aidl=android.os.IAutoContainer tx5=getProjectionDisplayInfo
+            [services] exit=0
+            (empty)
+            [display_manager] exit=0
+            DisplayDeviceInfo{"Built-in Screen": uniqueId="local:1"}
+            [surface_flinger_displays] exit=0
+            Display 1 (HWC display 0): port=130
+        """.trimIndent()
+
+        assertFalse(parseClusterSystemProbe(report).autoContainerServicePresent)
+    }
+
+    @Test fun `failed service inventory cannot prove auto container is running`() {
+        val report = """
+            schema=3
+            aidl=android.os.IAutoContainer tx5=getProjectionDisplayInfo
+            [services] exit=10
+            47 auto_container: [android.os.IAutoContainer]
+            [display_manager] exit=0
+            DisplayDeviceInfo{"Built-in Screen": uniqueId="local:1"}
+            [surface_flinger_displays] exit=0
+            Display 1 (HWC display 0): port=130
+        """.trimIndent()
+
+        assertFalse(parseClusterSystemProbe(report).autoContainerServicePresent)
     }
 
     @Test fun `Sea Lion evidence rules out the Android task path only`() {

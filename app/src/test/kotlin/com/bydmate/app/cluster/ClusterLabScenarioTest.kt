@@ -7,9 +7,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ClusterLabScenarioTest {
-    @Test fun `catalog has eight stable bounded scenarios`() {
+    @Test fun `catalog has nine stable bounded scenarios`() {
         assertEquals(
-            listOf("C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08"),
+            listOf("C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09"),
             ClusterLabScenarioCatalog.all.map { it.id },
         )
         assertEquals(
@@ -22,6 +22,7 @@ class ClusterLabScenarioTest {
                 ClusterLabMutation.PROJECTION_PIPELINE,
                 ClusterLabMutation.PROJECTION_PIPELINE,
                 ClusterLabMutation.NONE,
+                ClusterLabMutation.NONE,
             ),
             ClusterLabScenarioCatalog.all.map { it.mutation },
         )
@@ -29,15 +30,16 @@ class ClusterLabScenarioTest {
         assertNull(ClusterLabScenarioCatalog.byId("C99"))
         assertEquals("C07", ClusterLabScenarioCatalog.primary().id)
         assertEquals(listOf("C08"), ClusterLabScenarioCatalog.manualTransport().map { it.id })
+        assertEquals(listOf("C01", "C02", "C09"), ClusterLabScenarioCatalog.support().map { it.id })
     }
 
     @Test fun `visual scenarios stay hidden until a cluster display was detected`() {
         assertEquals(
-            listOf("C01", "C02", "C07", "C08"),
+            listOf("C01", "C02", "C07", "C08", "C09"),
             ClusterLabScenarioCatalog.visible(clusterDisplayAvailable = false).map { it.id },
         )
         assertEquals(
-            listOf("C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08"),
+            listOf("C01", "C02", "C03", "C04", "C05", "C06", "C07", "C08", "C09"),
             ClusterLabScenarioCatalog.visible(clusterDisplayAvailable = true).map { it.id },
         )
         assertEquals(

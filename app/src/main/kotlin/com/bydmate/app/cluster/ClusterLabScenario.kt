@@ -79,6 +79,13 @@ object ClusterLabScenarioCatalog {
             mutation = ClusterLabMutation.NONE,
             durationMs = 20_000L,
         ),
+        ClusterLabScenario(
+            id = "C09",
+            title = "IAutoContainer contract snapshot",
+            summary = "Reads the exact interface descriptor and projection-display parcel through transaction 5 without changing cluster state.",
+            mutation = ClusterLabMutation.NONE,
+            durationMs = 0L,
+        ),
     )
 
     fun byId(id: String): ClusterLabScenario? = all.firstOrNull { it.id == id }
@@ -89,7 +96,9 @@ object ClusterLabScenarioCatalog {
 
     fun primary(): ClusterLabScenario = checkNotNull(byId("C07"))
 
-    fun support(): List<ClusterLabScenario> = all.filter { it.id == "C01" || it.id == "C02" }
+    fun support(): List<ClusterLabScenario> = all.filter {
+        it.id == "C01" || it.id == "C02" || it.id == "C09"
+    }
 
     fun manualTransport(): List<ClusterLabScenario> = all.filter { it.id == "C08" }
 

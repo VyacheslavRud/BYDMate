@@ -47,6 +47,9 @@ import com.bydmate.app.BuildConfig
  *       hardcoded command set and returns bounded, privacy-safe display/container metadata.
  *   TX_GET_SYSTEM_DISPLAYS: (no args) -> [int status, int count,
  *       count * (int id, String name, int width, int height, int densityDpi, int state)].
+ *   TX_GET_AUTO_CONTAINER_PROJECTION_INFO: (no args) -> [int status, String report].
+ *       Fixed read-only IAutoContainer transaction 5. This endpoint is used only by C09 and is
+ *       intentionally separate from the common C07/C08 system probe.
  *
  * Projection status: 0 = success, <0 = error/unavailable. Surface is written LAST so a
  * marshalling test can assert the scalar args without round-tripping the Surface.
@@ -133,6 +136,10 @@ object HelperBinderProtocol {
 
     /** Structured read-only display inventory from the daemon's system Context. */
     val TX_GET_SYSTEM_DISPLAYS: Int = IBinder.FIRST_CALL_TRANSACTION + 27 // 28
+
+    /** Exact read-only IAutoContainer.getProjectionDisplayInfo(out parcel) probe for C09 only. */
+    val TX_GET_AUTO_CONTAINER_PROJECTION_INFO: Int =
+        IBinder.FIRST_CALL_TRANSACTION + 28 // 29
 
     /** TX_GET_TASK_PROJECTION_STATE found a structurally valid live Waze task. */
     const val TASK_PROJECTION_FOUND: Int = 0

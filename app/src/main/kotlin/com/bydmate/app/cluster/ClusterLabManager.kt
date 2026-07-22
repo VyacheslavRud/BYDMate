@@ -135,7 +135,7 @@ data class ClusterLabState(
 )
 
 /**
- * Safe runner for C01-C08. All visual mutation is dev-only, route-free, gear-P/speed-0 gated and
+ * Safe runner for C01-C09. All visual mutation is dev-only, route-free, gear-P/speed-0 gated and
  * continuously rechecked. Projection tests use an exclusive awaitable lease. Only explicit C06/C07
  * may force the daemon-whitelisted auto_container calibration sequence; both use durable ownership
  * and the same awaitable lease as cleanup.
@@ -495,6 +495,11 @@ class ClusterLabManager @Inject constructor(
                     parkConfirmedByUser = parkConfirmedByUser,
                     scenario = scenario,
                 )
+                "C09" -> runAutoContainerContractSnapshot(
+                    record,
+                    startedElapsed,
+                    parkConfirmedByUser,
+                )
                 else -> throw ScenarioAbort(ClusterLabFailure.INTERNAL_ERROR)
             }
         } catch (abort: ScenarioAbort) {
@@ -851,6 +856,71 @@ class ClusterLabManager @Inject constructor(
             displays = displays,
         )
         updateProgress("manual_watch_complete", 1f)
+    }
+
+    /**
+     * Read-only proof of the platform contract recovered from framework.jar. Transaction 5 is the
+     * generated AIDL getter `getProjectionDisplayInfo(out ProjectionDisplayInfoParcel)`; unlike
+     * donor `sendInfo(1000, command, "")`, its request carries no command or caller-owned surface.
+     */
+    private suspend fun runAutoContainerContractSnapshot(
+        record: ClusterLabRecord,
+        startedElapsed: Long,
+        parkConfirmedByUser: Boolean,
+    ) {
+        updateProgress("auto_container_contract_probe", 0.1f)
+        if (!bootstrap.ensureRunning()) throw ScenarioAbort(ClusterLabFailure.HELPER_UNAVAILABLE)
+        requireSafe(parkConfirmedByUser)
+        val capture = clusterSystemProbe()
+        appendSystemProbeReport(record, startedElapsed, "aidl_contract", capture)
+        appendPlatformVerdict(record, startedElapsed, "aidl_contract", capture)
+        requireSafe(parkConfirmedByUser)
+        val projectionInfo = try {
+            withTimeoutOrNull(SYSTEM_PROBE_TIMEOUT_MS) {
+                helper.getAutoContainerProjectionInfoProbe()
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            Log.w(TAG, "auto_container projection-info probe failed: ${error.message}")
+            null
+        }
+        val projectionChunks = projectionInfo?.chunked(SYSTEM_PROBE_EVENT_CHARS).orEmpty()
+        if (projectionChunks.isEmpty()) {
+            append(
+                record,
+                startedElapsed,
+                ClusterLabEventKind.SNAPSHOT,
+                "auto_container_projection_info status=UNAVAILABLE",
+                safety = null,
+            )
+        } else {
+            projectionChunks.forEachIndexed { index, chunk ->
+                append(
+                    record,
+                    startedElapsed,
+                    ClusterLabEventKind.SNAPSHOT,
+                    "auto_container_projection_info part=${index + 1}/${projectionChunks.size} $chunk",
+                    safety = null,
+                )
+            }
+        }
+        requireSafe(parkConfirmedByUser)
+        val report = capture.report.orEmpty()
+        val descriptorCaptured = report.contains("[auto_container_descriptor] exit=0")
+        val projectionInfoCaptured =
+            projectionInfo?.contains("[auto_container_projection_info] exit=0") == true
+        append(
+            record,
+            startedElapsed,
+            ClusterLabEventKind.VERDICT,
+            "auto_container_contract descriptor=android.os.IAutoContainer " +
+                "tx1=sendJson tx2=sendInfo tx3=sendInfo2 tx4=registerCallback " +
+                "tx5=getProjectionDisplayInfo descriptorCaptured=$descriptorCaptured " +
+                "projectionInfoCaptured=$projectionInfoCaptured direction=out mutation=NONE",
+            safety = null,
+        )
+        updateProgress("auto_container_contract_complete", 1f)
     }
 
     private suspend fun watchDisplays(

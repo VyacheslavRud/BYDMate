@@ -98,7 +98,9 @@ class AutoContainerFallbackTest {
             "[nav_cluster_running_services]",
             "[foreground_activities]",
         ).forEach { section -> assertTrue(section, report.contains(section)) }
-        assertTrue(report.startsWith("schema=2"))
+        assertTrue(report.startsWith("schema=3"))
+        assertTrue(report.contains("tx5=getProjectionDisplayInfo"))
+        assertFalse(report.contains("[auto_container_projection_info]"))
     }
 
     @Test
@@ -110,10 +112,25 @@ class AutoContainerFallbackTest {
             CmdResult(0, "")
         }
 
-        // `service call` is allowed only for the two descriptor reads (transaction 1598968902).
+        // The shared C07/C08 probe may only read Binder descriptors. C09 owns transaction 5.
         commands.filter { it.startsWith("service call") }.forEach { command ->
             assertTrue(command, command.contains("1598968902"))
         }
         assertTrue(commands.none { it.contains("am ") || it.contains("settings put") })
+    }
+
+    @Test
+    fun `C09 projection info probe performs the exact out getter once`() {
+        val commands = mutableListOf<String>()
+        val report = buildAutoContainerProjectionInfoProbe { command, args ->
+            commands += command
+            assertTrue(args.isEmpty())
+            CmdResult(0, "Result: Parcel(00000000 00000001)")
+        }
+
+        assertEquals(listOf("service call auto_container 5"), commands)
+        assertTrue(report.contains("method=getProjectionDisplayInfo"))
+        assertTrue(report.contains("transaction=5 direction=out mutation=NONE"))
+        assertTrue(report.contains("[auto_container_projection_info] exit=0"))
     }
 }

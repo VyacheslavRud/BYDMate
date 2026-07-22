@@ -1389,13 +1389,15 @@
 
     <!-- Dev-only factory HUD calibration -->
     <string name="diagnostics_hud_lab_title">HUD Lab — калибровка штатного HUD</string>
-    <string name="diagnostics_hud_lab_description">Подтверждённый контракт Sea Lion 07, прежние тесты совместимости и безопасный Explorer находятся в отдельных секциях.</string>
+    <string name="diagnostics_hud_lab_description">Подтверждённый контракт, расширения Sea Lion 07, прежние тесты совместимости и Explorer находятся в отдельных секциях.</string>
     <string name="diagnostics_hud_lab_native_hint">Основной набор повторяет безопасный production-кадр без PNG, знака скорости, ETA и progress.</string>
     <string name="diagnostics_hud_lab_catalog_title">Набор тестов</string>
     <string name="diagnostics_hud_lab_catalog_confirmed">Sea Lion 07</string>
+    <string name="diagnostics_hud_lab_catalog_extended">Расширение HUD</string>
     <string name="diagnostics_hud_lab_catalog_compatibility">Другие BYD</string>
     <string name="diagnostics_hud_lab_catalog_explorer">Explorer индикаторов</string>
     <string name="diagnostics_hud_lab_catalog_confirmed_hint">5 коротких smoke-тестов проверяют RIGHT/LEFT, штатный порог 50/100 м и текст дороги.</string>
+    <string name="diagnostics_hud_lab_catalog_extended_hint">5 изолированных Dev-тестов проверяют f11 speed, f26 ETA, f33 progress, полный scalar-кадр и разницу f6=1/6. Production Waze не меняется.</string>
     <string name="diagnostics_hud_lab_catalog_compatibility_hint">Старые рабочие UTURN, roundabout и f11-варианты сохранены для другой прошивки BYD. Завершённый f28 Explorer доступен ниже как расширенный инструмент.</string>
     <string name="diagnostics_hud_lab_catalog_explorer_hint">Отдельный безопасный перебор 41 неизвестного значения f28. Меняется только selector манёвра; известные коды, PNG и другие поля исключены.</string>
     <string name="diagnostics_hud_lab_explorer_progress">Проверено уникальных кодов: %1$d из %2$d</string>
@@ -1491,7 +1493,7 @@
     <string name="diagnostics_cluster_lab_display_required">C03–C06 скрыты, пока Android display приборки не найден. Сначала запустите C07 или C08.</string>
     <string name="diagnostics_cluster_lab_run_e2e">C06 · Проверить карту Waze на приборке</string>
     <string name="diagnostics_cluster_lab_run_transport">C07 · Проверить транспорт дисплея Sea Lion</string>
-    <string name="diagnostics_cluster_lab_manual_transport">Отдельная проверка: нажмите C08 и сразу вручную включите штатный режим Navi на приборке. Наблюдение длится 20 секунд.</string>
+    <string name="diagnostics_cluster_lab_manual_transport">Отдельная проверка: нажмите C08, дождитесь шага switch_factory_navi_now и только тогда вручную включите штатный режим Navi на приборке. Наблюдение длится 20 секунд.</string>
     <string name="diagnostics_cluster_lab_support_tests">Вспомогательная диагностика без проекции</string>
     <string name="diagnostics_cluster_lab_show_advanced">Показать старые расширенные тесты</string>
     <string name="diagnostics_cluster_lab_hide_advanced">Скрыть расширенные тесты</string>

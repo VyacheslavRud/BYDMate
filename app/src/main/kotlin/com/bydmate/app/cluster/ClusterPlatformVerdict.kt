@@ -125,6 +125,7 @@ internal fun parseClusterSystemProbe(report: String?): ClusterProbeFacts {
     val sections = parseClusterProbeSections(report)
     val displayManager = sections.firstOrNull { it.label == "display_manager" }
     val surfaceFlinger = sections.firstOrNull { it.label == "surface_flinger_displays" }
+    val services = sections.firstOrNull { it.label == "services" }
 
     val names = displayManager
         ?.takeIf(ClusterProbeSection::usable)
@@ -151,8 +152,12 @@ internal fun parseClusterSystemProbe(report: String?): ClusterProbeFacts {
             .orEmpty(),
         clusterCandidateNames = names.filter(::isClusterProjectionDisplayName),
         centralFloatingCompositorPresent = names.any { it.contains("fission_bg", true) },
-        autoContainerServicePresent = report.contains("auto_container:", ignoreCase = true) ||
-            report.contains("IAutoContainer", ignoreCase = true),
+        // The schema header documents the recovered AIDL contract even when the live service is
+        // absent. Only a successfully captured `service list` section may prove presence.
+        autoContainerServicePresent = services
+            ?.takeIf(ClusterProbeSection::usable)
+            ?.body
+            ?.contains("auto_container:", ignoreCase = true) == true,
         containerReplyStatus = REPLY_STATUS.find(report)?.groupValues?.get(1)?.toIntOrNull(),
         displayManagerParsed = displayManagerParsed,
         surfaceFlingerParsed = hwcCount != null,
@@ -219,7 +224,7 @@ internal data class NativeClusterFacts(
     val foregroundActivities: List<String> = emptyList(),
     val someIpGatewayPresent: Boolean = false,
     val autoContainerNativePresent: Boolean = false,
-    /** At least one schema=2 vendor section header was present, whatever its exit code. */
+    /** At least one schema 2+ vendor section header was present, whatever its exit code. */
     val vendorSectionsPresent: Boolean = false,
     val vendorServicesParsed: Boolean = false,
     val navPackagesParsed: Boolean = false,
@@ -387,8 +392,8 @@ internal fun clusterPlatformVerdictLine(
     append("clusterCandidates=${facts.clusterCandidateNames.joinToString("|").ifEmpty { "none" }} ")
     append("centralFloatingCompositor=${facts.centralFloatingCompositorPresent} ")
     append("autoContainerService=${facts.autoContainerServicePresent} ")
-    // Raw transport value only. Without a published AIDL contract a non-zero int says the service
-    // returned an error shape, not that the native cluster kept its previous state.
+    // Transaction 2 is confirmed as IAutoContainer.sendInfo. Its return value is still only a
+    // service-level result, not proof that the native cluster kept its previous visual state.
     append("containerReplyStatus=${facts.containerReplyStatus ?: "unknown"} ")
     append("containerReplyMeaning=${containerReplyMeaning(facts.containerReplyStatus)} ")
     append("sectionExits=${facts.sectionExitCodes.entries.joinToString(",") { "${it.key}=${it.value}" }
