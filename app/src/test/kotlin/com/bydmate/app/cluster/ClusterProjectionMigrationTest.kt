@@ -47,16 +47,20 @@ class ClusterProjectionMigrationTest {
         assertEquals("Player", prefs.getString(ClusterProjectionManager.KEY_TARGET_LABEL, null))
     }
 
-    @Test fun `Sea Lion fission rollback disables auto container but preserves recovery markers`() {
+    @Test fun `factory projection migration disables direct mode and preserves explicit container choice`() {
         prefs.edit()
             .putBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, true)
+            .putBoolean(ClusterProjectionManager.KEY_DIRECT_PROJECTION_ENABLED, true)
+            .putBoolean(ClusterProjectionManager.KEY_FREEFORM_REBOOT_PENDING, true)
             .putInt(ClusterProjectionManager.KEY_DIRECT_DISPLAY_ID, 2)
             .putString(ClusterProjectionManager.KEY_DIRECT_PACKAGE, WazeNavigation.PACKAGE_NAME)
             .commit()
 
-        ClusterProjectionManager.migrateSeaLionFissionProjectionRollback(context)
+        ClusterProjectionManager.migrateFactoryProjectionDefaults(context)
 
-        assertEquals(false, prefs.getBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, true))
+        assertEquals(true, prefs.getBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, false))
+        assertEquals(false, prefs.getBoolean(ClusterProjectionManager.KEY_DIRECT_PROJECTION_ENABLED, true))
+        assertEquals(true, prefs.getBoolean(ClusterProjectionManager.KEY_FREEFORM_REBOOT_PENDING, false))
         assertEquals(2, prefs.getInt(ClusterProjectionManager.KEY_DIRECT_DISPLAY_ID, -1))
         assertEquals(
             WazeNavigation.PACKAGE_NAME,
@@ -64,8 +68,15 @@ class ClusterProjectionMigrationTest {
         )
 
         // The one-shot migration must not overwrite a future explicit compatibility choice.
-        prefs.edit().putBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, true).commit()
-        ClusterProjectionManager.migrateSeaLionFissionProjectionRollback(context)
-        assertEquals(true, prefs.getBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, false))
+        prefs.edit().putBoolean(ClusterProjectionManager.KEY_DIRECT_PROJECTION_ENABLED, true).commit()
+        ClusterProjectionManager.migrateFactoryProjectionDefaults(context)
+        assertEquals(true, prefs.getBoolean(ClusterProjectionManager.KEY_DIRECT_PROJECTION_ENABLED, false))
+    }
+
+    @Test fun `fresh install does not require a factory transport reboot`() {
+        ClusterProjectionManager.migrateFactoryProjectionDefaults(context)
+
+        assertEquals(false, prefs.getBoolean(ClusterProjectionManager.KEY_DIRECT_PROJECTION_ENABLED, true))
+        assertEquals(false, prefs.getBoolean(ClusterProjectionManager.KEY_FREEFORM_REBOOT_PENDING, true))
     }
 }

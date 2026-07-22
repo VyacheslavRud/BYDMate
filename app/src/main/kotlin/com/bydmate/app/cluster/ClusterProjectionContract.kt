@@ -33,6 +33,8 @@ internal fun clusterProjectionFailureFor(
     "geometry" -> ClusterLabFailure.INVALID_GEOMETRY
     "surface_timeout" -> ClusterLabFailure.OVERLAY_SURFACE_TIMEOUT
     "stale_display_release" -> ClusterLabFailure.STALE_DISPLAY_RELEASE_FAILED
+    "factory_reboot_required" -> ClusterLabFailure.FACTORY_REBOOT_REQUIRED
+    "public_virtual_display_unavailable" -> ClusterLabFailure.PUBLIC_VIRTUAL_DISPLAY_REQUIRED
     "virtual_display" -> ClusterLabFailure.VIRTUAL_DISPLAY_CREATE_FAILED
     "virtual_display_marker" -> ClusterLabFailure.VIRTUAL_DISPLAY_MARKER_WRITE_FAILED
     "task_launch" -> ClusterLabFailure.WAZE_TASK_LAUNCH_FAILED

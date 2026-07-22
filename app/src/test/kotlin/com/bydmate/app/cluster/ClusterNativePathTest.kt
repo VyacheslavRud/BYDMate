@@ -277,11 +277,7 @@ class ClusterNativePathTest {
 
     // --- settled architecture must reach the export -------------------------------------------
 
-    /**
-     * The 2026-07-22 system stack resolved what the runtime probes cannot see: the cluster UI is a
-     * root-owned Qt process in the Fission host cell. The export carries that conclusion so a
-     * reader is not sent back to the car to re-run a settled question.
-     */
+    /** The native Qt renderer and the optional Android projection bridge are separate layers. */
     @Test fun `every export line carries the settled cluster architecture`() {
         val identical = probe()
 
@@ -292,7 +288,7 @@ class ClusterNativePathTest {
             assertTrue(line, line.contains("clusterNativeArchitecture=$CLUSTER_NATIVE_ARCHITECTURE"))
         }
         assertEquals(
-            "FISSION_HOST_CELL_QT_RUNTIME_STRUCTURED_DATA_NO_ANDROID_SURFACE",
+            "FISSION_HOST_QT_WITH_OPTIONAL_XDJA_ANDROID_PROJECTION_BRIDGE",
             CLUSTER_NATIVE_ARCHITECTURE,
         )
     }

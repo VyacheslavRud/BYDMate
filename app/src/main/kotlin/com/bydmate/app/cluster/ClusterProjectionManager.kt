@@ -27,6 +27,7 @@ import com.bydmate.app.data.vehicle.SystemDisplayInfo
 import com.bydmate.app.data.vehicle.VehicleProfile
 import com.bydmate.app.navigation.WazeNavigation
 import com.bydmate.app.ui.overlay.OverlayNotificationManager
+import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -80,7 +81,7 @@ object ClusterProjectionManager {
     private const val OVERLAY_TYPE = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY  // 2038, minSdk 29
     private const val OVERLAY_FLAGS = 264                     // FLAG_NOT_FOCUSABLE(8) | FLAG_LAYOUT_IN_SCREEN(256)
     private const val SURFACE_TIMEOUT_MS = 3000L              // give up if the overlay Surface never gets created
-    private const val DISPLAY_WAIT_TIMEOUT_MS = 3000L         // DiLink may publish the container display asynchronously
+    private const val DISPLAY_WAIT_TIMEOUT_MS = 8000L         // cold DiLink container publication can be delayed
     private const val LAB_DISPLAY_WAIT_TIMEOUT_MS = 8000L     // guarded C06 cold-start calibration window
     private const val DISPLAY_WAIT_INTERVAL_MS = 100L
     private const val SYSTEM_DISPLAY_HEALTH_INTERVAL_MS = 2000L
@@ -116,8 +117,13 @@ object ClusterProjectionManager {
     private const val KEY_OWNED_VD_IDS = "owned_vd_ids"
     /** Wave P: optional automatic compositor power; default OFF until verified on the target car. */
     const val KEY_AUTO_CONTAINER = "auto_container_enabled"
+    /** Opt-in only. Factory overlay + VirtualDisplay is the safe default on Sea Lion 07. */
+    internal const val KEY_DIRECT_PROJECTION_ENABLED = "direct_projection_enabled"
     private const val KEY_SEA_LION_PROFILE_MIGRATION = "sea_lion_profile_v1_done"
-    private const val KEY_SEA_LION_FISSION_ROLLBACK = "sea_lion_fission_rollback_v1_done"
+    private const val KEY_FACTORY_PROJECTION_MIGRATION = "factory_projection_v2_done"
+    private const val KEY_FACTORY_SETTING_RESET_REQUIRED = "factory_setting_reset_required"
+    private const val KEY_FACTORY_RESET_BOOT_SESSION = "factory_reset_boot_session"
+    private const val LEGACY_FISSION_ROLLBACK = "sea_lion_fission_rollback_v1_done"
     // Set while the daemon has powered the cluster compositor up for our projection; cleared only
     // after a CONFIRMED power-down. Survives process death: when the car shuts off mid-projection
     // the off sequence (18 -> pause -> 0) never runs, the compositor reboots in projection mode
@@ -576,18 +582,97 @@ object ClusterProjectionManager {
     }
 
     /**
-     * 3.6.24 briefly classified the Sea Lion's `fission_bg` central floating-window surface as
-     * the instrument cluster. Disable production auto-container once on upgrade so another button
-     * press cannot reopen the factory Chinese page while no real app-visible cluster display exists.
-     * Crash ownership markers are intentionally preserved for startup recovery.
+     * Return upgrades from the experimental direct/freeform branch to the factory projection
+     * transport. Explicit auto-container choices and all crash-recovery ownership markers remain
+     * untouched. The global freeform flag is reset lazily after the helper daemon is available.
      */
-    fun migrateSeaLionFissionProjectionRollback(context: Context) {
+    fun migrateFactoryProjectionDefaults(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (prefs.getBoolean(KEY_SEA_LION_FISSION_ROLLBACK, false)) return
+        if (prefs.getBoolean(KEY_FACTORY_PROJECTION_MIGRATION, false)) return
+        val factoryResetRequired = prefs.getBoolean(LEGACY_FISSION_ROLLBACK, false) ||
+            prefs.getBoolean(KEY_DIRECT_PROJECTION_ENABLED, false) ||
+            prefs.getBoolean(KEY_FREEFORM_REBOOT_PENDING, false) ||
+            prefs.getInt(KEY_DIRECT_DISPLAY_ID, -1) != -1
         prefs.edit()
-            .putBoolean(KEY_AUTO_CONTAINER, false)
-            .putBoolean(KEY_SEA_LION_FISSION_ROLLBACK, true)
+            .putBoolean(KEY_DIRECT_PROJECTION_ENABLED, false)
+            .putBoolean(KEY_FACTORY_SETTING_RESET_REQUIRED, factoryResetRequired)
+            .putBoolean(KEY_FREEFORM_REBOOT_PENDING, factoryResetRequired)
+            .apply {
+                if (factoryResetRequired) remove(KEY_FACTORY_RESET_BOOT_SESSION)
+            }
+            .putBoolean(KEY_FACTORY_PROJECTION_MIGRATION, true)
             .apply()
+    }
+
+    /**
+     * Resets the framework's freeform switch as soon as the helper is alive, then keeps projection
+     * blocked until a different DiLink boot is observed. This makes the required reboot real rather
+     * than a documentation promise. TrackingService calls it at startup; project() calls the same
+     * locked implementation as a final guard against startup races.
+     */
+    suspend fun prepareFactoryProjectionSetting(
+        context: Context,
+        helper: HelperClient,
+    ): Boolean = mutex.withLock {
+        prepareFactoryProjectionSettingLocked(context.applicationContext, helper)
+    }
+
+    private suspend fun prepareFactoryProjectionSettingLocked(
+        context: Context,
+        helper: HelperClient,
+    ): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val directEnabled = prefs.getBoolean(KEY_DIRECT_PROJECTION_ENABLED, false)
+        val resetRequired = prefs.getBoolean(KEY_FACTORY_SETTING_RESET_REQUIRED, false)
+        if (!resetRequired && !directEnabled) return true
+        val currentBootSession = currentBootSession(context)
+        val resetSession = prefs.getString(KEY_FACTORY_RESET_BOOT_SESSION, null)
+        val decision = decideFactoryProjectionSetting(
+            directProjectionEnabled = directEnabled,
+            resetWrittenBootSession = resetSession,
+            currentBootSession = currentBootSession,
+        )
+        if (directEnabled) {
+            prefs.edit()
+                .putBoolean(KEY_FACTORY_SETTING_RESET_REQUIRED, false)
+                .remove(KEY_FACTORY_RESET_BOOT_SESSION)
+                .putBoolean(KEY_FREEFORM_REBOOT_PENDING, false)
+                .apply()
+            return true
+        }
+        if (decision.shouldWriteFactorySetting) {
+            val written = runCatching {
+                helper.putGlobalSetting("enable_freeform_support", 0)
+            }.getOrDefault(false)
+            prefs.edit()
+                .putBoolean(KEY_FREEFORM_REBOOT_PENDING, true)
+                .apply {
+                    if (written) putString(KEY_FACTORY_RESET_BOOT_SESSION, currentBootSession)
+                }
+                .apply()
+            Log.i(TAG, "factory projection setting reset=$written rebootPending=true")
+            return false
+        }
+        prefs.edit()
+            .putBoolean(KEY_FACTORY_SETTING_RESET_REQUIRED, decision.rebootPending)
+            .putBoolean(KEY_FREEFORM_REBOOT_PENDING, decision.rebootPending)
+            .apply()
+        return !decision.rebootPending
+    }
+
+    private fun currentBootSession(context: Context): String {
+        val bootId = runCatching {
+            File("/proc/sys/kernel/random/boot_id").readText().trim()
+        }.getOrNull()?.takeIf { it.isNotEmpty() }
+        if (bootId != null) return "bootId:$bootId"
+        val bootCount = runCatching {
+            Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT)
+        }.getOrNull()
+        if (bootCount != null) return "count:$bootCount"
+        // Stable within one boot even when BOOT_COUNT is unavailable. A 10-second bucket absorbs
+        // wall-clock/elapsed sampling jitter but necessarily changes after a real DiLink reboot.
+        val bootEpochBucket = (System.currentTimeMillis() - SystemClock.elapsedRealtime()) / 10_000L
+        return "epoch10s:$bootEpochBucket"
     }
 
     /** Package to project — user-selectable in settings, defaults to Waze. */
@@ -967,6 +1052,12 @@ object ClusterProjectionManager {
             Log.e(TAG, "helper daemon not running; aborting projection"); return "daemon"
         }
         recoverStaleDirectDensity(context, helper)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val directEnabled = prefs.getBoolean(KEY_DIRECT_PROJECTION_ENABLED, false)
+        if (!prepareFactoryProjectionSettingLocked(context, helper)) {
+            Log.w(TAG, "factory projection blocked until DiLink reboot applies freeform=0")
+            return "factory_reboot_required"
+        }
         val useAutoContainer = shouldUseAutoContainer(
             allowAutoContainerCommands = allowAutoContainerCommands,
             preferenceEnabled = autoContainerEnabled(context),
@@ -1033,16 +1124,18 @@ object ClusterProjectionManager {
         ) ?: return "geometry"
         val plan = renderPlanFor(geo, clusterDensityDpi, readScalePct(context))
 
-        // Direct mode first (2026-07-15, validated on-car): Navi runs ON the cluster display
-        // itself, so the a11y feed (voice agent / HUD) can read it — a private VirtualDisplay
-        // is invisible to accessibility and this firmware rejects PUBLIC VDs. Release any VD a
-        // prior process orphaned first — the direct path never reaches the VD-path cleanup
-        // below. Falls through to the VD pipeline when freeform is not active yet (flag needs
-        // one reboot) or anything fails. Skip orphan release when a live member handle is
-        // present — it is our own VD retry handle, not an orphan.
+        // Factory mode is the default. It is the path used by the original BYDMate projection:
+        // an overlay SurfaceView on a dedicated XDJA projection display is backed by our
+        // VirtualDisplay, then the selected app is moved onto that VirtualDisplay. Direct
+        // freeform remains opt-in for older confirmed platforms only; it must never silently
+        // replace the factory path on Sea Lion 07.
         if (remoteDisplayId == -1) releaseOrphanedDisplays(context, helper)
         val requestedPackage = targetPackageOverride ?: targetPackage(context)
-        if (tryDirectProjection(context, helper, display.id, geo, plan, requestedPackage)) return null
+        if (shouldAttemptDirectProjection(directEnabled, display.id, display.name) &&
+            tryDirectProjection(context, helper, display.id, geo, plan, requestedPackage)
+        ) {
+            return null
+        }
 
         return try {
             val surface = withTimeoutOrNull(SURFACE_TIMEOUT_MS) {
@@ -1071,7 +1164,9 @@ object ClusterProjectionManager {
             }
             val id = createClusterVd(helper, plan, surface)
             if (id == null) {
-                Log.e(TAG, "createVirtualDisplay failed"); hideOverlay(context, helper); return "virtual_display"
+                Log.e(TAG, "PUBLIC VirtualDisplay unavailable; refusing private HUD-blind fallback")
+                hideOverlay(context, helper)
+                return "public_virtual_display_unavailable"
             }
             remoteDisplayId = id
             if (!saveLastVdId(context, id)) {
@@ -1190,36 +1285,29 @@ object ClusterProjectionManager {
     }
 
     /**
-     * Creates the projection VirtualDisplay, preferring PUBLIC flags: accessibility ignores
+     * Creates the projection VirtualDisplay with PUBLIC flags: accessibility ignores
      * private virtual displays (confirmed on-car 2026-07-15: display 9 missing from
      * mWindowsForAccessibilityObserver), which blinds findNavigatorRoot()/NavA11yFeed —
-     * get_route_info and the HUD feed — whenever the Navigator is projected. A PUBLIC display
-     * is a11y-tracked. The firmware may reject PUBLIC for the shell uid (AOSP wants
-     * CAPTURE_VIDEO_OUTPUT, which shell lacks); fall back to the field-tested private
-     * flags (OpenBYD) so projection itself works either way.
+     * get_route_info and the HUD feed — whenever the Navigator is projected. A PUBLIC display is
+     * a11y-tracked. If firmware rejects PUBLIC for the shell uid, projection fails safely instead
+     * of moving Waze onto a private display and regressing the working windshield HUD.
      */
     private suspend fun createClusterVd(helper: HelperClient, plan: RenderPlan, surface: Surface): Int? {
-        helper.createVirtualDisplay(
-            VD_NAME, plan.bufferWidth, plan.bufferHeight, plan.densityDpi,
-            VIRTUAL_DISPLAY_FLAGS or VD_FLAG_PUBLIC, surface,
-        )?.let {
-            Log.i(TAG, "VirtualDisplay $it created PUBLIC (a11y-visible)")
-            return it
+        return createPublicOnlyClusterVirtualDisplay(VIRTUAL_DISPLAY_FLAGS, VD_FLAG_PUBLIC) { flags ->
+            helper.createVirtualDisplay(
+                VD_NAME, plan.bufferWidth, plan.bufferHeight, plan.densityDpi, flags, surface,
+            )
+        }?.also {
+            Log.i(TAG, "VirtualDisplay $it created PUBLIC (a11y-visible, HUD-safe)")
         }
-        Log.w(TAG, "PUBLIC VirtualDisplay rejected; falling back to private flags")
-        return helper.createVirtualDisplay(
-            VD_NAME, plan.bufferWidth, plan.bufferHeight, plan.densityDpi, VIRTUAL_DISPLAY_FLAGS, surface,
-        )
     }
 
     /**
-     * App-side display lookup. The cluster's projection surfaces are virtual displays owned by
-     * com.byd.containerservice, named "*XDJAScreenProjection*" (1280x480). Validated on-car
-     * 2026-06-02: the panel composites the "..._1" surface in Full mode, so we pick it by name;
-     * if it is absent we take another explicitly named projection surface. Name-based selection
-     * survives containerservice reassigning display ids at boot. The system-only
-     * `fission_bg` surface is deliberately diagnostic-only because field photos proved it renders
-     * a floating window on the main screen. Updates cluster W/H/dpi.
+     * App-side display lookup. The cluster's optional XDJA projection bridge is exposed as a
+     * dedicated virtual display named "*XDJAScreenProjection*" (commonly 1280x480). We prefer
+     * "..._1" and never accept `fission_bg`: field photos prove that surface is the centre-screen
+     * floating compositor. A system-only display is useful diagnostic evidence but cannot host
+     * the app-created overlay required by the factory VirtualDisplay path.
      */
     private suspend fun awaitClusterDisplay(
         context: Context,

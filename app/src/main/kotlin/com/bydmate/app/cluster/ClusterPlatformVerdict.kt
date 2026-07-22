@@ -80,6 +80,15 @@ internal enum class ClusterAndroidProjectionVerdict {
             SECONDARY_PHYSICAL_DISPLAY_PRESENT -> null
             CENTRAL_FLOATING_COMPOSITOR_ONLY, NO_PROJECTION_DISPLAY_VISIBLE -> false
         }
+
+    /** Whether the original overlay + VirtualDisplay bridge has a dedicated Android target. */
+    val factoryVirtualDisplayProjectionAvailable: Boolean?
+        get() = when (this) {
+            EVIDENCE_INCOMPLETE -> null
+            PROJECTION_DISPLAY_PRESENT -> true
+            SECONDARY_PHYSICAL_DISPLAY_PRESENT -> null
+            CENTRAL_FLOATING_COMPOSITOR_ONLY, NO_PROJECTION_DISPLAY_VISIBLE -> false
+        }
 }
 
 /**
@@ -93,18 +102,20 @@ internal enum class ClusterAndroidProjectionVerdict {
 internal const val NATIVE_CLUSTER_PATH_STATUS = "NOT_OBSERVABLE_FROM_THIS_CELL"
 
 /**
- * Architecture settled offline, so the export stops sending readers back to the car.
+ * Architecture settled offline, so the export can distinguish native rendering from projection.
  *
  * The 2026-07-22 system stack established that `/system/bin/BydClusterManager` (and the alternative
  * `qtandroidnative panel libBydCluster.so`) is a root-owned Qt process in the Fission *host* cell,
  * while this Android system is guest `cell2`. The cluster renders navigation itself from a 739-item
- * `DataSourceManager` fed by CAN and in-process SOME/IP plugin messages. There is no Android render
- * target to reach from here, which is why every display-based verdict above is negative.
+ * `DataSourceManager` fed by CAN and in-process SOME/IP plugin messages. Separately, compatible
+ * firmware may expose a dedicated `XDJAScreenProjection` Android surface which the host compositor
+ * embeds into the cluster. That optional pixel bridge is exactly what the original BYDMate
+ * overlay/VirtualDisplay implementation uses; `fission_bg` is not that bridge.
  *
  * See `docs/guides/sea-lion-07-instrument-cluster-architecture.md`.
  */
 internal const val CLUSTER_NATIVE_ARCHITECTURE =
-    "FISSION_HOST_CELL_QT_RUNTIME_STRUCTURED_DATA_NO_ANDROID_SURFACE"
+    "FISSION_HOST_QT_WITH_OPTIONAL_XDJA_ANDROID_PROJECTION_BRIDGE"
 
 /** How the Android display inventory responded to the container command over the whole window. */
 internal enum class ClusterContainerEffect {
@@ -473,6 +484,10 @@ internal fun clusterPlatformVerdictLine(
     append(
         "directAndroidTaskProjectionAvailable=" +
             "${verdict.directAndroidTaskProjectionAvailable ?: "unknown"} ",
+    )
+    append(
+        "factoryVirtualDisplayProjectionAvailable=" +
+            "${verdict.factoryVirtualDisplayProjectionAvailable ?: "unknown"} ",
     )
     append("nativeClusterPath=$NATIVE_CLUSTER_PATH_STATUS ")
     append("clusterNativeArchitecture=$CLUSTER_NATIVE_ARCHITECTURE ")

@@ -19,8 +19,9 @@
     <string name="settings_display_mirror_title">Вывод на приборку кнопкой руля</string>
     <string name="settings_display_mirror_desc">Короткое нажатие выбранной кнопки руля переносит выбранное приложение на приборку и обратно.</string>
     <string name="settings_cluster_auto_container_title">Сразу показывать на приборке</string>
-    <string name="settings_cluster_auto_container_desc">Отключено для Sea Lion 07: системный fission display оказался плавающим окном центрального экрана, а не приборкой</string>
+    <string name="settings_cluster_auto_container_desc">Перед выводом Waze включает штатный режим проекции и ждёт отдельный дисплей приборки. Если дисплей не появился, Waze безопасно останется на центральном экране</string>
     <string name="settings_cluster_direct_reboot_hint">Чтобы голосовой агент видел навигатор на приборке, один раз перезагрузите ДиЛинк: зажмите и удерживайте колёсико громкости. Просто заглушить машину недостаточно. До перезагрузки проекция работает, но агент не видит маршрут.</string>
+    <string name="settings_cluster_factory_reboot_hint">Заводской режим проекции подготовлен. Перед первым тестом один раз полностью перезагрузите ДиЛинк долгим удержанием колёсика громкости. До перезагрузки вывод на приборку заблокирован, чтобы не нарушить работу лобового HUD.</string>
     <string name="settings_display_app_title">Приложение на приборку</string>
     <string name="settings_display_size_header">Размер окна на приборке</string>
     <string name="settings_display_size_width">Ширина</string>

@@ -1,5 +1,6 @@
 package com.bydmate.app.cluster
 
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -118,6 +119,47 @@ class ClusterLabScenarioTest {
         assertFalse(isClusterProjectionDisplay(2, "Fallback panel"))
         assertTrue(isClusterProjectionDisplay(9, "XDJAScreenProjection_1"))
     }
+
+    @Test fun `direct projection is opt in and never accepts the Sea Lion floating compositor`() {
+        assertFalse(shouldAttemptDirectProjection(false, 9, "XDJAScreenProjection_1"))
+        assertTrue(shouldAttemptDirectProjection(true, 9, "XDJAScreenProjection_1"))
+        assertFalse(shouldAttemptDirectProjection(true, 2, "fission_bg_XDJAScreenProjection"))
+        assertFalse(shouldAttemptDirectProjection(true, 0, "XDJAScreenProjection_1"))
+    }
+
+    @Test fun `factory setting stays blocked until a different boot session`() {
+        assertEquals(
+            FactoryProjectionSettingDecision(true, true),
+            decideFactoryProjectionSetting(false, null, "count:10"),
+        )
+        assertEquals(
+            FactoryProjectionSettingDecision(false, true),
+            decideFactoryProjectionSetting(false, "count:10", "count:10"),
+        )
+        assertEquals(
+            FactoryProjectionSettingDecision(false, false),
+            decideFactoryProjectionSetting(false, "count:10", "count:11"),
+        )
+        assertEquals(
+            FactoryProjectionSettingDecision(false, false),
+            decideFactoryProjectionSetting(true, null, "count:10"),
+        )
+    }
+
+    @Test fun `HUD safe virtual display policy makes one public attempt and no private fallback`() =
+        runTest {
+            val attemptedFlags = mutableListOf<Int>()
+            val result = createPublicOnlyClusterVirtualDisplay(
+                baseFlags = 322,
+                publicFlag = 1,
+            ) { flags ->
+                attemptedFlags += flags
+                null
+            }
+
+            assertNull(result)
+            assertEquals(listOf(323), attemptedFlags)
+        }
 
     @Test fun `lab auto container remains disabled unless allowed and preferred or forced`() {
         assertFalse(shouldUseAutoContainer(false, true))

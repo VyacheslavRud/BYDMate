@@ -19,8 +19,9 @@
     <string name="settings_display_mirror_title">方向盘按键投射到仪表盘</string>
     <string name="settings_display_mirror_desc">短按所选方向盘按键，将所选应用投射到仪表盘或返回屏幕。</string>
     <string name="settings_cluster_auto_container_title">立即显示到仪表盘</string>
-    <string name="settings_cluster_auto_container_desc">Sea Lion 07 已禁用：fission 显示是中控屏浮窗，不是仪表屏</string>
+    <string name="settings_cluster_auto_container_desc">投射 Waze 前启用原厂投射模式并等待独立仪表屏。若未出现仪表屏，Waze 会安全保留在中控屏</string>
     <string name="settings_cluster_direct_reboot_hint">要让语音助手看到仪表盘上的导航，请将DiLink车机重启一次：长按音量旋钮即可重启。仅熄火并不能重启车机。重启之前投屏仍然可用，但语音助手看不到路线。</string>
+    <string name="settings_cluster_factory_reboot_hint">原厂投射模式已准备就绪。首次测试前请长按音量旋钮完整重启一次 DiLink。重启前将禁用仪表投射，以保护已正常工作的前挡风玻璃 HUD。</string>
     <string name="settings_display_app_title">投射到仪表盘的应用</string>
     <string name="settings_display_size_header">仪表盘窗口大小</string>
     <string name="settings_display_size_width">宽度</string>

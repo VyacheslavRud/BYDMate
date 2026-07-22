@@ -103,6 +103,8 @@ class ClusterProjectionContractTest {
             "geometry" to ClusterLabFailure.INVALID_GEOMETRY,
             "surface_timeout" to ClusterLabFailure.OVERLAY_SURFACE_TIMEOUT,
             "stale_display_release" to ClusterLabFailure.STALE_DISPLAY_RELEASE_FAILED,
+            "factory_reboot_required" to ClusterLabFailure.FACTORY_REBOOT_REQUIRED,
+            "public_virtual_display_unavailable" to ClusterLabFailure.PUBLIC_VIRTUAL_DISPLAY_REQUIRED,
             "virtual_display" to ClusterLabFailure.VIRTUAL_DISPLAY_CREATE_FAILED,
             "virtual_display_marker" to ClusterLabFailure.VIRTUAL_DISPLAY_MARKER_WRITE_FAILED,
             "task_launch" to ClusterLabFailure.WAZE_TASK_LAUNCH_FAILED,

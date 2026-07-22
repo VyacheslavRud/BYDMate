@@ -72,7 +72,7 @@ class BYDMateApp : Application(), Configuration.Provider {
         // in two independent preference files. Fresh installs already default to Waze.
         NavigationPreferenceMigration.run(this)
         ClusterProjectionManager.migrateVehicleProfileDefaults(this)
-        ClusterProjectionManager.migrateSeaLionFissionProjectionRollback(this)
+        ClusterProjectionManager.migrateFactoryProjectionDefaults(this)
         // Gate startup consumers on the one-time vehicle-default migration. Without this, the
         // first Settings/telemetry read after an upgrade can briefly see Leopard values while an
         // IO coroutine is still replacing them. Room dispatches suspend DAO work off main.

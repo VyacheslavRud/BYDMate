@@ -925,8 +925,23 @@ private fun DisplaySection() {
     var triggerKey by remember {
         mutableStateOf(prefs.getInt(ClusterProjectionManager.KEY_TRIGGER_KEYCODE, DEFAULT_TRIGGER_KEYCODE))
     }
-    val rebootPending = remember {
-        prefs.getBoolean(ClusterProjectionManager.KEY_FREEFORM_REBOOT_PENDING, false)
+    var autoContainer by remember {
+        mutableStateOf(prefs.getBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, false))
+    }
+    var factoryRebootPending by remember {
+        mutableStateOf(prefs.getBoolean(ClusterProjectionManager.KEY_FREEFORM_REBOOT_PENDING, false))
+    }
+    DisposableEffect(prefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == ClusterProjectionManager.KEY_FREEFORM_REBOOT_PENDING) {
+                factoryRebootPending = prefs.getBoolean(
+                    ClusterProjectionManager.KEY_FREEFORM_REBOOT_PENDING,
+                    false,
+                )
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
 
     SectionHeader(text = stringResource(R.string.settings_display_mirror_header))
@@ -951,19 +966,21 @@ private fun DisplaySection() {
                     }
                 },
             )
+            if (factoryRebootPending) {
+                SettingHint(text = stringResource(R.string.settings_cluster_factory_reboot_hint))
+            }
             SettingDivider()
             // Auto power-on toggle: when enabled, ClusterProjectionManager wakes the cluster compositor
             // before sending the projection window.
             SettingToggleRow(
                 title = stringResource(R.string.settings_cluster_auto_container_title),
                 description = stringResource(R.string.settings_cluster_auto_container_desc),
-                checked = false,
-                onCheckedChange = {},
-                enabled = false,
+                checked = autoContainer,
+                onCheckedChange = {
+                    autoContainer = it
+                    prefs.edit().putBoolean(ClusterProjectionManager.KEY_AUTO_CONTAINER, it).apply()
+                },
             )
-            if (rebootPending) {
-                SettingHint(text = stringResource(R.string.settings_cluster_direct_reboot_hint))
-            }
             // Trigger-button row — only meaningful while the feature (and thus the a11y service) is on.
             if (enabled) {
                 SettingDivider()

@@ -95,6 +95,58 @@ internal fun preferredClusterDisplayId(displays: List<Pair<Int, String>>): Int? 
         ?: projectionDisplays.firstOrNull()?.first
 }
 
+/**
+ * The direct freeform path is an opt-in compatibility mode. Factory projection stays the default:
+ * it renders into a VirtualDisplay backed by the dedicated XDJA surface. In particular, the
+ * system-only `fission_bg` display must never be made eligible by this preference because it is a
+ * centre-screen floating compositor on the Sea Lion 07.
+ */
+internal fun shouldAttemptDirectProjection(
+    preferenceEnabled: Boolean,
+    displayId: Int,
+    displayName: String,
+): Boolean = preferenceEnabled && isClusterProjectionDisplay(displayId, displayName)
+
+/** Factory freeform reset is complete only after a different DiLink boot session is observed. */
+internal data class FactoryProjectionSettingDecision(
+    val shouldWriteFactorySetting: Boolean,
+    val rebootPending: Boolean,
+)
+
+internal fun decideFactoryProjectionSetting(
+    directProjectionEnabled: Boolean,
+    resetWrittenBootSession: String?,
+    currentBootSession: String,
+): FactoryProjectionSettingDecision = when {
+    directProjectionEnabled -> FactoryProjectionSettingDecision(
+        shouldWriteFactorySetting = false,
+        rebootPending = false,
+    )
+    resetWrittenBootSession == null -> FactoryProjectionSettingDecision(
+        shouldWriteFactorySetting = true,
+        rebootPending = true,
+    )
+    resetWrittenBootSession == currentBootSession -> FactoryProjectionSettingDecision(
+        shouldWriteFactorySetting = false,
+        rebootPending = true,
+    )
+    else -> FactoryProjectionSettingDecision(
+        shouldWriteFactorySetting = false,
+        rebootPending = false,
+    )
+}
+
+/**
+ * Creates exactly one PUBLIC VirtualDisplay attempt. There is deliberately no private fallback:
+ * private displays are invisible to Waze Accessibility on the target firmware and would blind the
+ * already working windshield HUD while the navigator task is projected.
+ */
+internal suspend fun createPublicOnlyClusterVirtualDisplay(
+    baseFlags: Int,
+    publicFlag: Int,
+    create: suspend (flags: Int) -> Int?,
+): Int? = create(baseFlags or publicFlag)
+
 /** Lab transitions pass false, so a concurrently changed preference can never power hardware. */
 internal fun shouldUseAutoContainer(
     allowAutoContainerCommands: Boolean,

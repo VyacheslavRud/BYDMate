@@ -534,6 +534,13 @@ class TrackingService : Service(), LocationListener {
                     if (pref.isNotEmpty()) {
                         helperClient.setAppHidden("com.byd.autovoice", pref == "true")
                     }
+                    // Apply the factory cluster transport before the user attempts projection.
+                    // A previous dev build armed freeform globally; projection stays blocked until
+                    // a subsequent DiLink boot proves that enable_freeform_support=0 was consumed.
+                    com.bydmate.app.cluster.ClusterProjectionManager.prepareFactoryProjectionSetting(
+                        this@TrackingService,
+                        helperClient,
+                    )
                 }
                 // Recover every crash-persisted cluster ownership kind: compositor power, a
                 // direct/freeform task, and daemon VirtualDisplays. Each path rechecks the helper

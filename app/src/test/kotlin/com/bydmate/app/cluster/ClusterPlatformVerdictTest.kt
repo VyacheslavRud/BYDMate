@@ -161,12 +161,14 @@ class ClusterPlatformVerdictTest {
 
         assertEquals(ClusterAndroidProjectionVerdict.CENTRAL_FLOATING_COMPOSITOR_ONLY, verdict)
         assertEquals(false, verdict.directAndroidTaskProjectionAvailable)
+        assertEquals(false, verdict.factoryVirtualDisplayProjectionAvailable)
     }
 
     @Test fun `the export never calls the instrument cluster itself unreachable`() {
         val line = clusterPlatformVerdictLine("final_after_container_watch", seaLionProbe)
 
         assertTrue(line.contains("directAndroidTaskProjectionAvailable=false"))
+        assertTrue(line.contains("factoryVirtualDisplayProjectionAvailable=false"))
         assertTrue(line.contains("nativeClusterPath=NOT_OBSERVABLE_FROM_THIS_CELL"))
         // The old wording claimed far more than the probe can see.
         assertFalse(line.contains("clusterDisplayUnreachable"))
@@ -308,6 +310,7 @@ class ClusterPlatformVerdictTest {
         val verdict = clusterAndroidProjectionVerdict(facts)
         assertEquals(ClusterAndroidProjectionVerdict.PROJECTION_DISPLAY_PRESENT, verdict)
         assertEquals(true, verdict.directAndroidTaskProjectionAvailable)
+        assertEquals(true, verdict.factoryVirtualDisplayProjectionAvailable)
     }
 
     @Test fun `a projection surface is recognized even when SurfaceFlinger is unavailable`() {

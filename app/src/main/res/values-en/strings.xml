@@ -15,8 +15,9 @@
     <string name="settings_display_mirror_title">Projection to cluster via wheel button</string>
     <string name="settings_display_mirror_desc">A short press of the chosen steering-wheel button moves the selected app to the cluster and back.</string>
     <string name="settings_cluster_auto_container_title">Show on the cluster right away</string>
-    <string name="settings_cluster_auto_container_desc">Disabled for Sea Lion 07: the system fission display is a center-screen floating window, not the instrument cluster</string>
+    <string name="settings_cluster_auto_container_desc">Enables the factory projection mode before moving Waze and waits for a dedicated cluster display. If none appears, Waze safely stays on the centre screen</string>
     <string name="settings_cluster_direct_reboot_hint">For the voice agent to see the navigator on the cluster, reboot the DiLink head unit once: press and hold the volume knob. Simply turning the car off is not enough. Until the reboot projection still works, but the agent cannot see the route.</string>
+    <string name="settings_cluster_factory_reboot_hint">Factory projection mode is prepared. Before the first test, fully reboot DiLink once by holding the volume knob. Cluster projection stays blocked until reboot to protect the working windshield HUD.</string>
     <string name="settings_display_app_title">App on cluster</string>
     <string name="settings_display_size_header">Cluster window size</string>
     <string name="settings_display_size_width">Width</string>

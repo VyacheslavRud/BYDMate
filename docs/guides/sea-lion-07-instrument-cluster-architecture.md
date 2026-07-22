@@ -1,167 +1,120 @@
-# Sea Lion 07 instrument cluster: confirmed architecture
+# Sea Lion 07 instrument cluster architecture
 
-Sanitized conclusions from the offline analysis of the read-only DiLink 5 system stack collected on
-2026-07-22, cross-checked against the on-car Cluster Lab export of the same day. No APK, native
-binary, VIN, account, route or raw dump content is reproduced here.
+Sanitized conclusions from the read-only DiLink 5 system stack collected on 2026-07-22, the on-car
+Cluster Lab exports, and the original BYDMate projection implementation. No APK, native binary,
+VIN, account, route or raw dump content is reproduced here.
 
-The subject of this document is the **physical instrument cluster behind the steering wheel**. The
-windshield HUD is a different system, is already working, and is not affected by anything below.
+This document is about the **instrument cluster behind the steering wheel**. The windshield HUD is
+a separate SOME/IP system and is deliberately outside the projection code described below.
 
 ## Short answer
 
-The instrument cluster is **not an Android surface of this head unit**. It is a separate root-owned
-Qt process running in the Fission *host* cell, while the whole Android system we run in — including
-BYDMate, Waze and every Android display — is a guest cell. Rendering a Waze map there from an
-Android application is therefore not blocked by a missing permission or an undiscovered display id.
-There is no Android render target to reach.
+The physical instrument cluster is a native Qt renderer in the Fission host cell, not a normal
+Android `Display`. That fact does **not** mean Android pixels can never be shown there. Compatible
+DiLink firmware can expose a dedicated virtual display named `XDJAScreenProjection...`; the Fission
+host compositor embeds that surface into the native cluster UI.
 
-## Evidence
-
-### 1. The cluster UI is a native Qt process started by init as root
-
-`/system/etc/init/fission_cluster.fission_host.rc` declares:
+The original BYDMate implementation uses this optional bridge as follows:
 
 ```text
-service byd_demo_dual /system/bin/BydClusterManager
-    class core
-    user root
-    seclabel u:r:fission_qtandroidnative:s0
-    priority -20
-
-service byd_demo_split /system/bin/qtandroidnative panel /system/lib64/libBydCluster.so
-    class core
-    disabled
-    user root
-    seclabel u:r:fission_qtandroidnative:s0
+Waze task -> BYDMate VirtualDisplay -> SurfaceView on XDJAScreenProjection -> Fission host -> cluster
 ```
 
-The cluster is `qtandroidnative` loading `libBydCluster.so` onto the `panel` output. It is not an
-Activity, has no window, and is not visible to `ActivityTaskManager`, `WindowManager` or
-`DisplayManager` inside our Android cell.
+It does not write Waze data into the native 739-field navigation model and does not replace the Qt
+cluster process. This distinction explains both the published Yandex screenshot and the Sea Lion
+07 result: the mechanism works only when firmware exposes a **dedicated, app-visible** projection
+display.
 
-### 2. Android runs as a Fission guest cell, the cluster lives in the host
+`fission_bg_XDJAScreenProjection` is not that target on the tested Sea Lion 07. Moving Waze directly
+to it produced the small upper-right window on the centre screen while the cluster kept its Chinese
+map shell. Production code must therefore continue to reject `fission_bg`.
 
-The same init directory contains:
+## The two independent cluster paths
+
+### 1. Native structured navigation
+
+`/system/bin/BydClusterManager` (or `qtandroidnative panel /system/lib64/libBydCluster.so`) runs as
+root in the Fission host cell. Its Qt/QML UI consumes a 739-item `DataSourceManager`. Navigation
+items include:
 
 ```text
-service fissiond /system/bin/fissiond -c /data/cells -s /data/cells_sd -F
-service FissionHostSvc /system/bin/fission_service
-service ivi_shutdown  /system/bin/fission stop  cell2
-service ivi_poweron   /system/bin/fission start cell2 -Ds
+DATA_ITEM_ID_TURN_ICON_ID
+DATA_ITEM_ID_NEXT_ROAD_NAME
+DATA_ITEM_ID_NEXT_ROAD_DIS_AUTO
+DATA_ITEM_ID_ROUTE_REMAIN_DIS_AUTO
+DATA_ITEM_ID_ETAARRIVAL_TIME_*
+DATA_ITEM_ID_NAVI_STATE
+DATA_ITEM_ID_NAVI_TYPE
+DATA_ITEM_ID_MAP_SEND_STATUS
 ```
 
-The IVI Android is `cell2`. `FissionHostSvc` and `FissionGeneraySvc` are native Binder services
-(`android::IFissionHostService`, `android::IFissionGenerayService` in `libfission_services.so`) that
-belong to the host, not to the guest.
+CAN and in-process SOME/IP plugin messages feed this model. The collected stack does not expose a
+safe guest-Android API for publishing these fields, and `libbydautoservice.so` has no navigation
+channel. BYDMate therefore does not guess plugin message IDs or write to this path.
 
-The XDJA reference plugins for putting IVI content on the panel exist —
-`libDemoIviProjection_arm64-v8a.so`, `libFissionClusterDualDisp_arm64-v8a.so` under
-`/vendor/FissionCluster_5_15_10/` — but they are loaded by `qtandroidnative` as root from a vendor
-partition. An installed application cannot supply or load one.
+### 2. Optional XDJA pixel projection
 
-### 3. The cluster draws navigation itself from a structured data model
+The vendor stack contains XDJA/Fission projection components which can provide an Android virtual
+display. When a dedicated surface such as `XDJAScreenProjection_1` is app-visible, BYDMate can:
 
-`libBydCluster.so` is a Qt/QML application built around `DataSourceManager` with 739
-`DATA_ITEM_ID_*` entries. The navigation subset includes:
+1. create a display-scoped overlay `SurfaceView`;
+2. create a helper-owned `VirtualDisplay` backed by that surface;
+3. move the selected Waze task onto the new `VirtualDisplay`;
+4. let the vendor compositor place those pixels into the cluster's navigation region;
+5. move Waze back to display 0 and release both surfaces on exit.
 
-```text
-DATA_ITEM_ID_TURN_ICON_ID            DATA_ITEM_ID_NEXT_NEXT_TURN_ICON_ID
-DATA_ITEM_ID_NEXT_ROAD_NAME          DATA_ITEM_ID_NEXT_ROAD_DIS_AUTO
-DATA_ITEM_ID_NEXT_NEXT_ROAD_DIST     DATA_ITEM_ID_ROUTE_REMAIN_DIS_AUTO
-DATA_ITEM_ID_ETAARRIVAL_TIME_DAY/HOUR/MINUTE/SECOND
-DATA_ITEM_ID_REMAIN_TIME_DAY/HOUR/MINUTE/SECOND
-DATA_ITEM_ID_NAVI_STATE  DATA_ITEM_ID_NAVI_TYPE  DATA_ITEM_ID_MAP_SEND_STATUS
-```
+This is the factory-compatible projection path restored for the Sea Lion dev build. Direct
+`freeform` task placement is not used by default because it previously selected the centre-screen
+`fission_bg` compositor. The `VirtualDisplay` must be PUBLIC so Waze remains visible to
+Accessibility and the windshield HUD feed. If firmware rejects PUBLIC creation, BYDMate aborts
+without moving Waze; it never falls back to a HUD-blind private display.
 
-QML geometry confirms two panel variants: `CLU_SIZE_8_8` → 1280×480, otherwise 1920×720, with
-`NAVI_TYPE_SMALL_SCREEN` and `NAVI_TYPE_FULL_SCREEN` modes. This is the same right-hand map area the
-reference photo shows.
+## Evidence from the tested Sea Lion 07
 
-So the factory cluster navigation is **structured data rendered by the cluster firmware**, not a
-bitmap or video stream pushed from the IVI. The map raster is a separate concern gated by
-`MAP_SEND_STATUS`.
-
-### 4. The data enters inside the cluster process, from CAN and SOME/IP
-
-`libBydDataSourceForDi5SF.so` exports the whole data-source API:
+The 2026-07-22 runtime snapshot contained:
 
 ```text
-BydDataSourceInit / BydDataSourceDeInit
-BydDataSourceGetDataItem{Bool,Int,Real,String}
-BydDataSourceSendPluginMsg{,Bool,Int,Real,String}
-```
-
-and feeds it from `BusinessSF::canDataUpdate(...)` plus
-`PluginMsgManager::SendSomeIpMsg(unsigned, void const*)` /
-`PluginMsgManager::RecvSomeIpMessage(unsigned, void*)`. A concrete navigation CAN signal name is
-present: `NAVI_43F_SUB01_30_57_NEXT_ROAD_DIST`, alongside `NAVIGATION_REQ_FROM_CLUSTER` and
-`NAVIGATION_REQ_FROM_PAD`.
-
-Both transports terminate **inside the cluster process in the host cell**. Neither is an Android
-API, and neither is exposed to an application in the guest cell.
-
-### 5. The cluster and the windshield HUD are different systems
-
-The windshield HUD is served by `someip.hud.navi.info.service` (`HudRoadInfoNotifyStruct`,
-`HudMappathInfoNotifyStruct`), which BYDMate already publishes to through the
-`com.ts.car.someip.service` gateway. None of `libBydCluster.so`,
-`libBydDataSourceForDi5SF.so` or `libDi5LijieBydDataSource.so` references `hud.navi.info` or its
-structs. The working windshield path therefore has no overlap with the cluster path, and cluster
-research cannot regress it.
-
-### 6. `autoservice` has no navigation channel
-
-`libbydautoservice.so` exposes only the generic `BYDAutoService::getInt / setInt / getIntByArray`
-device/event accessors that BYDMate already uses for vehicle parameters. There is no navigation
-device type, turn icon, road name or ETA channel. The one vehicle write API available to this
-project cannot address the cluster navigation model.
-
-### 7. On-car state agrees
-
-Cluster Lab C09 of 2026-07-22 reported:
-
-```text
-directAndroidTaskProjectionAvailable=false
-physicalDisplays=1   displayNames=Built-in Screen|fission_bg_XDJAScreenProjection
-AutoContainerNative  -> BINDER_EXCEPTION (DeadObjectException)
-auto_container       -> TRANSACT_REJECTED for the projection getter
+physicalDisplays=1
+displayNames=Built-in Screen|fission_bg_XDJAScreenProjection
 fission_projection_inventory status=EMPTY reportedCount=0
-vendorServices=AutoContainerNative|FissionGeneraySvc|FissionHostSvc|auto_container|...
 ```
 
-`AutoContainerNative` is registered but its process is dead, and `auto_container` rejects the
-projection getter. `fission_bg_XDJAScreenProjection` remains the centre-screen floating container,
-which is exactly what earlier attempts hit.
+That snapshot proves only that no dedicated app-visible bridge existed **at capture time**. It does
+not erase the projection implementation or prove that another container state, reboot, firmware
+revision or DiLink model cannot expose `XDJAScreenProjection_1`.
 
-## Hypotheses resolved
+The safe runtime rule is therefore:
 
-| Hypothesis | Verdict |
-| --- | --- |
-| Cluster is a secondary Android `Display` | **Refuted.** One HWC display; the only virtual display is the centre floating container. |
-| A `VirtualDisplay`/task move can reach it | **Refuted.** No render target in this cell. |
-| Cluster mirrors or captures an IVI Activity | **Refuted.** Projection plugins are root-loaded vendor `.so` in the host cell. |
-| Cluster consumes a video/bitmap stream from an app | **Refuted for applications.** Map transfer is gated inside the host by `MAP_SEND_STATUS`. |
-| Cluster renders structured navigation data itself | **Confirmed.** 739-item `DataSourceManager`, full turn/road/ETA model. |
-| A third-party app can publish that data | **Refuted with current evidence.** CAN and in-process SOME/IP plugin messages only; `autoservice` has no navigation channel. |
-| `auto_container` is a usable projection API here | **Refuted.** Donor commands return `-1`; the projection getter is rejected; the native peer is dead. |
+- accept only a non-main, non-`fission_bg` display containing `XDJAScreenProjection`;
+- prefer the `_1` surface when more than one exists;
+- use overlay + `VirtualDisplay` by default;
+- require PUBLIC `VirtualDisplay` flags so windshield HUD guidance remains observable;
+- optionally ask `auto_container` to enter factory projection mode, then wait for the dedicated
+  display;
+- if it never appears, abort and keep Waze on the centre screen;
+- never treat a successful shell process or a non-zero Binder reply as proof of cluster state.
 
-## Consequence for the project
+## Why the original Yandex implementation could show a map
 
-Graphical Waze output on the Sea Lion 07 instrument cluster is **not achievable from an installed
-Android application** on this firmware. This is a platform boundary, not a missing implementation,
-so the project must not ship a partial or simulated cluster feature.
+Yandex did not need a special public "cluster HUD API" for the screenshot. BYDMate projected the
+actual Android navigator pixels through the XDJA surface. Yandex's own route/HUD integration was
+used for other features, including structured windshield HUD guidance and route reading, but the
+instrument-cluster map itself was the projected Android app.
 
-Nothing here changes the windshield HUD, which stays the supported navigation surface.
+Waze can use the same pixel bridge when that bridge exists. The remaining compatibility question
+is therefore firmware/display exposure, not whether Waze offers a cluster-map SDK.
 
-## What would change the answer
+## Windshield HUD isolation
 
-Only new *external* facts, none of which an app can obtain by itself:
+The windshield HUD uses `someip.hud.navi.info.service` through
+`com.ts.car.someip.service`. Cluster projection does not publish or clear those frames. Restoring
+factory projection must not change Waze Accessibility parsing, maneuver mapping, distance updates,
+or the proven SOME/IP HUD lifecycle.
 
-1. A vendor-signed plugin under `/vendor/FissionCluster_*` (requires system/root and a vendor
-   partition write — out of scope for this project).
-2. A documented cross-cell SOME/IP service that accepts navigation items from the guest cell, with
-   its service and method ids published by BYD. Guessing ids is explicitly out of scope.
-3. A firmware release that exposes the cluster as a real Android display.
+## Current conclusion
 
-Until one of those exists, further on-car cluster tests would repeat a settled result and are not
-planned.
+The native Qt architecture is confirmed, and the original Android projection bridge is also real.
+On the tested Sea Lion 07 firmware, `fission_bg` is confirmed unsafe and no dedicated bridge was
+visible in the captured state. The dev build can now probe the legitimate factory path without
+placing Waze in the centre-screen floating compositor. A single controlled in-car attempt is enough
+to decide whether this firmware exposes the dedicated bridge when factory projection is enabled.

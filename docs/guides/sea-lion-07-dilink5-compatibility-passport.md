@@ -81,16 +81,20 @@ The factory `libxdjacontainerservice_jni.so` establishes two additional details:
 `C09` mirrors both read-only operations. It records only safe scalar metadata and producer presence;
 the Surface binders never leave the helper process and no frame is rendered.
 
-## Instrument cluster: settled
+## Instrument cluster: native renderer plus optional projection bridge
 
-The offline system stack of 2026-07-22 resolved the cluster question. `/system/bin/BydClusterManager`
-(alternatively `qtandroidnative panel /system/lib64/libBydCluster.so`) is a root-owned Qt process in
-the Fission *host* cell; this Android system is guest `cell2`. The cluster renders navigation itself
-from a 739-item `DataSourceManager` fed by CAN and in-process SOME/IP plugin messages, and
-`libbydautoservice.so` exposes no navigation channel. There is no Android render target and no
-app-reachable data channel, so graphical Waze output on the cluster is a platform boundary rather
-than a missing implementation. Full evidence and the resolved hypothesis table live in
-`sea-lion-07-instrument-cluster-architecture.md`. Further on-car cluster scenarios are not planned.
+The offline system stack of 2026-07-22 confirmed that `/system/bin/BydClusterManager` (alternatively
+`qtandroidnative panel /system/lib64/libBydCluster.so`) is a root-owned Qt process in the Fission
+*host* cell; this Android system is guest `cell2`. The cluster renders its native navigation from a
+739-item `DataSourceManager` fed by CAN and in-process SOME/IP plugin messages, and
+`libbydautoservice.so` exposes no navigation channel.
+
+That native model is only one layer. Compatible firmware can also expose a dedicated Android
+`XDJAScreenProjection` surface which the Fission host embeds into the cluster. The original BYDMate
+map feature used overlay + `VirtualDisplay` on that surface; it did not populate the 739 native
+fields. The current dev build restores this factory transport while keeping direct `freeform`
+placement disabled by default. Full evidence lives in
+`sea-lion-07-instrument-cluster-architecture.md`.
 
 ## Display topology
 
@@ -108,7 +112,8 @@ This display is the center-screen floating projection container. It is not the p
 cluster. Sending Waze there reproduces the previously observed small Waze window on the upper-right
 of the center display, so production cluster selection must continue to exclude this name.
 
-The physical instrument cluster is a native Fission/Qt path, not an app-visible Android display.
+The physical instrument cluster is a native Fission/Qt output, not itself an app-visible Android
+display. An optional dedicated XDJA virtual display can nevertheless act as its pixel input.
 Collected components include:
 
 - `/system/bin/BydClusterManager`
@@ -119,9 +124,11 @@ Collected components include:
 - `libBydClusterForDi51Qt.so`
 - `cluster_newui_ocean*.rcc`
 
-Therefore an Android `VirtualDisplay` or task move alone cannot render Waze into the physical
-cluster map area. The next implementation step requires the priority APKs or a confirmed vendor
-surface/data contract; it must not guess new `sendInfo` values.
+Production selection must accept only a non-main, non-`fission_bg` display containing
+`XDJAScreenProjection`, preferring `_1`. If the factory container does not expose one, projection
+aborts and Waze remains on the centre screen. The backing `VirtualDisplay` must also be PUBLIC;
+private fallback is forbidden because it hides Waze from Accessibility and can blind the working
+windshield HUD. No new `sendInfo` values or native plugin IDs are guessed.
 
 ## Native cluster navigation model
 
@@ -149,10 +156,10 @@ state and methods such as `updateNaviDisplay`, `updateNaviRoadName`, `sendNaviMe
 1. Fission projection surfaces carry rendered pixels;
 2. BydDataSource plugin messages populate structured cluster fields and select the native Navi UI.
 
-Neither mechanism is promoted to production yet. The dump does not establish a safe external
-publisher identity, message IDs, arbitration rules, or cleanup contract for BydDataSource, and the
-five priority APK implementations are still missing from collector v1. Guessing plugin IDs or
-loading the vendor library into BYDMate would risk competing with the real cluster process.
+The XDJA pixel mechanism is restored behind strict display-name and visibility checks. The
+BydDataSource mechanism is not used: the dump does not establish a safe external publisher
+identity, message IDs, arbitration rules, or cleanup contract. Guessing plugin IDs or loading the
+vendor library into BYDMate would risk competing with the real cluster process.
 
 ## SOME/IP and windshield HUD
 

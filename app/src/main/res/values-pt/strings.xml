@@ -16,8 +16,9 @@
     <string name="settings_display_mirror_title">Projeção no painel via botão do volante</string>
     <string name="settings_display_mirror_desc">Um toque curto no botão escolhido do volante move o aplicativo selecionado para o painel de instrumentos e vice-versa.</string>
     <string name="settings_cluster_auto_container_title">Mostrar no painel imediatamente</string>
-    <string name="settings_cluster_auto_container_desc">Desativado no Sea Lion 07: o display fission é uma janela flutuante da tela central, não o painel</string>
+    <string name="settings_cluster_auto_container_desc">Ativa o modo de projeção de fábrica antes de mover o Waze e aguarda um display dedicado do painel. Se ele não aparecer, o Waze permanece com segurança na tela central</string>
     <string name="settings_cluster_direct_reboot_hint">Para o agente de voz ver o navegador no painel, reinicie o DiLink uma vez: mantenha pressionado o botão de volume. Apenas desligar o carro não é suficiente. Até o reinício a projeção funciona, mas o agente não vê a rota.</string>
+    <string name="settings_cluster_factory_reboot_hint">O modo de projeção de fábrica está preparado. Antes do primeiro teste, reinicie completamente o DiLink mantendo o botão de volume pressionado. A projeção no painel fica bloqueada até o reinício para proteger o HUD do para-brisa.</string>
     <string name="settings_display_app_title">Aplicativo no painel</string>
     <string name="settings_display_size_header">Tamanho da janela no painel</string>
     <string name="settings_display_size_width">Largura</string>
