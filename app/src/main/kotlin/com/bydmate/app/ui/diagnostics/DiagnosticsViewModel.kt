@@ -2,8 +2,6 @@ package com.bydmate.app.ui.diagnostics
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.bydmate.app.cluster.ClusterLabManager
-import com.bydmate.app.cluster.ClusterLabObservation
 import com.bydmate.app.data.diagnostics.CapabilityId
 import com.bydmate.app.data.diagnostics.DiagnosticEvaluation
 import com.bydmate.app.data.diagnostics.VehicleDiagnosticsCollector
@@ -37,13 +35,11 @@ data class DiagnosticsUiState(
 class DiagnosticsViewModel @Inject constructor(
     private val collector: VehicleDiagnosticsCollector,
     private val hudLabManager: HudLabManager,
-    private val clusterLabManager: ClusterLabManager,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(DiagnosticsUiState())
     val uiState: StateFlow<DiagnosticsUiState> = _uiState.asStateFlow()
     private val refreshMutex = Mutex()
     val hudLabState = hudLabManager.state
-    val clusterLabState = clusterLabManager.state
 
     init {
         refresh(showSpinner = true)
@@ -99,28 +95,6 @@ class DiagnosticsViewModel @Inject constructor(
     fun setCapabilityConfirmed(id: CapabilityId, confirmed: Boolean) {
         collector.setUserConfirmed(id, confirmed)
         refresh(showSpinner = false)
-    }
-
-    fun exportHudLab() {
-        hudLabManager.export()
-    }
-
-    fun runClusterLabScenario(scenarioId: String, parkConfirmedByUser: Boolean) {
-        val hud = hudLabState.value
-        if (hud.busy || hud.pending != null) return
-        clusterLabManager.runScenario(scenarioId, parkConfirmedByUser)
-    }
-
-    fun recordClusterLabObservation(observed: ClusterLabObservation) {
-        clusterLabManager.recordObservation(observed)
-    }
-
-    fun cancelClusterLab() {
-        clusterLabManager.cancel()
-    }
-
-    fun deleteClusterLabRecords() {
-        clusterLabManager.deleteRecords()
     }
 
     companion object {

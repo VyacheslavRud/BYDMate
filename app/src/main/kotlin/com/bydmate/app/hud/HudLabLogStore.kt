@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.Build
 import android.os.Environment
 import com.bydmate.app.BuildConfig
-import com.bydmate.app.cluster.ClusterLabLogStore
 import com.bydmate.app.data.vehicle.VehicleProfile
 import java.io.File
 import java.text.SimpleDateFormat
@@ -351,7 +350,6 @@ object HudLabLogStore {
             appendLine("fingerprint: ${Build.FINGERPRINT}")
             appendLine("vehicle: ${VehicleProfile.CURRENT.model} ${VehicleProfile.CURRENT.trim}")
             append(renderDiagnosticSection(context))
-            append(ClusterLabLogStore.renderDiagnosticSection(context))
             appendLine("==============================")
         }
         target.writeText(report, Charsets.UTF_8)

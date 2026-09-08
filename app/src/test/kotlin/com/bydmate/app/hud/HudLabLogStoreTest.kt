@@ -2,7 +2,6 @@ package com.bydmate.app.hud
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
-import com.bydmate.app.cluster.ClusterLabLogStore
 import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
@@ -25,13 +24,11 @@ class HudLabLogStoreTest {
     @Before fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         HudLabLogStore.clearForTest(context)
-        ClusterLabLogStore.clearForTest(context)
     }
 
     @After fun tearDown() {
         exported?.delete()
         HudLabLogStore.clearForTest(context)
-        ClusterLabLogStore.clearForTest(context)
     }
 
     @Test fun `attempt clear and visual mismatch survive persistent reload`() {
@@ -116,7 +113,7 @@ class HudLabLogStoreTest {
         assertTrue(report.contains("frameVariant=LIVE_PNG_F8 includePng=true"))
         assertTrue(report.contains("iconGaodeCode=1 pngBytes=1271"))
         assertTrue(report.contains("sendFailure=HUD_NOT_READY"))
-        assertTrue(report.contains("--- Instrument Cluster Lab ---"))
+        assertFalse(report.contains("--- Instrument Cluster Lab ---"))
         assertTrue(report.contains("vehicle:"))
     }
 

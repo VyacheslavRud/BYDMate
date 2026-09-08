@@ -30,7 +30,6 @@ import com.bydmate.app.data.remote.OpenRouterModel
 import com.bydmate.app.data.local.entity.PlaceEntity
 import com.bydmate.app.data.diagnostics.HudIncidentRecorder
 import com.bydmate.app.hud.HudLabLogStore
-import com.bydmate.app.cluster.ClusterLabLogStore
 import com.bydmate.app.navdata.NavA11yFeed
 import com.bydmate.app.navdata.NavManeuverCodes
 import com.bydmate.app.navdata.WazeAccessibilityReader
@@ -1753,13 +1752,6 @@ class SettingsViewModel @Inject constructor(
             } catch (e: Exception) {
                 appendLine("--- HUD Lab calibration ---")
                 appendLine("(failed to gather HUD Lab records: ${e.message})")
-            }
-
-            try {
-                append(ClusterLabLogStore.renderDiagnosticSection(appContext))
-            } catch (e: Exception) {
-                appendLine("--- Instrument Cluster Lab ---")
-                appendLine("(failed to gather Instrument Cluster Lab records: ${e.message})")
             }
 
             appendLine("--- audio ---")

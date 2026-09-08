@@ -48,6 +48,8 @@ screen/
 # canonical output path inside this worktree; these patterns are defence in depth.
 BYD-System-Dump-*/
 BYD-System-Dump-*.tar.gz
+BYD-Cluster-Live-*/
+BYD-Cluster-Live-*.tar.gz
 
 # Private BYD firmware and reverse-engineering workspaces. Keep only sanitized
 # conclusions under docs/guides; never commit pulled APK/framework/native binaries.

@@ -10,28 +10,6 @@ const val NAVI_PACKAGE = WazeNavigation.PACKAGE_NAME
 /** Cluster projection state (OFF / FULLSCREEN). */
 enum class ClusterMode { OFF, FULLSCREEN }
 
-/** Opaque in-process ownership token for one parked Instrument Cluster Lab session. */
-internal class ClusterLabProjectionLease internal constructor(val token: String)
-
-/** Terminal result of one synchronous lab transition through the production projection path. */
-internal data class ClusterLabProjectionTransitionResult(
-    val requestedMode: ClusterMode,
-    val resultingMode: ClusterMode,
-    val phase: ClusterProjectionPhase,
-    val success: Boolean,
-    val failure: String?,
-    val selectedDisplay: ClusterDisplayDiagnostic?,
-    val renderPath: ClusterProjectionRenderPath?,
-    val projectedTaskDisplayId: Int?,
-    val autoContainerRequested: Boolean,
-    val autoContainerMarkerWritten: Boolean?,
-    /** `service call` process succeeded; this is transport evidence, not confirmed hardware state. */
-    val autoContainerCommandAccepted: Boolean?,
-    val runtimeResourcesActive: Boolean,
-    val attemptStartedAtMs: Long?,
-    val attemptFinishedAtMs: Long?,
-)
-
 /** Fine-grained state retained for the diagnostics screen even after a failed attempt falls back
  * to [ClusterMode.OFF]. */
 enum class ClusterProjectionPhase { OFF, STARTING, WAITING_FOR_DISPLAY, ACTIVE, FAILED }
@@ -146,13 +124,6 @@ internal suspend fun createPublicOnlyClusterVirtualDisplay(
     publicFlag: Int,
     create: suspend (flags: Int) -> Int?,
 ): Int? = create(baseFlags or publicFlag)
-
-/** Lab transitions pass false, so a concurrently changed preference can never power hardware. */
-internal fun shouldUseAutoContainer(
-    allowAutoContainerCommands: Boolean,
-    preferenceEnabled: Boolean,
-    forceForParkedLab: Boolean = false,
-): Boolean = allowAutoContainerCommands && (preferenceEnabled || forceForParkedLab)
 
 /** Where Navi renders on the cluster overlay. VirtualDisplay size == SurfaceView size (1:1). */
 data class ClusterGeometry(val width: Int, val height: Int, val xOffset: Int, val yOffset: Int)

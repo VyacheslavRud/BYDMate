@@ -25,17 +25,14 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,11 +54,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.bydmate.app.R
 import com.bydmate.app.BuildConfig
-import com.bydmate.app.cluster.ClusterLabObservation
-import com.bydmate.app.cluster.ClusterLabOutcomeType
-import com.bydmate.app.cluster.ClusterLabScenario
-import com.bydmate.app.cluster.ClusterLabScenarioCatalog
-import com.bydmate.app.cluster.ClusterLabState
 import com.bydmate.app.data.diagnostics.CapabilityAssessment
 import com.bydmate.app.data.diagnostics.CapabilityId
 import com.bydmate.app.data.diagnostics.CapabilityState
@@ -75,7 +67,6 @@ import com.bydmate.app.data.diagnostics.HudIncidentCause
 import com.bydmate.app.data.diagnostics.VehicleDiagnosticsSnapshot
 import com.bydmate.app.data.diagnostics.WazeWindowState
 import com.bydmate.app.data.vehicle.VehicleProfile
-import com.bydmate.app.hud.HudLabOutcomeType
 import com.bydmate.app.hud.HudLabState
 import com.bydmate.app.ui.theme.AccentBlue
 import com.bydmate.app.ui.theme.AccentGreen
@@ -101,7 +92,6 @@ fun DiagnosticsScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val hudLabState by viewModel.hudLabState.collectAsStateWithLifecycle()
-    val clusterLabState by viewModel.clusterLabState.collectAsStateWithLifecycle()
     val snapshot = state.snapshot
     val evaluation = state.evaluation
 
@@ -162,17 +152,6 @@ fun DiagnosticsScreen(
                         HudLabLauncherCard(
                             state = hudLabState,
                             onOpen = onOpenHudLab,
-                        )
-                    }
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        ClusterLabCard(
-                            state = clusterLabState,
-                            exportState = hudLabState,
-                            onRun = viewModel::runClusterLabScenario,
-                            onObserved = viewModel::recordClusterLabObservation,
-                            onCancel = viewModel::cancelClusterLab,
-                            onExport = viewModel::exportHudLab,
-                            onDeleteRecords = viewModel::deleteClusterLabRecords,
                         )
                     }
                 }
@@ -238,367 +217,6 @@ private fun HudLabLauncherCard(
         }
     }
 }
-
-@Composable
-private fun ClusterLabCard(
-    state: ClusterLabState,
-    exportState: HudLabState,
-    onRun: (String, Boolean) -> Unit,
-    onObserved: (ClusterLabObservation) -> Unit,
-    onCancel: () -> Unit,
-    onExport: () -> Unit,
-    onDeleteRecords: () -> Unit,
-) {
-    var parkConfirmed by remember { mutableStateOf(false) }
-    var showAdvanced by remember { mutableStateOf(false) }
-    var showDeleteConfirmation by remember { mutableStateOf(false) }
-    val pending = state.pendingObservationRecordId != null
-    val canRun = parkConfirmed && !state.busy && !pending &&
-        !exportState.busy && exportState.pending == null
-    if (showDeleteConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirmation = false },
-            title = { Text(stringResource(R.string.diagnostics_cluster_lab_delete_title)) },
-            text = { Text(stringResource(R.string.diagnostics_cluster_lab_delete_message)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteConfirmation = false
-                        onDeleteRecords()
-                    },
-                ) {
-                    Text(stringResource(R.string.diagnostics_hud_lab_delete_confirm), color = SocRed)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirmation = false }) {
-                    Text(stringResource(R.string.diagnostics_hud_lab_delete_cancel))
-                }
-            },
-        )
-    }
-    Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = AccentOrange.copy(alpha = 0.08f)),
-        border = BorderStroke(1.dp, AccentOrange.copy(alpha = 0.42f)),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-            Text(
-                stringResource(R.string.diagnostics_cluster_lab_title),
-                color = TextPrimary,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                stringResource(R.string.diagnostics_cluster_lab_description),
-                color = TextSecondary,
-                fontSize = 12.sp,
-                lineHeight = 17.sp,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-            Text(
-                stringResource(R.string.diagnostics_cluster_lab_safety_hint),
-                color = AccentOrange,
-                fontSize = 11.sp,
-                lineHeight = 15.sp,
-                modifier = Modifier.padding(top = 5.dp),
-            )
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = !state.busy && !pending) {
-                        parkConfirmed = !parkConfirmed
-                    }
-                    .padding(top = 9.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Checkbox(
-                    checked = parkConfirmed,
-                    onCheckedChange = { parkConfirmed = it },
-                    enabled = !state.busy && !pending,
-                )
-                Text(
-                    stringResource(R.string.diagnostics_hud_lab_park_confirmation),
-                    color = TextPrimary,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(start = 4.dp),
-                )
-            }
-
-            val primaryScenario = ClusterLabScenarioCatalog.primary()
-            Button(
-                onClick = { onRun(primaryScenario.id, parkConfirmed) },
-                enabled = canRun,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(vertical = 3.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = AccentOrange,
-                    contentColor = NavyDark,
-                ),
-            ) {
-                Text(
-                    stringResource(R.string.diagnostics_cluster_lab_run_transport),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-
-            Text(
-                stringResource(R.string.diagnostics_cluster_lab_manual_transport),
-                color = TextMuted,
-                fontSize = 11.sp,
-                lineHeight = 15.sp,
-                modifier = Modifier.padding(top = 7.dp, bottom = 2.dp),
-            )
-            ClusterLabScenarioCatalog.manualTransport().chunked(2).forEach { row ->
-                ClusterLabScenarioRow(
-                    scenarios = row,
-                    enabled = canRun,
-                    fillSingle = true,
-                    onRun = { onRun(it.id, parkConfirmed) },
-                )
-            }
-
-            Text(
-                stringResource(R.string.diagnostics_cluster_lab_support_tests),
-                color = TextMuted,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(top = 7.dp, bottom = 2.dp),
-            )
-            ClusterLabScenarioCatalog.support().chunked(2).forEach { row ->
-                ClusterLabScenarioRow(
-                    scenarios = row,
-                    enabled = canRun,
-                    onRun = { onRun(it.id, parkConfirmed) },
-                )
-            }
-            if (state.clusterDisplayAvailable) {
-                OutlinedButton(
-                    onClick = { showAdvanced = !showAdvanced },
-                    enabled = !state.busy && !pending,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(top = 4.dp),
-                    border = BorderStroke(1.dp, CardBorder),
-                ) {
-                    Text(
-                        stringResource(
-                            if (showAdvanced) {
-                                R.string.diagnostics_cluster_lab_hide_advanced
-                            } else {
-                                R.string.diagnostics_cluster_lab_show_advanced
-                            },
-                        ),
-                        fontSize = 11.sp,
-                    )
-                }
-                if (showAdvanced) {
-                    ClusterLabScenarioCatalog.advanced(clusterDisplayAvailable = true)
-                        .chunked(2)
-                        .forEach { row ->
-                            ClusterLabScenarioRow(
-                                scenarios = row,
-                                enabled = canRun,
-                                onRun = { onRun(it.id, parkConfirmed) },
-                            )
-                        }
-                }
-            } else {
-                Text(
-                    stringResource(R.string.diagnostics_cluster_lab_display_required),
-                    color = TextMuted,
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp,
-                    modifier = Modifier.padding(top = 5.dp),
-                )
-            }
-
-            if (state.busy) {
-                LinearProgressIndicator(
-                    progress = { state.progress },
-                    modifier = Modifier.fillMaxWidth().padding(top = 9.dp),
-                    color = AccentOrange,
-                    trackColor = CardBorder.copy(alpha = 0.45f),
-                )
-                Text(
-                    "${state.currentScenarioId ?: "?"}: ${state.currentStep ?: "starting"}",
-                    color = AccentOrange,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-
-            if (pending) {
-                HorizontalDivider(
-                    color = CardBorder.copy(alpha = 0.55f),
-                    modifier = Modifier.padding(vertical = 10.dp),
-                )
-                Text(
-                    stringResource(
-                        R.string.diagnostics_cluster_lab_what_seen,
-                        state.pendingObservationScenarioId ?: "?",
-                    ),
-                    color = TextPrimary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(bottom = 5.dp),
-                )
-                ClusterLabObservedRow(
-                    ClusterLabObservation.VISIBLE,
-                    ClusterLabObservation.NOTHING,
-                    onObserved,
-                )
-                ClusterLabObservedRow(
-                    ClusterLabObservation.BLACK_SCREEN,
-                    ClusterLabObservation.FLICKERED,
-                    onObserved,
-                )
-                ClusterLabObservedRow(
-                    ClusterLabObservation.WRONG_GEOMETRY,
-                    ClusterLabObservation.MAIN_DISPLAY_ONLY,
-                    onObserved,
-                )
-                ClusterLabObservedRow(
-                    ClusterLabObservation.OTHER,
-                    ClusterLabObservation.NOT_REPORTED,
-                    onObserved,
-                )
-            }
-
-            state.lastOutcome?.let { outcome ->
-                val success = outcome.type == ClusterLabOutcomeType.COMPLETED ||
-                    outcome.type == ClusterLabOutcomeType.OBSERVATION_SAVED
-                Text(
-                    buildString {
-                        append(outcome.scenarioId ?: "Cluster Lab")
-                        append(": ").append(outcome.type)
-                        outcome.failure?.let { append(" · ").append(it) }
-                        outcome.cleanupConfirmed?.let { append(" · cleanup=").append(it) }
-                    },
-                    color = if (success) AccentGreen else SocRed,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedButton(
-                    onClick = onCancel,
-                    enabled = state.busy,
-                    modifier = Modifier.weight(1f).heightIn(min = 46.dp),
-                    border = BorderStroke(1.dp, CardBorder),
-                ) {
-                    Text(stringResource(R.string.diagnostics_cluster_lab_cancel))
-                }
-                Button(
-                    onClick = onExport,
-                    enabled = !state.busy && !exportState.busy,
-                    modifier = Modifier.weight(1f).heightIn(min = 46.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = AccentGreen,
-                        contentColor = NavyDark,
-                    ),
-                ) {
-                    Text(stringResource(R.string.diagnostics_cluster_lab_export_all))
-                }
-            }
-            exportState.lastOutcome?.takeIf {
-                it.type == HudLabOutcomeType.EXPORTED || it.type == HudLabOutcomeType.EXPORT_FAILED
-            }?.let {
-                Text(
-                    if (it.type == HudLabOutcomeType.EXPORTED) {
-                        stringResource(R.string.diagnostics_hud_lab_exported, it.path ?: "?")
-                    } else {
-                        stringResource(R.string.diagnostics_hud_lab_export_failed)
-                    },
-                    color = if (it.type == HudLabOutcomeType.EXPORTED) AccentGreen else SocRed,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(top = 5.dp),
-                )
-            }
-            Text(
-                stringResource(R.string.diagnostics_cluster_lab_saved_count, state.recordsCount),
-                color = TextMuted,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(top = 5.dp),
-            )
-            OutlinedButton(
-                onClick = { showDeleteConfirmation = true },
-                enabled = state.recordsCount > 0 && !state.busy && !pending && !exportState.busy,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(top = 5.dp),
-                border = BorderStroke(1.dp, CardBorder),
-            ) {
-                Text(stringResource(R.string.diagnostics_cluster_lab_delete_records), fontSize = 11.sp)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ClusterLabScenarioRow(
-    scenarios: List<ClusterLabScenario>,
-    enabled: Boolean,
-    fillSingle: Boolean = false,
-    onRun: (ClusterLabScenario) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        scenarios.forEach { scenario ->
-            Button(
-                onClick = { onRun(scenario) },
-                enabled = enabled,
-                modifier = Modifier.weight(1f).heightIn(min = 52.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = AccentOrange.copy(alpha = 0.78f),
-                    contentColor = NavyDark,
-                ),
-            ) {
-                Text("${scenario.id} · ${scenario.title}", fontSize = 11.sp, maxLines = 3)
-            }
-        }
-        if (scenarios.size == 1 && !fillSingle) Spacer(modifier = Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun ClusterLabObservedRow(
-    first: ClusterLabObservation,
-    second: ClusterLabObservation,
-    onObserved: (ClusterLabObservation) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        listOf(first, second).forEach { observed ->
-            OutlinedButton(
-                onClick = { onObserved(observed) },
-                modifier = Modifier.weight(1f).heightIn(min = 44.dp),
-                border = BorderStroke(1.dp, AccentOrange.copy(alpha = 0.55f)),
-            ) {
-                Text(clusterLabObservedText(observed), fontSize = 11.sp, maxLines = 2)
-            }
-        }
-    }
-}
-
-@Composable
-private fun clusterLabObservedText(observed: ClusterLabObservation): String = stringResource(
-    when (observed) {
-        ClusterLabObservation.VISIBLE -> R.string.diagnostics_cluster_lab_seen_visible
-        ClusterLabObservation.NOTHING -> R.string.diagnostics_hud_lab_saw_nothing
-        ClusterLabObservation.BLACK_SCREEN -> R.string.diagnostics_cluster_lab_seen_black
-        ClusterLabObservation.FLICKERED -> R.string.diagnostics_cluster_lab_seen_flickered
-        ClusterLabObservation.WRONG_GEOMETRY -> R.string.diagnostics_cluster_lab_seen_geometry
-        ClusterLabObservation.MAIN_DISPLAY_ONLY -> R.string.diagnostics_cluster_lab_seen_main_only
-        ClusterLabObservation.OTHER -> R.string.diagnostics_hud_lab_saw_other
-        ClusterLabObservation.NOT_REPORTED -> R.string.diagnostics_hud_lab_not_reported
-    },
-)
 
 @Composable
 private fun DiagnosticsHeader(

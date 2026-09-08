@@ -75,8 +75,6 @@ fun HudLabScreen(
     viewModel: HudLabViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val clusterState by viewModel.clusterLabState.collectAsStateWithLifecycle()
-    val externalLabBusy = clusterState.busy || clusterState.pendingObservationRecordId != null
     var selectedCatalog by rememberSaveable { mutableIntStateOf(0) }
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
     val activeCatalog = selectedCatalog.takeIf { it in 0..2 } ?: 0
@@ -88,7 +86,7 @@ fun HudLabScreen(
     val safeSelectedIndex = selectedIndex.coerceIn(0, scenarios.lastIndex.coerceAtLeast(0))
     var parkConfirmed by rememberSaveable { mutableStateOf(false) }
     var showDeleteConfirmation by remember { mutableStateOf(false) }
-    val canSwitchCatalog = !state.busy && state.pending == null && !externalLabBusy
+    val canSwitchCatalog = !state.busy && state.pending == null
 
     if (showDeleteConfirmation) {
         AlertDialog(
@@ -161,7 +159,6 @@ fun HudLabScreen(
                         explorerMode = activeCatalog == 2,
                         explorerCompletedCount = state.completedExplorerScenarioIds.size,
                         parkConfirmed = parkConfirmed,
-                        externalLabBusy = externalLabBusy,
                         onParkConfirmedChange = { parkConfirmed = it },
                         onPrevious = { selectedIndex = (selectedIndex - 1).coerceAtLeast(0) },
                         onNext = {
@@ -349,7 +346,6 @@ private fun HudLabRunnerCard(
     explorerMode: Boolean,
     explorerCompletedCount: Int,
     parkConfirmed: Boolean,
-    externalLabBusy: Boolean,
     onParkConfirmedChange: (Boolean) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
@@ -363,7 +359,7 @@ private fun HudLabRunnerCard(
     val pendingIsExplorer = HudLabScenarioCatalog.isExplorerScenario(pending?.record?.scenarioId)
     var indicatorLabel by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(pending?.record?.id) { indicatorLabel = "" }
-    val controlsEnabled = !state.busy && pending == null && !externalLabBusy
+    val controlsEnabled = !state.busy && pending == null
     val canRun = controlsEnabled && parkConfirmed
     Card(
         shape = RoundedCornerShape(14.dp),
@@ -468,15 +464,6 @@ private fun HudLabRunnerCard(
                 fontSize = 11.sp,
                 modifier = Modifier.padding(top = 6.dp),
             )
-
-            if (externalLabBusy) {
-                Text(
-                    stringResource(R.string.diagnostics_hud_lab_cluster_busy),
-                    color = AccentOrange,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
 
             if (state.busy && state.totalPushes > 0) {
                 val progress = state.currentPush.toFloat() / state.totalPushes.toFloat()

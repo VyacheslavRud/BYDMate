@@ -16,20 +16,16 @@ class StaleVirtualDisplayRecoveryTest {
                 ownedDisplayIds = setOf(4),
                 mode = ClusterMode.OFF,
                 liveDisplayId = -1,
-                clusterLabLeaseActive = false,
             ),
         )
         assertFalse(
-            shouldRecoverStaleVirtualDisplays(emptySet(), ClusterMode.OFF, -1, false),
+            shouldRecoverStaleVirtualDisplays(emptySet(), ClusterMode.OFF, -1),
         )
         assertFalse(
-            shouldRecoverStaleVirtualDisplays(setOf(4), ClusterMode.FULLSCREEN, -1, false),
+            shouldRecoverStaleVirtualDisplays(setOf(4), ClusterMode.FULLSCREEN, -1),
         )
         assertFalse(
-            shouldRecoverStaleVirtualDisplays(setOf(4), ClusterMode.OFF, 4, false),
-        )
-        assertFalse(
-            shouldRecoverStaleVirtualDisplays(setOf(4), ClusterMode.OFF, -1, true),
+            shouldRecoverStaleVirtualDisplays(setOf(4), ClusterMode.OFF, 4),
         )
     }
 

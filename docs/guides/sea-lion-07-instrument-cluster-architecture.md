@@ -25,9 +25,12 @@ cluster process. This distinction explains both the published Yandex screenshot 
 07 result: the mechanism works only when firmware exposes a **dedicated, app-visible** projection
 display.
 
-`fission_bg_XDJAScreenProjection` is not that target on the tested Sea Lion 07. Moving Waze directly
-to it produced the small upper-right window on the centre screen while the cluster kept its Chinese
-map shell. Production code must therefore continue to reject `fission_bg`.
+The live capture from 2026-07-22 refined that conclusion. The factory `com.byd.launchermap`
+process creates a `PresentationView` on `fission_bg_XDJAScreenProjection`; display 2 changes
+`mHasContent false -> true` and SurfaceFlinger receives a `bydAdd-com.byd.launchermap` layer.
+Therefore this is a real factory pixel input, but it is **not a direct Activity-task target**.
+Moving Waze's task there produced the small upper-right window on the centre screen because that
+bypassed the factory Presentation path. Production task selection must still reject `fission_bg`.
 
 ## The two independent cluster paths
 
@@ -52,10 +55,17 @@ CAN and in-process SOME/IP plugin messages feed this model. The collected stack 
 safe guest-Android API for publishing these fields, and `libbydautoservice.so` has no navigation
 channel. BYDMate therefore does not guess plugin message IDs or write to this path.
 
-### 2. Optional XDJA pixel projection
+### 2. XDJA pixel projection
 
-The vendor stack contains XDJA/Fission projection components which can provide an Android virtual
-display. When a dedicated surface such as `XDJAScreenProjection_1` is app-visible, BYDMate can:
+The vendor stack contains XDJA/Fission projection components which provide Android virtual
+displays. There are two materially different access modes:
+
+- a dedicated app-visible surface such as `XDJAScreenProjection_1`, on which BYDMate can use its
+  existing overlay + `VirtualDisplay` pipeline;
+- the protected `fission_bg_XDJAScreenProjection`, which the tested firmware exposes only to a
+  hardcoded package whitelist and which factory code addresses through `Presentation`.
+
+For the first mode BYDMate can:
 
 1. create a display-scoped overlay `SurfaceView`;
 2. create a helper-owned `VirtualDisplay` backed by that surface;
@@ -79,13 +89,19 @@ displayNames=Built-in Screen|fission_bg_XDJAScreenProjection
 fission_projection_inventory status=EMPTY reportedCount=0
 ```
 
-That snapshot proves only that no dedicated app-visible bridge existed **at capture time**. It does
-not erase the projection implementation or prove that another container state, reboot, firmware
-revision or DiLink model cannot expose `XDJAScreenProjection_1`.
+The later live capture showed that display 2 remains present throughout factory Navi ON/OFF and is
+owned by `com.xdja.containerservice`. Factory Navi adds and removes content on that existing display
+with a `Presentation`; it does not create `XDJAScreenProjection_1` and it does not move an Activity
+task there.
+
+Decompiled `services.jar` also showed a hardcoded display-visibility whitelist containing
+`com.byd.launchermap`, `com.xdja.containerservice`, `android`, `com.android.systemui`,
+`com.android.shell`, `com.byd.mecanum`, `com.byd.mecanum.dashboard`, and `com.byd.naviauto`.
+BYDMate and Waze are absent. `PROJECT_MEDIA` does not override this firmware check.
 
 The safe runtime rule is therefore:
 
-- accept only a non-main, non-`fission_bg` display containing `XDJAScreenProjection`;
+- keep rejecting `fission_bg` for direct Waze task placement;
 - prefer the `_1` surface when more than one exists;
 - use overlay + `VirtualDisplay` by default;
 - require PUBLIC `VirtualDisplay` flags so windshield HUD guidance remains observable;
@@ -93,6 +109,11 @@ The safe runtime rule is therefore:
   display;
 - if it never appears, abort and keep Waze on the centre screen;
 - never treat a successful shell process or a non-zero Binder reply as proof of cluster state.
+
+The helper-owned `Presentation` experiment for the protected display returned
+`Rejected PRESENTATION_PROBE_FAILED` on this car. Its presence on the firmware whitelist did not
+prove a usable rendering path. The experiment and the instrument-cluster laboratory have been
+removed; their result remains historical compatibility evidence.
 
 ## Why the original Yandex implementation could show a map
 
@@ -114,7 +135,9 @@ or the proven SOME/IP HUD lifecycle.
 ## Current conclusion
 
 The native Qt architecture is confirmed, and the original Android projection bridge is also real.
-On the tested Sea Lion 07 firmware, `fission_bg` is confirmed unsafe and no dedicated bridge was
-visible in the captured state. The dev build can now probe the legitimate factory path without
-placing Waze in the centre-screen floating compositor. A single controlled in-car attempt is enough
-to decide whether this firmware exposes the dedicated bridge when factory projection is enabled.
+On the tested Sea Lion 07 firmware, direct Waze task placement on `fission_bg` is confirmed wrong,
+but the display itself is confirmed as the factory Presentation target. The helper-owned
+Presentation experiment failed and has been removed together with the other cluster scenarios.
+Full Waze-map projection on this car remains unimplemented. The windshield HUD remains a separate,
+working path. This document records architecture and historical findings; it is not an in-car
+test procedure.

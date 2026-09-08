@@ -28,7 +28,6 @@ import com.bydmate.app.data.vehicle.VehicleProfile
 import com.bydmate.app.navigation.WazeNavigation
 import com.bydmate.app.ui.overlay.OverlayNotificationManager
 import java.io.File
-import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -82,7 +81,6 @@ object ClusterProjectionManager {
     private const val OVERLAY_FLAGS = 264                     // FLAG_NOT_FOCUSABLE(8) | FLAG_LAYOUT_IN_SCREEN(256)
     private const val SURFACE_TIMEOUT_MS = 3000L              // give up if the overlay Surface never gets created
     private const val DISPLAY_WAIT_TIMEOUT_MS = 8000L         // cold DiLink container publication can be delayed
-    private const val LAB_DISPLAY_WAIT_TIMEOUT_MS = 8000L     // guarded C06 cold-start calibration window
     private const val DISPLAY_WAIT_INTERVAL_MS = 100L
     private const val SYSTEM_DISPLAY_HEALTH_INTERVAL_MS = 2000L
     private const val SYSTEM_DISPLAY_REMOVAL_CONFIRMATIONS = 2
@@ -149,11 +147,6 @@ object ClusterProjectionManager {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val mutex = Mutex()
 
-    /** In-process exclusive lease for the parked Cluster Lab. Production toggle/reproject calls
-     * are ignored while it is held, so an external star/voice event cannot be mistaken for a lab
-     * transition or enqueue a projection after the lab has already reported cleanup. */
-    private var clusterLabLeaseToken: String? = null
-
     private val _diagnosticState = MutableStateFlow(ClusterProjectionDiagnosticState())
     val diagnosticState: StateFlow<ClusterProjectionDiagnosticState> = _diagnosticState.asStateFlow()
 
@@ -197,10 +190,6 @@ object ClusterProjectionManager {
         val appContext = context.applicationContext
         scope.launch {
             mutex.withLock {
-                if (clusterLabLeaseToken != null) {
-                    Log.i(TAG, "setMode($mode) ignored while Cluster Lab owns projection")
-                    return@withLock
-                }
                 if (mode == currentMode) return@withLock
                 if (mode == ClusterMode.FULLSCREEN) {
                     _diagnosticState.update {
@@ -223,113 +212,6 @@ object ClusterProjectionManager {
                 applyModeLocked(appContext, mode, helper, bootstrap)
             }
         }
-    }
-
-    /**
-     * Acquires exclusive ownership for a parked Cluster Lab session. Unlike [setMode], lab
-     * transitions below are suspend/awaitable: when they return, the requested transition and its
-     * teardown are no longer queued work. The lease never survives process death.
-     */
-    internal suspend fun acquireClusterLabLease(): ClusterLabProjectionLease? = mutex.withLock {
-        if (clusterLabLeaseToken != null || currentMode != ClusterMode.OFF) return@withLock null
-        ClusterLabProjectionLease(UUID.randomUUID().toString()).also {
-            clusterLabLeaseToken = it.token
-            Log.i(TAG, "Cluster Lab lease acquired")
-        }
-    }
-
-    /**
-     * Runs the normal projection pipeline synchronously under the shared projection mutex and pins
-     * the exact caller-supplied package. auto_container remains hard-disabled unless a guarded
-     * C06/C07 caller explicitly allows the existing daemon-whitelisted calibration command.
-     */
-    internal suspend fun setModeForClusterLab(
-        context: Context,
-        mode: ClusterMode,
-        helper: HelperClient,
-        bootstrap: HelperBootstrap,
-        lease: ClusterLabProjectionLease,
-        targetPackage: String = NAVI_PACKAGE,
-        allowAutoContainerCommands: Boolean = false,
-        forceAutoContainerCommands: Boolean = false,
-    ): ClusterLabProjectionTransitionResult = mutex.withLock {
-        if (clusterLabLeaseToken != lease.token) {
-            return@withLock clusterLabTransitionResult(
-                requestedMode = mode,
-                failureOverride = "lab_lease_not_owned",
-            )
-        }
-        if (mode == ClusterMode.FULLSCREEN) {
-            _diagnosticState.update {
-                it.copy(
-                    phase = ClusterProjectionPhase.STARTING,
-                    attemptStartedAtMs = System.currentTimeMillis(),
-                    attemptFinishedAtMs = null,
-                    displaySearchElapsedMs = null,
-                    selectedDisplay = null,
-                    renderPath = null,
-                    projectedTaskDisplayId = null,
-                    autoContainerRequested = false,
-                    autoContainerMarkerWritten = null,
-                    autoContainerCommandAccepted = null,
-                    lastFailure = null,
-                )
-            }
-        }
-        Log.i(
-            TAG,
-            "Cluster Lab setMode: $currentMode -> $mode target=$targetPackage " +
-                "autoContainerAllowed=$allowAutoContainerCommands forced=$forceAutoContainerCommands",
-        )
-        applyModeLocked(
-            context = context.applicationContext,
-            mode = mode,
-            helper = helper,
-            bootstrap = bootstrap,
-            allowAutoContainerCommands = allowAutoContainerCommands,
-            forceAutoContainerCommands = forceAutoContainerCommands,
-            targetPackageOverride = targetPackage,
-        )
-        clusterLabTransitionResult(requestedMode = mode)
-    }
-
-    /** Releases only the matching owner. Returns true when the session left projection OFF. */
-    internal suspend fun releaseClusterLabLease(lease: ClusterLabProjectionLease): Boolean =
-        mutex.withLock {
-            if (clusterLabLeaseToken != lease.token) return@withLock false
-            val clean = currentMode == ClusterMode.OFF
-            clusterLabLeaseToken = null
-            Log.i(TAG, "Cluster Lab lease released clean=$clean")
-            clean
-        }
-
-    private fun clusterLabTransitionResult(
-        requestedMode: ClusterMode,
-        failureOverride: String? = null,
-    ): ClusterLabProjectionTransitionResult {
-        val diagnostics = _diagnosticState.value
-        val success = failureOverride == null && when (requestedMode) {
-            ClusterMode.FULLSCREEN ->
-                currentMode == ClusterMode.FULLSCREEN && diagnostics.phase == ClusterProjectionPhase.ACTIVE
-            ClusterMode.OFF ->
-                currentMode == ClusterMode.OFF && diagnostics.phase == ClusterProjectionPhase.OFF
-        }
-        return ClusterLabProjectionTransitionResult(
-            requestedMode = requestedMode,
-            resultingMode = currentMode,
-            phase = diagnostics.phase,
-            success = success,
-            failure = failureOverride ?: diagnostics.lastFailure ?: lastFailure,
-            selectedDisplay = diagnostics.selectedDisplay,
-            renderPath = diagnostics.renderPath,
-            projectedTaskDisplayId = diagnostics.projectedTaskDisplayId,
-            autoContainerRequested = diagnostics.autoContainerRequested,
-            autoContainerMarkerWritten = diagnostics.autoContainerMarkerWritten,
-            autoContainerCommandAccepted = diagnostics.autoContainerCommandAccepted,
-            runtimeResourcesActive = projectionRuntimeResourcesActive(),
-            attemptStartedAtMs = diagnostics.attemptStartedAtMs,
-            attemptFinishedAtMs = diagnostics.attemptFinishedAtMs,
-        )
     }
 
     /**
@@ -367,10 +249,6 @@ object ClusterProjectionManager {
         val appContext = context.applicationContext
         scope.launch {
             mutex.withLock {
-                if (clusterLabLeaseToken != null) {
-                    Log.i(TAG, "reproject ignored while Cluster Lab owns projection")
-                    return@withLock
-                }
                 if (currentMode != ClusterMode.FULLSCREEN) return@withLock
                 Log.i(TAG, "reproject: in-place resize")
                 if (!swapToNewSize(appContext, helper, bootstrap)) {
@@ -750,9 +628,6 @@ object ClusterProjectionManager {
     /** Caller MUST hold [mutex]. Sets currentMode = mode only on full success, else OFF. */
     private suspend fun applyModeLocked(
         context: Context, mode: ClusterMode, helper: HelperClient, bootstrap: HelperBootstrap,
-        allowAutoContainerCommands: Boolean = true,
-        forceAutoContainerCommands: Boolean = false,
-        targetPackageOverride: String? = null,
     ) {
         when (mode) {
             ClusterMode.OFF -> {
@@ -761,7 +636,6 @@ object ClusterProjectionManager {
                     context,
                     helper,
                     focus = true,
-                    packageOverride = targetPackageOverride,
                 )
                 hideOverlay(context, helper)
                 projectedPackage = null
@@ -775,7 +649,7 @@ object ClusterProjectionManager {
                         lastFailure = null,
                     )
                 }
-                if (allowAutoContainerCommands) powerDownOwnedCompositor(context, helper)
+                powerDownOwnedCompositor(context, helper)
             }
             ClusterMode.FULLSCREEN -> {
                 val failure = project(
@@ -783,9 +657,6 @@ object ClusterProjectionManager {
                     mode,
                     helper,
                     bootstrap,
-                    allowAutoContainerCommands,
-                    forceAutoContainerCommands,
-                    targetPackageOverride,
                 )
                 if (failure == null) {
                     currentMode = mode
@@ -814,7 +685,6 @@ object ClusterProjectionManager {
                         context,
                         helper,
                         focus = true,
-                        packageOverride = targetPackageOverride,
                     )
                     projectedPackage = null
                     projectionDisplayId = -1
@@ -827,7 +697,7 @@ object ClusterProjectionManager {
                             lastFailure = failure,
                         )
                     }
-                    if (allowAutoContainerCommands) powerDownOwnedCompositor(context, helper)
+                    powerDownOwnedCompositor(context, helper)
                 }
             }
         }
@@ -983,7 +853,6 @@ object ClusterProjectionManager {
                         ownedDisplayIds = ownedIds,
                         mode = currentMode,
                         liveDisplayId = remoteDisplayId,
-                        clusterLabLeaseActive = clusterLabLeaseToken != null,
                     )
                 ) {
                     return@withLock
@@ -1043,9 +912,6 @@ object ClusterProjectionManager {
      *  else) so [applyModeLocked] can report an honest [lastFailure]. */
     private suspend fun project(
         context: Context, mode: ClusterMode, helper: HelperClient, bootstrap: HelperBootstrap,
-        allowAutoContainerCommands: Boolean,
-        forceAutoContainerCommands: Boolean,
-        targetPackageOverride: String?,
     ): String? {
         projectionDisplayId = -1
         if (!bootstrap.ensureRunning()) {
@@ -1058,11 +924,7 @@ object ClusterProjectionManager {
             Log.w(TAG, "factory projection blocked until DiLink reboot applies freeform=0")
             return "factory_reboot_required"
         }
-        val useAutoContainer = shouldUseAutoContainer(
-            allowAutoContainerCommands = allowAutoContainerCommands,
-            preferenceEnabled = autoContainerEnabled(context),
-            forceForParkedLab = forceAutoContainerCommands,
-        )
+        val useAutoContainer = autoContainerEnabled(context)
         _diagnosticState.update {
             it.copy(
                 autoContainerRequested = useAutoContainer,
@@ -1094,26 +956,14 @@ object ClusterProjectionManager {
         if (!ensureOverlayPermission(context, helper)) {
             Log.e(TAG, "overlay permission unavailable; aborting projection"); return "overlay_permission"
         }
-        val displayWaitTimeoutMs = if (forceAutoContainerCommands) {
-            LAB_DISPLAY_WAIT_TIMEOUT_MS
-        } else {
-            DISPLAY_WAIT_TIMEOUT_MS
-        }
+        val displayWaitTimeoutMs = DISPLAY_WAIT_TIMEOUT_MS
         val target = awaitClusterDisplay(context, helper, displayWaitTimeoutMs) ?: run {
             Log.e(
                 TAG,
                 "cluster display not found after ${displayWaitTimeoutMs}ms; " +
                     "visible=${displayInventorySummary(_diagnosticState.value.visibleDisplays)}",
             )
-            return when {
-                forceAutoContainerCommands &&
-                    _diagnosticState.value.autoContainerMarkerWritten == false ->
-                    "compositor_marker"
-                forceAutoContainerCommands &&
-                    _diagnosticState.value.autoContainerCommandAccepted == false ->
-                    "container_on_rejected"
-                else -> "display_not_found"
-            }
+            return "display_not_found"
         }
         val display = target.diagnostic
         projectionDisplayId = display.id
@@ -1130,7 +980,7 @@ object ClusterProjectionManager {
         // freeform remains opt-in for older confirmed platforms only; it must never silently
         // replace the factory path on Sea Lion 07.
         if (remoteDisplayId == -1) releaseOrphanedDisplays(context, helper)
-        val requestedPackage = targetPackageOverride ?: targetPackage(context)
+        val requestedPackage = targetPackage(context)
         if (shouldAttemptDirectProjection(directEnabled, display.id, display.name) &&
             tryDirectProjection(context, helper, display.id, geo, plan, requestedPackage)
         ) {
@@ -1773,10 +1623,6 @@ object ClusterProjectionManager {
             }
         }
     }
-
-    /** Evaluated after an awaitable lab transition while the projection mutex is still owned. */
-    private fun projectionRuntimeResourcesActive(): Boolean =
-        overlayView != null || remoteDisplayId != -1 || directDisplayId != -1
 
     private suspend fun ensureOverlayPermission(context: Context, helper: HelperClient): Boolean {
         // Grant SYSTEM_ALERT_WINDOW + PROJECT_MEDIA via the daemon once per process. We can't gate

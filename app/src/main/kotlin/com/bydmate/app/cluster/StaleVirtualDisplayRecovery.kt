@@ -9,16 +9,14 @@ internal data class StaleVirtualDisplayRecoveryResult(
     val markerClearedIds: Set<Int> = emptySet(),
 )
 
-/** Startup recovery must never touch a live projection or a parked Cluster Lab session. */
+/** Startup recovery must never touch a live projection. */
 internal fun shouldRecoverStaleVirtualDisplays(
     ownedDisplayIds: Set<Int>,
     mode: ClusterMode,
     liveDisplayId: Int,
-    clusterLabLeaseActive: Boolean,
 ): Boolean = ownedDisplayIds.isNotEmpty() &&
     mode == ClusterMode.OFF &&
-    liveDisplayId == -1 &&
-    !clusterLabLeaseActive
+    liveDisplayId == -1
 
 /**
  * Crash recovery for daemon-owned VirtualDisplays.

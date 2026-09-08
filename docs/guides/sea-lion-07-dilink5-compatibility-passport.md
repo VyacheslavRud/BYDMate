@@ -67,8 +67,7 @@ calibration commands, not a confirmed Sea Lion API.
 The decompiled `Stub.onTransact` constructs a new `ProjectionDisplayInfoParcel`, calls transaction
 5 with that object, and writes it to the reply. This proves the AIDL direction is `out`: the request
 contains only the interface token and no caller-provided parcel. Transaction 5 is a read-only getter,
-is executed once per known endpoint only by Cluster Lab `C09`, and is not part of the shared
-`C07/C08` probe.
+was used only by the retired instrument-cluster laboratory. Its helper endpoint has been removed.
 
 The factory `libxdjacontainerservice_jni.so` establishes two additional details:
 
@@ -78,8 +77,8 @@ The factory `libxdjacontainerservice_jni.so` establishes two additional details:
   `count` followed by repeated `String16 name`, `int width`, `int height`, and strong producer
   Binder fields.
 
-`C09` mirrors both read-only operations. It records only safe scalar metadata and producer presence;
-the Surface binders never leave the helper process and no frame is rendered.
+The retired laboratory mirrored both read-only operations and recorded scalar metadata and
+producer presence. These historical findings do not authorize new Binder experiments.
 
 ## Instrument cluster: native renderer plus optional projection bridge
 
@@ -108,9 +107,12 @@ type=VIRTUAL
 owner=com.xdja.containerservice (uid 1000)
 ```
 
-This display is the center-screen floating projection container. It is not the physical instrument
-cluster. Sending Waze there reproduces the previously observed small Waze window on the upper-right
-of the center display, so production cluster selection must continue to exclude this name.
+This display is the protected factory projection input used by `com.byd.launchermap` through an
+Android `Presentation`; it is not a normal Activity display and is not the physical instrument
+cluster itself. Sending the Waze task there directly reproduces the small upper-right centre-screen
+window because it bypasses the factory Presentation path. Production task selection must therefore
+continue to exclude this name. The unsuccessful helper-owned Presentation experiment has been
+removed; it is not an available projection path.
 
 The physical instrument cluster is a native Fission/Qt output, not itself an app-visible Android
 display. An optional dedicated XDJA virtual display can nevertheless act as its pixel input.
@@ -124,11 +126,13 @@ Collected components include:
 - `libBydClusterForDi51Qt.so`
 - `cluster_newui_ocean*.rcc`
 
-Production selection must accept only a non-main, non-`fission_bg` display containing
+Production Waze task selection must accept only a non-main, non-`fission_bg` display containing
 `XDJAScreenProjection`, preferring `_1`. If the factory container does not expose one, projection
 aborts and Waze remains on the centre screen. The backing `VirtualDisplay` must also be PUBLIC;
 private fallback is forbidden because it hides Waze from Accessibility and can blind the working
-windshield HUD. No new `sendInfo` values or native plugin IDs are guessed.
+windshield HUD. `services.jar` whitelists `com.android.shell` but hides the protected display from
+BYDMate/Waze; this whitelist alone did not establish a usable Presentation path. No new `sendInfo`
+values or native plugin IDs are guessed.
 
 ## Native cluster navigation model
 
@@ -203,14 +207,12 @@ durable logging and automatic cleanup.
 
 ### Instrument cluster
 
-- `C07`: bounded donor container sequence with guaranteed 18 -> 0 cleanup and native/display
-  snapshots. It may show the factory native map shell; it does not project Waze by itself.
-- `C08`: read-only before/after watch while the driver manually selects the factory Navi panel.
-- `C09`: read-only native/Java `IAutoContainer` transaction-5 snapshots plus the exact
-  `FissionHostSvc` transaction-101 projection-surface inventory.
+The instrument-cluster laboratory, its scenarios, helper probes and live-capture script have been
+removed. Full Waze-map projection on the target Sea Lion 07 remains unimplemented. The working
+windshield HUD and its separate calibration laboratory remain available.
 
-Never run HUD Lab and Cluster Lab concurrently. Export the journal after tests; a visual observation
-is required before any field or path is promoted to production.
+Export the windshield HUD journal after a parked test; a visual observation is required before
+any field or path is promoted to production.
 
 ## Private-artifact policy
 
