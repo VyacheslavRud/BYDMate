@@ -58,7 +58,7 @@ data class HudLabState(
     val totalSteps: Int = 0,
     val currentPush: Int = 0,
     val totalPushes: Int = 0,
-    val completedExplorerScenarioIds: Set<String> = emptySet(),
+
 )
 
 /**
@@ -87,7 +87,6 @@ class HudLabManager @Inject constructor(
     private val _state = MutableStateFlow(
         HudLabState(
             recordsCount = HudLabLogStore.records(context).size,
-            completedExplorerScenarioIds = HudLabLogStore.completedExplorerScenarioIds(context),
         ),
     )
     val state: StateFlow<HudLabState> = _state.asStateFlow()
@@ -378,16 +377,11 @@ class HudLabManager @Inject constructor(
             .getOrNull()
     }
 
-    fun recordObservation(observed: HudLabObserved, userLabel: String? = null) {
-        if (observed == HudLabObserved.NAMED_INDICATOR && userLabel.isNullOrBlank()) return
+    fun recordObservation(observed: HudLabObserved) {
+        if (observed == HudLabObserved.NAMED_INDICATOR) return
         synchronized(actionLock) {
             val current = _state.value
             if (current.busy || current.pending == null) return
-            if (observed == HudLabObserved.NAMED_INDICATOR &&
-                !HudLabScenarioCatalog.isExplorerScenario(current.pending.record.scenarioId)
-            ) {
-                return
-            }
             _state.update { it.copy(busy = true, lastOutcome = null) }
         }
         scope.launch {
@@ -422,14 +416,13 @@ class HudLabManager @Inject constructor(
                             context,
                             latest.id,
                             observed,
-                            userLabel = userLabel,
                         ),
                     ) { "hud_lab_record_missing_on_observation" }
                 }.isSuccess
                 Log.i(
                     TAG,
                     "HUD Lab observation id=${pending.record.id} expected=${pending.record.expected} " +
-                        "observed=$observed labelChars=${userLabel?.length ?: 0} saved=$saved",
+                        "observed=$observed saved=$saved",
                 )
                 _state.value = if (saved) {
                     finishedState(
@@ -548,8 +541,6 @@ class HudLabManager @Inject constructor(
                 _state.value = _state.value.copy(
                     busy = false,
                     recordsCount = HudLabLogStore.records(context).size,
-                    completedExplorerScenarioIds =
-                        HudLabLogStore.completedExplorerScenarioIds(context),
                     lastOutcome = result.fold(
                         onSuccess = { file: File ->
                             Log.i(TAG, "HUD Lab exported path=${file.absolutePath}")
@@ -577,8 +568,6 @@ class HudLabManager @Inject constructor(
                 _state.value = _state.value.copy(
                     busy = false,
                     recordsCount = HudLabLogStore.records(context).size,
-                    completedExplorerScenarioIds =
-                        HudLabLogStore.completedExplorerScenarioIds(context),
                     lastOutcome = if (result.isSuccess) {
                         HudLabOutcome(HudLabOutcomeType.RECORDS_DELETED)
                     } else {
@@ -772,7 +761,6 @@ class HudLabManager @Inject constructor(
         totalSteps = 0,
         currentPush = 0,
         totalPushes = 0,
-        completedExplorerScenarioIds = HudLabLogStore.completedExplorerScenarioIds(context),
     )
 
     private fun ByteArray.sha256(): String = MessageDigest.getInstance("SHA-256")

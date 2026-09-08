@@ -182,17 +182,33 @@ The production Waze windshield-HUD contract remains deliberately minimal and con
 - `f10`: road text;
 - `f28=2`: right;
 - `f28=3`: left;
-- `f28=7`: left U-turn/native circular-left indicator;
-- `f28=10`: right U-turn/native circular-right indicator;
+- `f28=7`: left U-turn variant from earlier calibration;
+- `f28=10`: right U-turn variant from earlier calibration;
 - `f28=11`: straight;
+- production sends the calibrated turn selector only with a known distance of 1–100 m; outside
+  that range it sends straight, preserving the real `f9` distance and without additional clears;
 - the firmware applies its own distance threshold: 20/50 m shows the maneuver, while 100 m may
   remain straight.
+
+The Waze visual fallback recognizes an enclosed roundabout ring with an approach stem separately
+from ordinary arrows and circular badges. This has local shape regression coverage, but needs
+validation against the target Waze build. The native roundabout selector is still unconfirmed and
+omitted in production until a repeated parked HUD Lab test identifies it; circular U-turn selectors
+7/10 are not assumed to mean a roundabout.
 
 Production omits PNG fields `f7/f8`, speed `f11`, ETA `f26`, and non-zero progress `f33` until the
 firmware behavior is separately understood. The parked `HX01-HX05` run on this Sea Lion firmware
 showed no distinct speed, ETA, or progress UI: every scenario only reproduced known navigation
 arrows. Those scenarios are therefore retired from the runnable catalog; the production Waze frame
 remains unchanged and historical lab records stay readable.
+
+The 2026-09-08 journal confirms `f28=9` as U-turn at 20/50 m. Codes 13/24 (roundabout candidates)
+and 45/46/48/49 (additional navigation candidates) produced only STRAIGHT, not their donor meanings.
+Explorer and its additional-navigation shortcut are retired. These observations do not enumerate
+the firmware symbol set. The extracted target protobuf descriptor declares f28 as uint32 without
+an enum and f7/f8 as repeated uint32, unlike the old raw-PNG laboratory encoding. Therefore earlier
+PNG rejections do not establish that the HUD cannot accept graphics. See the
+[indicator findings](sea-lion-07-hud-indicator-findings.md) for evidence and limits.
 
 ## Dev test matrix
 
@@ -202,7 +218,8 @@ durable logging and automatic cleanup.
 ### Windshield HUD
 
 - `SL01-SL05`: confirmed production smoke tests.
-- `K01-K41` and supported explorer cases remain available for compatibility/calibration work.
+- `U01/U02/R01/R02/S01/S02/N17/N18`: retained legacy compatibility probes.
+- All `E*` Explorer probes, including the additional-navigation shortcut, are historical only.
 - `HX01-HX05` are historical only and cannot be launched again on this build.
 
 ### Instrument cluster

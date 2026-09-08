@@ -29,11 +29,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +48,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bydmate.app.R
-import com.bydmate.app.hud.HudLabLogStore
 import com.bydmate.app.hud.HudLabObserved
 import com.bydmate.app.hud.HudLabOutcome
 import com.bydmate.app.hud.HudLabOutcomeType
@@ -77,11 +74,10 @@ fun HudLabScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     var selectedCatalog by rememberSaveable { mutableIntStateOf(0) }
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
-    val activeCatalog = selectedCatalog.takeIf { it in 0..2 } ?: 0
+    val activeCatalog = selectedCatalog.takeIf { it in 0..1 } ?: 0
     val scenarios = when (activeCatalog) {
         0 -> HudLabScenarioCatalog.confirmed
-        1 -> HudLabScenarioCatalog.compatibility
-        else -> HudLabScenarioCatalog.explorer
+        else -> HudLabScenarioCatalog.compatibility
     }
     val safeSelectedIndex = selectedIndex.coerceIn(0, scenarios.lastIndex.coerceAtLeast(0))
     var parkConfirmed by rememberSaveable { mutableStateOf(false) }
@@ -140,13 +136,6 @@ fun HudLabScreen(
                         selectedIndex = 0
                         parkConfirmed = false
                     },
-                    onSelectExplorer = {
-                        selectedCatalog = 2
-                        selectedIndex = HudLabScenarioCatalog.explorer.indexOfFirst {
-                            it.id !in state.completedExplorerScenarioIds
-                        }.takeIf { it >= 0 } ?: 0
-                        parkConfirmed = false
-                    },
                 )
             }
             if (scenarios.isNotEmpty()) {
@@ -156,8 +145,6 @@ fun HudLabScreen(
                         scenario = scenarios[safeSelectedIndex],
                         selectedIndex = safeSelectedIndex,
                         totalScenarios = scenarios.size,
-                        explorerMode = activeCatalog == 2,
-                        explorerCompletedCount = state.completedExplorerScenarioIds.size,
                         parkConfirmed = parkConfirmed,
                         onParkConfirmedChange = { parkConfirmed = it },
                         onPrevious = { selectedIndex = (selectedIndex - 1).coerceAtLeast(0) },
@@ -172,15 +159,6 @@ fun HudLabScreen(
                             if (safeSelectedIndex < scenarios.lastIndex) {
                                 selectedIndex = safeSelectedIndex + 1
                             }
-                        },
-                        onNamedIndicator = { label ->
-                            viewModel.recordNamedIndicator(label)
-                            if (safeSelectedIndex < scenarios.lastIndex) {
-                                selectedIndex = safeSelectedIndex + 1
-                            }
-                        },
-                        onRepeatRequested = {
-                            viewModel.recordObservation(HudLabObserved.NOT_REPORTED)
                         },
                         onClear = viewModel::clearHud,
                     )
@@ -203,7 +181,6 @@ private fun HudLabCatalogCard(
     enabled: Boolean,
     onSelectConfirmed: () -> Unit,
     onSelectCompatibility: () -> Unit,
-    onSelectExplorer: () -> Unit,
 ) {
     val accent = when (selectedCatalog) {
         0 -> AccentBlue
@@ -244,25 +221,11 @@ private fun HudLabCatalogCard(
                     modifier = Modifier.weight(1f),
                 )
             }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                HudLabCatalogButton(
-                    selected = selectedCatalog == 2,
-                    label = stringResource(R.string.diagnostics_hud_lab_catalog_explorer),
-                    accent = AccentGreen,
-                    enabled = enabled,
-                    onClick = onSelectExplorer,
-                    modifier = Modifier.weight(1f),
-                )
-            }
             Text(
                 stringResource(
                     when (selectedCatalog) {
                         0 -> R.string.diagnostics_hud_lab_catalog_confirmed_hint
-                        1 -> R.string.diagnostics_hud_lab_catalog_compatibility_hint
-                        else -> R.string.diagnostics_hud_lab_catalog_explorer_hint
+                        else -> R.string.diagnostics_hud_lab_catalog_compatibility_hint
                     },
                 ),
                 color = if (selectedCatalog == 0) TextSecondary else accent,
@@ -343,22 +306,15 @@ private fun HudLabRunnerCard(
     scenario: HudLabScenario,
     selectedIndex: Int,
     totalScenarios: Int,
-    explorerMode: Boolean,
-    explorerCompletedCount: Int,
     parkConfirmed: Boolean,
     onParkConfirmedChange: (Boolean) -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onRun: () -> Unit,
     onObserved: (HudLabObserved) -> Unit,
-    onNamedIndicator: (String) -> Unit,
-    onRepeatRequested: () -> Unit,
     onClear: () -> Unit,
 ) {
     val pending = state.pending
-    val pendingIsExplorer = HudLabScenarioCatalog.isExplorerScenario(pending?.record?.scenarioId)
-    var indicatorLabel by rememberSaveable { mutableStateOf("") }
-    LaunchedEffect(pending?.record?.id) { indicatorLabel = "" }
     val controlsEnabled = !state.busy && pending == null
     val canRun = controlsEnabled && parkConfirmed
     Card(
@@ -378,18 +334,6 @@ private fun HudLabRunnerCard(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
             )
-            if (explorerMode) {
-                Text(
-                    stringResource(
-                        R.string.diagnostics_hud_lab_explorer_progress,
-                        explorerCompletedCount.coerceAtMost(totalScenarios),
-                        totalScenarios,
-                    ),
-                    color = AccentGreen,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 3.dp),
-                )
-            }
             Text(
                 "${scenario.id} · ${scenario.title}",
                 color = TextPrimary,
@@ -499,124 +443,31 @@ private fun HudLabRunnerCard(
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
-                if (pendingIsExplorer) {
-                    Text(
-                        stringResource(R.string.diagnostics_hud_lab_explorer_what_seen),
-                        color = TextSecondary,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-                    )
-                    OutlinedTextField(
-                        value = indicatorLabel,
-                        onValueChange = {
-                            indicatorLabel = it.take(HudLabLogStore.MAX_USER_LABEL_CHARS)
-                        },
-                        enabled = !state.busy,
-                        label = {
-                            Text(stringResource(R.string.diagnostics_hud_lab_explorer_label))
-                        },
-                        supportingText = {
-                            Text(
-                                stringResource(
-                                    R.string.diagnostics_hud_lab_explorer_label_counter,
-                                    indicatorLabel.length,
-                                    HudLabLogStore.MAX_USER_LABEL_CHARS,
-                                ),
-                            )
-                        },
-                        minLines = 2,
-                        maxLines = 3,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Button(
-                        onClick = { onNamedIndicator(indicatorLabel) },
-                        enabled = !state.busy && indicatorLabel.isNotBlank(),
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = AccentGreen),
-                    ) {
-                        Text(stringResource(R.string.diagnostics_hud_lab_explorer_save_next))
-                    }
+                Text(
+                    stringResource(R.string.diagnostics_hud_lab_what_seen),
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                )
+                observationOptions(
+                    pending.record.scenarioId,
+                    pending.record.expected,
+                ).chunked(2).forEach { row ->
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        OutlinedButton(
-                            onClick = { onObserved(HudLabObserved.STRAIGHT) },
-                            enabled = !state.busy,
-                            modifier = Modifier.weight(1f).heightIn(min = 44.dp),
-                        ) {
-                            Text(
-                                stringResource(R.string.diagnostics_hud_lab_explorer_straight),
-                                maxLines = 2,
-                            )
-                        }
-                        OutlinedButton(
-                            onClick = { onObserved(HudLabObserved.NOTHING) },
-                            enabled = !state.busy,
-                            modifier = Modifier.weight(1f).heightIn(min = 44.dp),
-                        ) {
-                            Text(
-                                stringResource(R.string.diagnostics_hud_lab_explorer_nothing),
-                                maxLines = 2,
-                            )
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        OutlinedButton(
-                            onClick = { onObserved(HudLabObserved.FLASHED) },
-                            enabled = !state.busy,
-                            modifier = Modifier.weight(1f).heightIn(min = 44.dp),
-                        ) {
-                            Text(hudLabObservedText(HudLabObserved.FLASHED), maxLines = 2)
-                        }
-                        OutlinedButton(
-                            onClick = { onObserved(HudLabObserved.VISIBLE_UNDESCRIBED) },
-                            enabled = !state.busy,
-                            modifier = Modifier.weight(1f).heightIn(min = 44.dp),
-                        ) {
-                            Text(
-                                stringResource(R.string.diagnostics_hud_lab_explorer_skip),
-                                maxLines = 2,
-                            )
-                        }
-                    }
-                    TextButton(
-                        onClick = onRepeatRequested,
-                        enabled = !state.busy,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(stringResource(R.string.diagnostics_hud_lab_explorer_repeat))
-                    }
-                } else {
-                    Text(
-                        stringResource(R.string.diagnostics_hud_lab_what_seen),
-                        color = TextSecondary,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-                    )
-                    observationOptions(
-                        pending.record.scenarioId,
-                        pending.record.expected,
-                    ).chunked(2).forEach { row ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            row.forEach { observed ->
-                                OutlinedButton(
-                                    onClick = { onObserved(observed) },
-                                    enabled = !state.busy,
-                                    modifier = Modifier.weight(1f).heightIn(min = 44.dp),
-                                    border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.55f)),
-                                ) {
-                                    Text(hudLabObservedText(observed), maxLines = 2, fontSize = 11.sp)
-                                }
+                        row.forEach { observed ->
+                            OutlinedButton(
+                                onClick = { onObserved(observed) },
+                                enabled = !state.busy,
+                                modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                                border = BorderStroke(1.dp, AccentBlue.copy(alpha = 0.55f)),
+                            ) {
+                                Text(hudLabObservedText(observed), maxLines = 2, fontSize = 11.sp)
                             }
-                            if (row.size == 1) Box(modifier = Modifier.weight(1f))
                         }
+                        if (row.size == 1) Box(modifier = Modifier.weight(1f))
                     }
                 }
             }

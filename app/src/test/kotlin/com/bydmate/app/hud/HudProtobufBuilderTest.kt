@@ -216,8 +216,8 @@ class HudProtobufBuilderTest {
         ).forEach { gaode -> assertNull(HudProtobufBuilder.seaLionF28ForGaode(gaode)) }
     }
 
-    @Test fun `Sea Lion production frame preserves real distance for firmware threshold`() {
-        listOf(20, 50, 100, 500).forEach { distance ->
+    @Test fun `Sea Lion turns start at 100 metres without changing real distance`() {
+        listOf(1, 20, 50, 99, 100, 101, 200, 500).forEach { distance ->
             val fields = unwrap(
                 HudProtobufBuilder.buildSeaLionGuidanceFrame(
                     maneuverGaode = NavManeuverCodes.GAODE_RIGHT,
@@ -226,7 +226,38 @@ class HudProtobufBuilderTest {
                 ),
             )
             assertEquals(distance.toLong(), fields[9]!!.single() as Long)
-            assertEquals(2L, fields[28]!!.single() as Long)
+            assertEquals(if (distance <= 100) 2L else 11L, fields[28]!!.single() as Long)
+        }
+    }
+
+    @Test fun `unknown or expired distance never triggers a nearby turn`() {
+        listOf(-1, 0).forEach { distance ->
+            val fields = unwrap(HudProtobufBuilder.buildSeaLionGuidanceFrame(
+                maneuverGaode = NavManeuverCodes.GAODE_LEFT,
+                distanceMeters = distance,
+                road = "A",
+            ))
+            assertEquals(0L, fields[9]!!.single() as Long)
+            assertEquals(11L, fields[28]!!.single() as Long)
+        }
+    }
+
+    @Test fun `100 metre threshold covers both sides and U-turns`() {
+        listOf(
+            NavManeuverCodes.GAODE_LEFT,
+            NavManeuverCodes.GAODE_SLIGHT_LEFT,
+            NavManeuverCodes.GAODE_HARD_LEFT,
+            NavManeuverCodes.GAODE_RIGHT,
+            NavManeuverCodes.GAODE_SLIGHT_RIGHT,
+            NavManeuverCodes.GAODE_HARD_RIGHT,
+            NavManeuverCodes.GAODE_UTURN,
+            NavManeuverCodes.GAODE_UTURN_RIGHT,
+        ).forEach { maneuver ->
+            val distant = unwrap(HudProtobufBuilder.buildSeaLionGuidanceFrame(maneuver, 101, "A"))
+            val nearby = unwrap(HudProtobufBuilder.buildSeaLionGuidanceFrame(maneuver, 100, "A"))
+            assertEquals(11L, distant[28]!!.single() as Long)
+            assertTrue((nearby[28]!!.single() as Long) in setOf(2L, 3L, 7L, 10L))
+            assertEquals(100L, nearby[9]!!.single() as Long)
         }
     }
 
@@ -343,24 +374,7 @@ class HudProtobufBuilderTest {
             }
     }
 
-    @Test fun `f28 explorer candidates encode exactly and values outside donor inventory fail`() {
-        HudF28ExplorerCatalog.candidates.forEach { rawF28 ->
-            val fields = unwrap(
-                HudProtobufBuilder.buildHudLabScenarioFrame(
-                    HudLabFrameSpec(f28 = rawF28, distanceMeters = 50, road = ""),
-                    null,
-                    null,
-                ),
-            )
-            assertEquals(rawF28.toLong(), fields[28]!!.single() as Long)
-            assertNull(fields[7])
-            assertNull(fields[8])
-            assertNull(fields[10])
-            assertNull(fields[11])
-            assertNull(fields[26])
-            assertEquals(0L, fields[33]!!.single() as Long)
-        }
-
+    @Test fun `HUD Lab rejects values outside the conservative donor bound`() {
         listOf(5, 6, 50, 255).forEach { rawF28 ->
             assertThrows(IllegalArgumentException::class.java) {
                 HudProtobufBuilder.buildHudLabScenarioFrame(

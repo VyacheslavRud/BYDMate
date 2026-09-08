@@ -3,7 +3,6 @@ package com.bydmate.app.hud
 /** Stable groups shared by the Sea Lion smoke tests and compatibility calibration catalog. */
 enum class HudLabScenarioGroup {
     SEA_LION_CONFIRMED,
-    F28_EXPLORER,
     UTURN,
     ROUNDABOUT,
     SPEED_LIMIT,
@@ -230,37 +229,11 @@ object HudLabScenarioCatalog {
         legacyCoexistence("N18", "LEGACY · LEFT + f6=6 + f11=50", 3),
     )
 
-    /**
-     * Safe unknown-symbol explorer. It reuses the minimal confirmed Sea Lion frame and changes
-     * only f28. Three sends are enough for a parked visual check while keeping bus traffic below
-     * the normal ten-packet smoke-test burst.
-     */
-    val explorer: List<HudLabScenario> = HudF28ExplorerCatalog.candidates.map { rawF28 ->
-        val hex = rawF28.toString(16).uppercase().padStart(2, '0')
-        HudLabScenario(
-            id = HudF28ExplorerCatalog.scenarioId(rawF28),
-            group = HudLabScenarioGroup.F28_EXPLORER,
-            title = "UNKNOWN f28=0x$hex ($rawF28)",
-            command = null,
-            expected = HudLabObserved.NAMED_INDICATOR,
-            steps = listOf(
-                HudLabScenarioStep.Clear(attempts = 3),
-                send(
-                    label = "explore_f28_$rawF28",
-                    frame = HudLabFrameSpec(f28 = rawF28, distanceMeters = 50, road = ""),
-                    repeat = 3,
-                    gapBeforeMs = CLEAR_GAP_MS,
-                ),
-            ),
-        )
-    }
-
     // HX01-HX05 were retired after the 2026-07-22 Sea Lion run: f11, f26, f33 and the f6=6
     // variant produced no visual output beyond the already-confirmed f28 arrow. Keeping them out
     // of `all` prevents accidental reruns while historical exported journals remain readable.
-    val all: List<HudLabScenario> = confirmed + compatibility + explorer
+    val all: List<HudLabScenario> = confirmed + compatibility
 
     fun byId(id: String): HudLabScenario? = all.firstOrNull { it.id == id }
 
-    fun isExplorerScenario(id: String?): Boolean = id != null && explorer.any { it.id == id }
 }

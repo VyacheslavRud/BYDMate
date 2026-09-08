@@ -6,6 +6,57 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WazeVisualManeuverReaderTest {
+    private fun roundaboutMask(exit: Int, withStem: Boolean = true): BooleanArray {
+        val mask = BooleanArray(100 * 100)
+        for (y in 0 until 100) for (x in 0 until 100) {
+            val radiusSquared = (x - 50) * (x - 50) + (y - 38) * (y - 38)
+            if (radiusSquared in 12 * 12..20 * 20) mask[y * 100 + x] = true
+            if (withStem && x in 46..54 && y in 54..91) mask[y * 100 + x] = true
+            if (withStem && exit != 0 && y in 34..42 &&
+                (if (exit > 0) x in 67..88 else x in 12..33)
+            ) mask[y * 100 + x] = true
+            if (withStem && exit == 0 && x in 46..54 && y in 8..21) mask[y * 100 + x] = true
+        }
+        return mask
+    }
+
+    @Test fun `roundabout exits keep their ring instead of becoming ordinary arrows`() {
+        listOf(-1, 0, 1).forEach { exit ->
+            assertEquals(NavManeuverCodes.GAODE_ROUNDABOUT_ENTER,
+                WazeVisualManeuverReader.classifyForegroundMask(100, 100, roundaboutMask(exit))?.maneuverGaode)
+        }
+    }
+
+    @Test fun `roundabout survives coloured badge and disconnected exit number`() {
+        listOf(0xfff7f7f7.toInt(), 0xff151515.toInt()).forEach { ink ->
+            val pixels = IntArray(100 * 100) { 0xff909090.toInt() }
+            for (y in 0 until 100) for (x in 0 until 100) {
+                if ((x - 50) * (x - 50) + (y - 50) * (y - 50) <= 46 * 46) {
+                    pixels[y * 100 + x] = 0xff7356a8.toInt()
+                }
+            }
+            roundaboutMask(1).forEachIndexed { index, arrow -> if (arrow) pixels[index] = ink }
+            for (y in 34..42) for (x in 49..51) pixels[y * 100 + x] = ink
+            assertEquals(NavManeuverCodes.GAODE_ROUNDABOUT_ENTER,
+                WazeVisualManeuverReader.classifyPixels(100, 100, pixels)?.maneuverGaode)
+        }
+    }
+
+    @Test fun `outlined badge without approach stem is not a roundabout`() {
+        assertEquals(0, WazeVisualManeuverReader.classifyForegroundMask(
+            100, 100, roundaboutMask(0, withStem = false),
+        )?.maneuverGaode)
+    }
+
+    @Test fun `open U-turn does not become a roundabout`() {
+        val mask = BooleanArray(100 * 100)
+        for (y in 20..85) for (x in 30..70) {
+            if (x in 30..38 || (x in 62..70 && y <= 60) || y <= 28) mask[y * 100 + x] = true
+        }
+        assertTrue(WazeVisualManeuverReader.classifyForegroundMask(100, 100, mask)?.maneuverGaode !=
+            NavManeuverCodes.GAODE_ROUNDABOUT_ENTER)
+    }
+
     private fun turnMask(right: Boolean): BooleanArray {
         val width = 100
         val mask = BooleanArray(width * width)

@@ -7,6 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -18,6 +19,18 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29, 32])
 class HudLabLogStoreTest {
+    // Records from old APKs remain exportable even though their scenarios are no longer runnable.
+    private fun historicalExplorerScenario(id: String): HudLabScenario {
+        assertNull(HudLabScenarioCatalog.byId(id))
+        return HudLabScenario(
+            id, HudLabScenarioGroup.CONTROL, "Historical explorer", null,
+            HudLabObserved.NAMED_INDICATOR,
+            listOf(HudLabScenarioStep.Send("historical", HudLabFrameSpec(
+                f28 = id.drop(1).toInt(16), distanceMeters = 50, road = "",
+            ), repeatCount = 3, cadenceMs = 300L)),
+        )
+    }
+
     private lateinit var context: Context
     private var exported: File? = null
 
@@ -191,8 +204,8 @@ class HudLabLogStoreTest {
         assertTrue(HudLabLogStore.renderDiagnosticSection(context).contains("rawF28=2"))
     }
 
-    @Test fun `explorer label survives reload and gets a concise export dictionary`() {
-        val scenario = requireNotNull(HudLabScenarioCatalog.byId("E04"))
+    @Test fun `historical explorer label survives reload and gets a concise export dictionary`() {
+        val scenario = historicalExplorerScenario("E04")
         val record = HudLabLogStore.beginScenario(context, scenario, nowMs = 1_000L)
         HudLabLogStore.completeDelivery(context, record.id, nowMs = 1_100L)
         HudLabLogStore.recordObservation(
@@ -217,8 +230,8 @@ class HudLabLogStoreTest {
         assertTrue(report.contains("verdict=MATCH"))
     }
 
-    @Test fun `explorer label is bounded and pending records do not count as complete`() {
-        val scenario = requireNotNull(HudLabScenarioCatalog.byId("E07"))
+    @Test fun `historical explorer label is bounded and pending records do not count as complete`() {
+        val scenario = historicalExplorerScenario("E07")
         val record = HudLabLogStore.beginScenario(context, scenario, nowMs = 1_000L)
 
         assertTrue(HudLabLogStore.completedExplorerScenarioIds(context).isEmpty())
@@ -246,7 +259,7 @@ class HudLabLogStoreTest {
     }
 
     @Test fun `visible without description is distinct from no HUD output`() {
-        val scenario = requireNotNull(HudLabScenarioCatalog.byId("E08"))
+        val scenario = historicalExplorerScenario("E08")
         val record = HudLabLogStore.beginScenario(context, scenario, nowMs = 1_000L)
         HudLabLogStore.completeDelivery(context, record.id, nowMs = 1_100L)
         HudLabLogStore.recordObservation(

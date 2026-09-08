@@ -512,13 +512,15 @@ class HudControllerTest {
         assertEquals(HudFrameKind.GUIDANCE, c.deliveryDiagnostics.value.lastDeliveryKind)
         assertEquals(2, c.deliveryDiagnostics.value.lastGuidanceManeuverGaode)
         assertEquals("RIGHT", c.deliveryDiagnostics.value.lastGuidanceManeuverName)
-        assertEquals(2, c.deliveryDiagnostics.value.lastGuidanceRawF28)
+        // Waze still requests RIGHT, but at 250 m the frame intentionally contains STRAIGHT.
+        assertEquals(11, c.deliveryDiagnostics.value.lastGuidanceRawF28)
         assertEquals(0, c.deliveryDiagnostics.value.lastGuidanceResultCode)
 
         c.setEnabled(false)
 
         awaitTrue { c.status.value == HudController.Status.OFF }
         assertEquals(guidanceAt, c.deliveryDiagnostics.value.lastGuidanceFrameSuccessAtMs)
+        assertEquals(11, c.deliveryDiagnostics.value.lastGuidanceRawF28)
         assertEquals(HudFrameKind.CLEAR, c.deliveryDiagnostics.value.lastDeliveryKind)
         assertTrue(c.deliveryDiagnostics.value.lastClearSuccessAtMs != null)
     }

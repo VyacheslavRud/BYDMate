@@ -39,6 +39,20 @@ class SeaLionHudFlickerRegressionTest {
 
     private fun generation(nowMs: Long): Long = NavGuidanceHub.snapshot(nowMs).hudRefreshGeneration
 
+    @Test fun `repeated roundabout readings survive distance updates without extra redraws`() {
+        startRoute(nowMs = 1_000)
+        NavA11yFeed.applyVisualManeuver(NavManeuverCodes.GAODE_ROUNDABOUT_ENTER, nowMs = 1_100)
+        val afterFirst = generation(1_100)
+        listOf(200, 101, 100, 50).forEachIndexed { index, distance ->
+            val now = 2_000L + index * 1_000L
+            NavGuidanceHub.update(NavGuidance(distanceMeters = distance, road = "Nádražní"),
+                NavGuidanceHub.Source.A11Y, now)
+            NavA11yFeed.applyVisualManeuver(NavManeuverCodes.GAODE_ROUNDABOUT_ENTER, now + 100)
+            assertEquals(NavManeuverCodes.GAODE_ROUNDABOUT_ENTER, NavGuidanceHub.snapshot(now + 100).maneuverGaode)
+            assertEquals(afterFirst, generation(now + 100))
+        }
+    }
+
     @Test fun `re-reading the same arrow every second never asks for a redraw`() {
         startRoute(nowMs = 1_000)
         NavA11yFeed.applyVisualManeuver(NavManeuverCodes.GAODE_LEFT, nowMs = 1_100)

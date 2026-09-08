@@ -20,6 +20,7 @@ object HudProtobufBuilder {
     const val SEA_LION_F28_UTURN_LEFT = 7
     const val SEA_LION_F28_UTURN_RIGHT = 10
     const val SEA_LION_F28_STRAIGHT = 11
+    const val SEA_LION_TURN_DISTANCE_METERS = 100
 
     /** GAODE maneuver -> donor f28 maneuver metadata. It is not the f8 PNG arrow itself. */
     fun gaodeToF28(gaode: Int): Int = when (gaode) {
@@ -57,12 +58,19 @@ object HudProtobufBuilder {
         else -> null
     }
 
+    /** Zero is also the route hub's unknown/expired distance, never evidence of a nearby turn. */
+    fun seaLionF28ForGuidance(gaode: Int, distanceMeters: Int): Int? {
+        val maneuver = seaLionF28ForGaode(gaode) ?: return null
+        return if (distanceMeters in 1..SEA_LION_TURN_DISTANCE_METERS) maneuver
+        else SEA_LION_F28_STRAIGHT
+    }
+
     /**
      * Production guidance frame for the confirmed Sea Lion 07 SOME/IP contract.
      *
      * The vehicle accepted the scalar route fields but rejected every tested f7/f8 PNG payload.
-     * Keep the actual Waze distance unchanged: the factory firmware decides whether to show a
-     * turn arrow or straight guidance from that value (20/50 m turned; 100/500 m stayed straight).
+     * Send straight guidance outside the 100 m approach, keeping the actual Waze distance.
+     * The firmware can still delay a turn at the boundary (parked 100 m tests stayed straight).
      * f10 road text is confirmed. f11 speed, f26 ETA and non-zero f33 progress are omitted because
      * the parked matrix did not prove that the Sea Lion firmware renders them.
      */
@@ -73,7 +81,7 @@ object HudProtobufBuilder {
     ): ByteArray {
         val safeRoad = road.take(MAX_ROAD_CHARS)
         val payload = buildFrameWithRawF28(
-            rawF28 = seaLionF28ForGaode(maneuverGaode),
+            rawF28 = seaLionF28ForGuidance(maneuverGaode, distanceMeters),
             distanceMeters = distanceMeters.coerceAtLeast(0),
             road = safeRoad,
             etaString = null,

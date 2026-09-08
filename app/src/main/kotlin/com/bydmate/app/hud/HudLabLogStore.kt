@@ -578,7 +578,7 @@ object HudLabLogStore {
     private fun quoted(value: String?): String = value?.replace(' ', '_') ?: "null"
 
     private fun StringBuilder.appendExplorerDictionary(records: List<HudLabRecord>) {
-        val explorer = records.filter { HudLabScenarioCatalog.isExplorerScenario(it.scenarioId) }
+        val explorer = records.filter { HudF28ExplorerCatalog.isHistoricalScenario(it.scenarioId) }
         val labeled = explorer.count {
             it.observed == HudLabObserved.NAMED_INDICATOR && !it.userLabel.isNullOrBlank()
         }
@@ -618,7 +618,7 @@ object HudLabLogStore {
     private fun jsonQuoted(value: String?): String = value?.let(JSONObject::quote) ?: "null"
 
     private fun isCompletedExplorerRecord(record: HudLabRecord): Boolean =
-        HudLabScenarioCatalog.isExplorerScenario(record.scenarioId) &&
+        HudF28ExplorerCatalog.isHistoricalScenario(record.scenarioId) &&
             ((record.observed != null && record.observed != HudLabObserved.NOT_REPORTED) ||
                 record.abortedFailure != null || record.sendFailure != null)
 

@@ -410,7 +410,10 @@ object WazeVisualManeuverReader {
         classifyForegroundMask(width, height, brightMask)?.let { candidates += it }
         classifyForegroundMask(width, height, darkMask)?.let { candidates += it }
 
-        return candidates.filter { it.maneuverGaode != 0 }
+        // A roundabout exit can have the same left/right centroid shift as an ordinary turn.
+        // Preserve the enclosed ring evidence before considering that weaker directional cue.
+        return candidates.firstOrNull { it.maneuverGaode == NavManeuverCodes.GAODE_ROUNDABOUT_ENTER }
+            ?: candidates.filter { it.maneuverGaode != 0 }
             .maxByOrNull { abs(it.horizontalShift) }
             ?: candidates.firstOrNull()
     }
@@ -475,12 +478,75 @@ object WazeVisualManeuverReader {
         val looksStraight = componentH * 100 >= componentW * 125 &&
             tailSpan >= 3 && headSpan * 100 >= tailSpan * 140
         val code = when {
+            hasRoundaboutRing(width, height, largest, minY, maxY, componentW, tailSpan) ->
+                NavManeuverCodes.GAODE_ROUNDABOUT_ENTER
             shift >= MIN_DIRECTION_SHIFT -> NavManeuverCodes.GAODE_RIGHT
             shift <= -MIN_DIRECTION_SHIFT -> NavManeuverCodes.GAODE_LEFT
             looksStraight -> NavManeuverCodes.GAODE_STRAIGHT
             else -> 0
         }
         return Classification(code, shift, ratio)
+    }
+
+    /**
+     * A roundabout glyph has an enclosed, roughly round centre and an approach stem below it.
+     * A filled/outlined badge has no such stem; an ordinary turn or U-turn has no enclosed centre.
+     * Inspect only the arrow component so a disconnected exit number inside the ring is harmless.
+     */
+    private fun hasRoundaboutRing(
+        width: Int,
+        height: Int,
+        component: IntArray,
+        minY: Int,
+        maxY: Int,
+        componentWidth: Int,
+        tailSpan: Int,
+    ): Boolean {
+        val ink = BooleanArray(width * height)
+        component.forEach { ink[it] = true }
+        val visited = BooleanArray(ink.size)
+        val queue = ArrayDeque<Int>()
+        for (start in ink.indices) {
+            if (ink[start] || visited[start]) continue
+            var touchesEdge = false
+            var count = 0
+            var left = width
+            var right = 0
+            var top = height
+            var bottom = 0
+            visited[start] = true
+            queue.add(start)
+            while (queue.isNotEmpty()) {
+                val current = queue.removeFirst()
+                val x = current % width
+                val y = current / width
+                count++
+                left = min(left, x); right = max(right, x)
+                top = min(top, y); bottom = max(bottom, y)
+                if (x == 0 || x == width - 1 || y == 0 || y == height - 1) touchesEdge = true
+                fun add(nx: Int, ny: Int) {
+                    if (nx !in 0 until width || ny !in 0 until height) return
+                    val next = ny * width + nx
+                    if (!ink[next] && !visited[next]) {
+                        visited[next] = true
+                        queue.add(next)
+                    }
+                }
+                add(x - 1, y); add(x + 1, y); add(x, y - 1); add(x, y + 1)
+            }
+            if (touchesEdge) continue
+            val holeWidth = right - left + 1
+            val holeHeight = bottom - top + 1
+            if (holeWidth < 8 || holeHeight < 8) continue
+            val roughlyRound = holeWidth * 100 in holeHeight * 65..holeHeight * 150 &&
+                count * 100 >= holeWidth * holeHeight * 55
+            val hasApproachStem = maxY - bottom >= holeHeight * 70 / 100 &&
+                tailSpan * 100 <= componentWidth * 55
+            val ringAboveStem = top - minY < holeHeight &&
+                bottom < minY + (maxY - minY + 1) * 70 / 100
+            if (roughlyRound && hasApproachStem && ringAboveStem) return true
+        }
+        return false
     }
 
     private fun colorBin(color: Int): Int =

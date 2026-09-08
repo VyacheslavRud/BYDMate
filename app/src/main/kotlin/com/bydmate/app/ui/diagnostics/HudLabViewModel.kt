@@ -21,10 +21,6 @@ class HudLabViewModel @Inject constructor(
         hudLabManager.recordObservation(observed)
     }
 
-    fun recordNamedIndicator(label: String) {
-        hudLabManager.recordObservation(HudLabObserved.NAMED_INDICATOR, userLabel = label)
-    }
-
     fun clearHud() {
         hudLabManager.clear()
     }

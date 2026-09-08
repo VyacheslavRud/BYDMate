@@ -1,9 +1,10 @@
 package com.bydmate.app.hud
 
 /**
- * Audited selector values exposed by the bundled donor navigation asset inventory.
+ * Historical explorer IDs and the conservative donor bound used by the lab encoder.
+ * No runnable probes are generated here. This is not the Sea Lion firmware indicator inventory.
  *
- * The explorer deliberately changes only protobuf field 28. Values 0x05 and 0x06 have no donor
+ * The retired explorer changed only protobuf field 28. Values 0x05 and 0x06 have no donor
  * asset and values outside this inventory are never accepted by the parked laboratory builder.
  */
 object HudF28ExplorerCatalog {
@@ -13,6 +14,10 @@ object HudF28ExplorerCatalog {
     val alreadyTestedValues: Set<Int> = setOf(0, 1, 2, 3, 9, 13, 24)
 
     val candidates: List<Int> = (donorValues - alreadyTestedValues).sorted()
+
+    private val historicalScenarioIds = candidates.map(::scenarioId).toSet()
+
+    fun isHistoricalScenario(id: String?): Boolean = id in historicalScenarioIds
 
     fun isCandidate(value: Int): Boolean = value in candidates
 
