@@ -1242,6 +1242,8 @@
     <string name="diagnostics_hud_lab_catalog_compatibility">Other BYD</string>
     <string name="diagnostics_hud_lab_catalog_confirmed_hint">5 short smoke tests cover RIGHT/LEFT, the native 50/100 m threshold and road text.</string>
     <string name="diagnostics_hud_lab_catalog_compatibility_hint">Legacy U-turn, roundabout and speed probes. Expected symbols do not imply confirmed Sea Lion support.</string>
+    <string name="diagnostics_hud_lab_catalog_search">Roundabout search</string>
+    <string name="diagnostics_hud_lab_catalog_search_hint">C01: is the arrow shown when frames carry a counter (as in byd-hud). T01–T03 and K/P were answered on 03.10: the arrow changes without blanking the card, there is no roundabout code, this firmware refuses pictures. C01 alone is enough.</string>
     <string name="diagnostics_hud_lab_launcher_description">The compact step-by-step lab opens separately from the long diagnostics screen.</string>
     <string name="diagnostics_hud_lab_open">Open</string>
     <string name="diagnostics_hud_lab_test_counter">Test %1$d of %2$d</string>
@@ -1284,6 +1286,7 @@
     <string name="diagnostics_hud_lab_saw_reversed_sequence">Right first, then left</string>
     <string name="diagnostics_hud_lab_saw_first_only">First phase only</string>
     <string name="diagnostics_hud_lab_saw_second_only">Second phase only</string>
+    <string name="diagnostics_hud_lab_saw_arrow_changed">Arrow switched to the second one</string>
     <string name="diagnostics_hud_lab_saw_other">Different symbol</string>
     <string name="diagnostics_hud_lab_saw_named_indicator">Described indicator</string>
     <string name="diagnostics_hud_lab_saw_visible_undescribed">Indicator visible without description</string>

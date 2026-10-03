@@ -1397,6 +1397,8 @@
     <string name="diagnostics_hud_lab_catalog_compatibility">Другие BYD</string>
     <string name="diagnostics_hud_lab_catalog_confirmed_hint">5 коротких smoke-тестов проверяют RIGHT/LEFT, штатный порог 50/100 м и текст дороги.</string>
     <string name="diagnostics_hud_lab_catalog_compatibility_hint">Старые пробы разворота, круга и скорости. Ожидаемые символы не означают подтверждённую поддержку на Sea Lion.</string>
+    <string name="diagnostics_hud_lab_catalog_search">Поиск кольца</string>
+    <string name="diagnostics_hud_lab_catalog_search_hint">C01: видна ли стрелка, когда кадры несут счётчик (как у byd-hud). T01–T03 и K/P пройдены 03.10: стрелка меняется без гашения карточки, кода кольца нет, картинки эта прошивка не принимает. Достаточно пройти C01.</string>
     <string name="diagnostics_hud_lab_launcher_description">Компактная пошаговая лаборатория открывается отдельно от длинного экрана диагностики.</string>
     <string name="diagnostics_hud_lab_open">Открыть</string>
     <string name="diagnostics_hud_lab_test_counter">Тест %1$d из %2$d</string>
@@ -1439,6 +1441,7 @@
     <string name="diagnostics_hud_lab_saw_reversed_sequence">Сначала вправо, затем влево</string>
     <string name="diagnostics_hud_lab_saw_first_only">Только первая фаза</string>
     <string name="diagnostics_hud_lab_saw_second_only">Только вторая фаза</string>
+    <string name="diagnostics_hud_lab_saw_arrow_changed">Стрелка сменилась на вторую</string>
     <string name="diagnostics_hud_lab_saw_other">Другой символ</string>
     <string name="diagnostics_hud_lab_saw_named_indicator">Описанный индикатор</string>
     <string name="diagnostics_hud_lab_saw_visible_undescribed">Индикатор был, без описания</string>

@@ -59,6 +59,8 @@ enum class HudLabObserved {
     REVERSED_SEQUENCE,
     FIRST_PHASE_ONLY,
     SECOND_PHASE_ONLY,
+    /** The second arrow of a no-CLEAR transition replaced the first one on the glass. */
+    ARROW_CHANGED,
     VISIBLE_UNDESCRIBED,
     NAMED_INDICATOR,
     OTHER,

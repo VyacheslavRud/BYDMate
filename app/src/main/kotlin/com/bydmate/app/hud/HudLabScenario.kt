@@ -7,6 +7,10 @@ enum class HudLabScenarioGroup {
     ROUNDABOUT,
     SPEED_LIMIT,
     CONTROL,
+    /** No-CLEAR arrow changes: does the firmware redraw a changed f28 by itself? */
+    TRANSITION,
+    /** Selector and picture probes looking for a roundabout symbol on this firmware. */
+    ROUNDABOUT_SEARCH,
 }
 
 /** Bounded donor fields allowed in parked synthetic frames. */
@@ -20,13 +24,20 @@ data class HudLabFrameSpec(
     val totalDistanceMeters: Int = 0,
     val speedLimit: Int = 0,
     val includeSpeedSign: Boolean = false,
+    /**
+     * byd-hud framing, field-tested on Sea Lion 07: f2 counts frames 0..255 instead of the
+     * constant 2, and the Binder call carries the wall-clock time instead of 0. Lab-only probes
+     * for why this firmware refuses picture frames; production keeps the confirmed framing.
+     */
+    val f2Counter: Boolean = false,
+    val wallClockTimestamp: Boolean = false,
 ) {
     val effectiveRenderClass: Int
         get() = renderClass ?: if (includeSpeedSign) 6 else 1
 
     val fieldManifest: String
         get() = buildList {
-            add("f2=2")
+            add(if (f2Counter) "f2=counter" else "f2=2")
             add("f6=$effectiveRenderClass")
             if (includeSpeedSign) add("f7=speed_png")
             iconCode?.let { add("f8=0x${it.toString(16)}.png") }
@@ -234,6 +245,120 @@ object HudLabScenarioCatalog {
     // of `all` prevents accidental reruns while historical exported journals remain readable.
     val all: List<HudLabScenario> = confirmed + compatibility
 
-    fun byId(id: String): HudLabScenario? = all.firstOrNull { it.id == id }
+    /**
+     * f28 values worth one parked look for a roundabout glyph, most likely first: 7 and 10 were
+     * seen as circular arrows in July, 8 is byd-hud's right U-turn, 9 the confirmed U-turn as a
+     * reference, 4/5/6/12 sit between known codes, 99 is byd-hud's blank. Codes 13/24/45/46/48/49
+     * already drew straight on this firmware and are not repeated.
+     */
+    val SEARCH_F28_VALUES: List<Int> = listOf(7, 10, 8, 9, 5, 4, 6, 12, 99)
+
+    /** Donor roundabout picture with exit number 2 (assets/navi/0x1a.png). */
+    const val SEARCH_ROUNDABOUT_ICON = 26
+
+    private fun transition(
+        id: String,
+        title: String,
+        first: HudLabFrameSpec,
+        second: HudLabFrameSpec,
+    ) = HudLabScenario(
+        id = id,
+        group = HudLabScenarioGroup.TRANSITION,
+        title = title,
+        command = null,
+        expected = HudLabObserved.ARROW_CHANGED,
+        steps = listOf(
+            HudLabScenarioStep.Clear(attempts = 3),
+            send("${id.lowercase()}_first", first, gapBeforeMs = CLEAR_GAP_MS),
+            send("${id.lowercase()}_second", second, gapBeforeMs = BURST_CADENCE_MS),
+        ),
+    )
+
+    private fun selectorProbe(rawF28: Int): HudLabScenario {
+        val id = "K" + rawF28.toString(16).uppercase().padStart(2, '0')
+        return HudLabScenario(
+            id = id,
+            group = HudLabScenarioGroup.ROUNDABOUT_SEARCH,
+            title = "SEARCH · f28=$rawF28 at 50 m",
+            command = null,
+            expected = HudLabObserved.ROUNDABOUT,
+            steps = burst(
+                id.lowercase(),
+                HudLabFrameSpec(f28 = rawF28, distanceMeters = 50, road = "HUD LAB $id"),
+            ),
+        )
+    }
+
+    private fun pictureProbe(
+        id: String,
+        title: String,
+        f2Counter: Boolean,
+        wallClockTimestamp: Boolean,
+    ) = HudLabScenario(
+        id = id,
+        group = HudLabScenarioGroup.ROUNDABOUT_SEARCH,
+        title = title,
+        command = null,
+        expected = HudLabObserved.ROUNDABOUT,
+        steps = burst(
+            id.lowercase(),
+            HudLabFrameSpec(
+                f28 = 99,
+                iconCode = SEARCH_ROUNDABOUT_ICON,
+                distanceMeters = 50,
+                road = "HUD LAB $id",
+                f2Counter = f2Counter,
+                wallClockTimestamp = wallClockTimestamp,
+            ),
+        ),
+    )
+
+    /**
+     * C01 asks whether this firmware draws a plain arrow when f2 counts frames, the way the
+     * schema names it (`Counter`) and byd-hud sends it. Unique frames could replace the CLEAR that
+     * blinks the card after a system overlay. T01-T03 (answered 2026-10-03: the glass redraws a
+     * changed arrow without a CLEAR) and the K/P roundabout probes (no roundabout selector; this
+     * firmware's f7/f8 are lane arrays, so pictures are refused) stay runnable for comparison.
+     */
+    val search: List<HudLabScenario> = listOf(
+        HudLabScenario(
+            id = "C01",
+            group = HudLabScenarioGroup.TRANSITION,
+            title = "FRAMING · RIGHT at 50 m, counting f2 + wall clock",
+            command = null,
+            expected = HudLabObserved.RIGHT,
+            steps = burst(
+                "c01",
+                HudLabFrameSpec(
+                    f28 = 2,
+                    distanceMeters = 50,
+                    road = "HUD LAB C01",
+                    f2Counter = true,
+                    wallClockTimestamp = true,
+                ),
+            ),
+        ),
+        transition(
+            "T01", "NO CLEAR · LEFT then RIGHT at 50 m",
+            HudLabFrameSpec(f28 = 1, distanceMeters = 50, road = "HUD LAB T01"),
+            HudLabFrameSpec(f28 = 2, distanceMeters = 50, road = "HUD LAB T01"),
+        ),
+        transition(
+            "T02", "NO CLEAR · STRAIGHT at 150 m then RIGHT at 50 m",
+            HudLabFrameSpec(f28 = 11, distanceMeters = 150, road = "HUD LAB T02"),
+            HudLabFrameSpec(f28 = 2, distanceMeters = 50, road = "HUD LAB T02"),
+        ),
+        transition(
+            "T03", "NO CLEAR · RIGHT at 50 m then STRAIGHT at 300 m",
+            HudLabFrameSpec(f28 = 2, distanceMeters = 50, road = "HUD LAB T03"),
+            HudLabFrameSpec(f28 = 11, distanceMeters = 300, road = "HUD LAB T03"),
+        ),
+    ) + SEARCH_F28_VALUES.map(::selectorProbe) + listOf(
+        pictureProbe("P01", "PICTURE · roundabout, f2 counter + wall clock", true, true),
+        pictureProbe("P02", "PICTURE · roundabout, wall clock only", false, true),
+        pictureProbe("P03", "PICTURE · roundabout, f2 counter only", true, false),
+    )
+
+    fun byId(id: String): HudLabScenario? = (all + search).firstOrNull { it.id == id }
 
 }

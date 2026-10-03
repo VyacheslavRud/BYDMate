@@ -1,7 +1,6 @@
 package com.bydmate.app.navdata
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -29,9 +28,9 @@ class SeaLionHudFlickerRegressionTest {
     }
 
     /** Distance and street arrive from the text path first, exactly as on the car. */
-    private fun startRoute(nowMs: Long) {
+    private fun startRoute(nowMs: Long, distanceMeters: Int = 400) {
         NavGuidanceHub.update(
-            NavGuidance(distanceMeters = 400, road = "Nádražní"),
+            NavGuidance(distanceMeters = distanceMeters, road = "Nádražní"),
             NavGuidanceHub.Source.A11Y,
             nowMs,
         )
@@ -69,17 +68,31 @@ class SeaLionHudFlickerRegressionTest {
         assertEquals(NavManeuverCodes.GAODE_LEFT, NavGuidanceHub.snapshot(nowMs).maneuverGaode)
     }
 
-    @Test fun `the first arrow of a route is still a change worth drawing`() {
+    @Test fun `the first arrow inside the approach reaches the frame without a CLEAR`() {
+        startRoute(nowMs = 1_000, distanceMeters = 80)
+        val before = generation(1_000)
+
+        NavA11yFeed.applyVisualManeuver(NavManeuverCodes.GAODE_LEFT, nowMs = 1_100)
+
+        assertEquals(before, generation(1_100))
+        assertEquals(NavManeuverCodes.GAODE_LEFT, NavGuidanceHub.snapshot(1_100).maneuverGaode)
+    }
+
+    @Test fun `the first arrow far from the turn does not blink the straight card`() {
+        // Beyond 100 m the unknown maneuver is already drawn as straight, like a known one.
         startRoute(nowMs = 1_000)
         val before = generation(1_000)
 
         NavA11yFeed.applyVisualManeuver(NavManeuverCodes.GAODE_LEFT, nowMs = 1_100)
 
-        assertNotEquals(before, generation(1_100))
+        assertEquals(before, generation(1_100))
+        assertEquals(NavManeuverCodes.GAODE_LEFT, NavGuidanceHub.snapshot(1_100).maneuverGaode)
     }
 
-    @Test fun `a real LEFT to RIGHT change requests exactly one redraw`() {
-        startRoute(nowMs = 1_000)
+    @Test fun `a real LEFT to RIGHT change is applied without blinking the card`() {
+        // Parked HUD Lab T01 (2026-10-03): the glass swaps left for right on the next frame, so
+        // the change needs no CLEAR. f28 goes from 1 to 2 inside the 100 m approach.
+        startRoute(nowMs = 1_000, distanceMeters = 80)
         NavA11yFeed.applyVisualManeuver(NavManeuverCodes.GAODE_LEFT, nowMs = 1_100)
         repeat(5) { NavA11yFeed.applyVisualManeuver(NavManeuverCodes.GAODE_LEFT, 2_100L + it * 1_000) }
         val beforeTurnChange = generation(7_100)
@@ -87,12 +100,59 @@ class SeaLionHudFlickerRegressionTest {
         NavA11yFeed.applyVisualManeuver(NavManeuverCodes.GAODE_RIGHT, nowMs = 8_100)
         val afterTurnChange = generation(8_100)
 
-        assertEquals(beforeTurnChange + 1, afterTurnChange)
+        assertEquals(beforeTurnChange, afterTurnChange)
         assertEquals(NavManeuverCodes.GAODE_RIGHT, NavGuidanceHub.snapshot(8_100).maneuverGaode)
 
         // The new arrow then settles: further identical reads must go quiet again.
         repeat(5) { NavA11yFeed.applyVisualManeuver(NavManeuverCodes.GAODE_RIGHT, 9_100L + it * 1_000) }
         assertEquals(afterTurnChange, generation(14_100))
+    }
+
+    /**
+     * Since the 100 m approach gate every known maneuver beyond 100 m is sent as f28=11, so a
+     * LEFT/RIGHT reading change far from the turn leaves the windshield frame byte-identical.
+     * A refresh there is a CLEAR with nothing new to draw: the card blinks for no reason.
+     */
+    @Test fun `a maneuver change that leaves the windshield frame identical does not blink`() {
+        data class Case(val distance: Int, val first: Int, val second: Int)
+        listOf(
+            Case(400, NavManeuverCodes.GAODE_LEFT, NavManeuverCodes.GAODE_RIGHT),
+            Case(400, NavManeuverCodes.GAODE_STRAIGHT, NavManeuverCodes.GAODE_LEFT),
+            Case(400, NavManeuverCodes.GAODE_LEFT, NavManeuverCodes.GAODE_ROUNDABOUT_ENTER),
+            Case(50, NavManeuverCodes.GAODE_LEFT, NavManeuverCodes.GAODE_HARD_LEFT),
+            Case(50, NavManeuverCodes.GAODE_ROUNDABOUT_ENTER, NavManeuverCodes.GAODE_ARRIVE),
+        ).forEach { case ->
+            NavGuidanceHub.reset()
+            startRoute(nowMs = 1_000, distanceMeters = case.distance)
+            NavA11yFeed.applyVisualManeuver(case.first, nowMs = 1_100)
+            val settled = generation(1_100)
+
+            NavA11yFeed.applyVisualManeuver(case.second, nowMs = 2_100)
+
+            assertEquals("$case", settled, generation(2_100))
+            // The route state still follows the newest reading for the voice agent and logs.
+            assertEquals("$case", case.second, NavGuidanceHub.snapshot(2_100).maneuverGaode)
+        }
+    }
+
+    @Test fun `a maneuver change that changes the windshield frame needs no CLEAR`() {
+        data class Case(val distance: Int, val first: Int, val second: Int)
+        listOf(
+            Case(50, NavManeuverCodes.GAODE_LEFT, NavManeuverCodes.GAODE_RIGHT),
+            Case(50, NavManeuverCodes.GAODE_LEFT, NavManeuverCodes.GAODE_STRAIGHT),
+            Case(50, NavManeuverCodes.GAODE_LEFT, NavManeuverCodes.GAODE_SLIGHT_LEFT),
+            Case(50, NavManeuverCodes.GAODE_LEFT, NavManeuverCodes.GAODE_ROUNDABOUT_ENTER),
+        ).forEach { case ->
+            NavGuidanceHub.reset()
+            startRoute(nowMs = 1_000, distanceMeters = case.distance)
+            NavA11yFeed.applyVisualManeuver(case.first, nowMs = 1_100)
+            val settled = generation(1_100)
+
+            NavA11yFeed.applyVisualManeuver(case.second, nowMs = 2_100)
+
+            assertEquals("$case", settled, generation(2_100))
+            assertEquals("$case", case.second, NavGuidanceHub.snapshot(2_100).maneuverGaode)
+        }
     }
 
     @Test fun `hint result separates re-confirmation from a real change`() {

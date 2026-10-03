@@ -1239,6 +1239,8 @@
     <string name="diagnostics_hud_lab_catalog_compatibility">Outros BYD</string>
     <string name="diagnostics_hud_lab_catalog_confirmed_hint">5 smoke tests curtos verificam RIGHT/LEFT, o limite nativo de 50/100 m e o texto da via.</string>
     <string name="diagnostics_hud_lab_catalog_compatibility_hint">Testes antigos de retorno, rotatória e velocidade. Os símbolos esperados não significam suporte confirmado no Sea Lion.</string>
+    <string name="diagnostics_hud_lab_catalog_search">Busca de rotatória</string>
+    <string name="diagnostics_hud_lab_catalog_search_hint">C01: a seta aparece quando os quadros levam um contador (como no byd-hud). T01–T03 e K/P já respondidos em 03.10: a seta muda sem apagar o cartão, não há código de rotatória, este firmware recusa imagens. Basta o C01.</string>
     <string name="diagnostics_hud_lab_launcher_description">O laboratório compacto passo a passo abre separado do ecrã longo de diagnóstico.</string>
     <string name="diagnostics_hud_lab_open">Abrir</string>
     <string name="diagnostics_hud_lab_test_counter">Teste %1$d de %2$d</string>
@@ -1281,6 +1283,7 @@
     <string name="diagnostics_hud_lab_saw_reversed_sequence">Primeiro direita, depois esquerda</string>
     <string name="diagnostics_hud_lab_saw_first_only">Apenas a primeira fase</string>
     <string name="diagnostics_hud_lab_saw_second_only">Apenas a segunda fase</string>
+    <string name="diagnostics_hud_lab_saw_arrow_changed">A seta mudou para a segunda</string>
     <string name="diagnostics_hud_lab_saw_other">Outro símbolo</string>
     <string name="diagnostics_hud_lab_saw_named_indicator">Indicador descrito</string>
     <string name="diagnostics_hud_lab_saw_visible_undescribed">Indicador visível sem descrição</string>

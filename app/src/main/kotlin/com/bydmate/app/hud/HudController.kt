@@ -211,6 +211,7 @@ class HudController @Inject constructor(
     internal fun sendHudLabFrame(
         payload: ByteArray,
         parkConfirmedByUser: Boolean,
+        timestampMs: Long = 0L,
     ): HudLabTransportResult = synchronized(hudLabLock) {
         fun HudLabTransportResult.withCurrentOwnership() = copy(
             outputMayBeOwned = hudLabOutputSuspended ||
@@ -244,11 +245,17 @@ class HudController @Inject constructor(
             }
             return@synchronized finalSafety.withCurrentOwnership()
         }
-        val rc = runCatching { currentBridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, payload) }
-            .getOrDefault(HudSomeIpBridge.RESULT_LOCAL_ERROR)
+        val rc = runCatching {
+            if (timestampMs == 0L) {
+                currentBridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, payload)
+            } else {
+                currentBridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, payload, timestampMs)
+            }
+        }.getOrDefault(HudSomeIpBridge.RESULT_LOCAL_ERROR)
         Log.i(
             TAG,
-            "HUD Lab frame raw payloadBytes=${payload.size} rc=$rc gear=$gear speed=$speed",
+            "HUD Lab frame raw payloadBytes=${payload.size} rc=$rc gear=$gear speed=$speed " +
+                "timestamp=${if (timestampMs == 0L) "zero" else "wall"}",
         )
         finalSafety.copy(rc = rc, outputMayBeOwned = true)
     }

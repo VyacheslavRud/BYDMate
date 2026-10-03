@@ -35,16 +35,62 @@ class HudPushLoopTest {
             onDeliveryAttempt = { kind, _ -> kinds += kind },
         )
         var active = false
-        listOf(200, 101, 100, 99, 50, 300).forEach { distance ->
+        listOf(200, 101, 100, 99, 50, 300, 300).forEach { distance ->
             NavGuidanceHub.update(NavGuidance(maneuverGaode = 2, distanceMeters = distance, road = "A"),
                 NavGuidanceHub.Source.A11Y, nowMs = now)
             active = loop.tick(active)
             now += 300L
         }
         assertTrue(active)
-        assertEquals(listOf(11, 11, 2, 2, 2, 11), mappings)
-        assertEquals(List(6) { HudFrameKind.GUIDANCE }, kinds)
-        assertEquals(6, sink.events.size)
+        // Parked HUD Lab T02/T03 (2026-10-03): both directions swap on the next frame.
+        assertEquals(listOf(11, 11, 2, 2, 2, 11, 11), mappings)
+        assertEquals(List(7) { HudFrameKind.GUIDANCE }, kinds)
+        assertEquals(7, sink.events.size)
+    }
+
+    @Test fun `a passed turn is replaced by straight on the next frame without a CLEAR`() {
+        val sink = FakeSink()
+        var now = 1_000L
+        val mappings = mutableListOf<Int?>()
+        val kinds = mutableListOf<HudFrameKind>()
+        val loop = HudPushLoop(sink, nowMsProvider = { now },
+            onGuidanceAttempt = { _, rawF28, _ -> mappings += rawF28 },
+            onDeliveryAttempt = { kind, _ -> kinds += kind },
+        )
+        var active = false
+        // LEFT at 20 m, then Waze jumps to the next maneuver 1.2 km away (still unknown).
+        NavGuidanceHub.update(NavGuidance(maneuverGaode = 1, distanceMeters = 20, road = "A"),
+            NavGuidanceHub.Source.A11Y, nowMs = now)
+        active = loop.tick(active)
+        now += 300L
+        NavGuidanceHub.update(NavGuidance(distanceMeters = 1_200, road = "B"),
+            NavGuidanceHub.Source.A11Y, nowMs = now)
+        repeat(3) {
+            active = loop.tick(active)
+            now += 300L
+        }
+        assertEquals(listOf(1, 11, 11, 11), mappings)
+        assertEquals(List(4) { HudFrameKind.GUIDANCE }, kinds)
+    }
+
+    @Test fun `straight to turn and turn to turn changes are sent directly`() {
+        val sink = FakeSink()
+        var now = 1_000L
+        val mappings = mutableListOf<Int?>()
+        val loop = HudPushLoop(sink, nowMsProvider = { now },
+            onGuidanceAttempt = { _, rawF28, _ -> mappings += rawF28 },
+        )
+        var active = false
+        listOf(1 to 150, 1 to 90, 2 to 80).forEach { (maneuver, distance) ->
+            NavGuidanceHub.update(
+                NavGuidance(maneuverGaode = maneuver, distanceMeters = distance, road = "A"),
+                NavGuidanceHub.Source.A11Y,
+                nowMs = now,
+            )
+            active = loop.tick(active)
+            now += 300L
+        }
+        assertEquals(listOf(11, 1, 2), mappings)
     }
 
     private fun activeHub(nowMs: Long) {

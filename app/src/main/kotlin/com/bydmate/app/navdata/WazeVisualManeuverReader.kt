@@ -7,6 +7,8 @@ import android.os.Build
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import java.util.ArrayDeque
+import java.util.concurrent.Executor
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.max
@@ -56,6 +58,16 @@ object WazeVisualManeuverReader {
     )
 
     private val inFlight = AtomicBoolean(false)
+    /**
+     * Converting the full-screen hardware buffer allocates about 8 MB once a second while a route
+     * is guided. That copy, and the classification, stay off the main thread that also delivers
+     * accessibility events. One thread keeps readings in order; one is in flight at a time.
+     */
+    private val worker: Executor by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "waze-visual-maneuver").apply { isDaemon = true }
+        }
+    }
     @Volatile private var lastAttemptElapsedMs: Long = 0L
     @Volatile private var latest = Diagnostics()
     @Volatile private var latestCounters = Counters()
@@ -88,7 +100,12 @@ object WazeVisualManeuverReader {
         )
     }
 
-    /** Schedules at most one bounded screenshot per second. Returns false when no safe crop exists. */
+    /**
+     * Schedules at most one bounded screenshot per second. Returns false when no safe crop exists.
+     * [callback] runs on the worker thread for every captured icon: the gaode code, or 0 when the
+     * shape was not recognized. Screenshot and bitmap failures say nothing about the icon and
+     * never reach it.
+     */
     fun request(
         service: AccessibilityService,
         root: AccessibilityNodeInfo,
@@ -123,12 +140,13 @@ object WazeVisualManeuverReader {
         return runCatching {
             service.takeScreenshot(
                 target.displayId,
-                service.mainExecutor,
+                worker,
                 object : AccessibilityService.TakeScreenshotCallback {
                     override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
                         val buffer = screenshot.hardwareBuffer
                         var wrapped: Bitmap? = null
                         var software: Bitmap? = null
+                        var reading: Int? = null
                         try {
                             wrapped = Bitmap.wrapHardwareBuffer(buffer, screenshot.colorSpace)
                             software = wrapped?.copy(Bitmap.Config.ARGB_8888, false)
@@ -146,7 +164,7 @@ object WazeVisualManeuverReader {
                             )
                             latest = result
                             countCompletion(result)
-                            classification?.maneuverGaode?.takeIf { it != 0 }?.let(callback)
+                            if (software != null) reading = classification?.maneuverGaode ?: 0
                         } catch (_: Throwable) {
                             val result = latest.copy(failure = "bitmap_processing_failed")
                             latest = result
@@ -157,6 +175,8 @@ object WazeVisualManeuverReader {
                             buffer.close()
                             inFlight.set(false)
                         }
+                        // After the release: the reading may schedule the next screenshot.
+                        reading?.let { value -> runCatching { callback(value) } }
                     }
 
                     override fun onFailure(errorCode: Int) {

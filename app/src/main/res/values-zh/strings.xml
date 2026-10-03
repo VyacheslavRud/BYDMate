@@ -1360,6 +1360,8 @@
     <string name="diagnostics_hud_lab_catalog_compatibility">其他 BYD</string>
     <string name="diagnostics_hud_lab_catalog_confirmed_hint">5 个简短 smoke test 验证 RIGHT/LEFT、原厂 50/100 米阈值和道路文字。</string>
     <string name="diagnostics_hud_lab_catalog_compatibility_hint">旧版掉头、环岛和车速测试。预期符号不代表已确认海狮车型支持。</string>
+    <string name="diagnostics_hud_lab_catalog_search">环岛搜索</string>
+    <string name="diagnostics_hud_lab_catalog_search_hint">C01：帧带计数器（同 byd-hud）时箭头是否显示。T01–T03 和 K/P 已于 10 月 3 日完成：箭头无需清屏即可切换，没有环岛代码，此固件不接受图片。只需运行 C01。</string>
     <string name="diagnostics_hud_lab_launcher_description">紧凑的逐步实验室与长诊断页面分开打开。</string>
     <string name="diagnostics_hud_lab_open">打开</string>
     <string name="diagnostics_hud_lab_test_counter">测试 %1$d / %2$d</string>
@@ -1402,6 +1404,7 @@
     <string name="diagnostics_hud_lab_saw_reversed_sequence">先右转，后左转</string>
     <string name="diagnostics_hud_lab_saw_first_only">仅第一阶段</string>
     <string name="diagnostics_hud_lab_saw_second_only">仅第二阶段</string>
+    <string name="diagnostics_hud_lab_saw_arrow_changed">箭头切换为第二个</string>
     <string name="diagnostics_hud_lab_saw_other">其他符号</string>
     <string name="diagnostics_hud_lab_saw_named_indicator">已描述的指示符</string>
     <string name="diagnostics_hud_lab_saw_visible_undescribed">已显示指示符但未描述</string>

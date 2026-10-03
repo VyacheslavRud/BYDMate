@@ -92,7 +92,7 @@ class MediaSessionListenerService : NotificationListenerService() {
     private val hudOverlayRecoveryRunnable = Runnable {
         val hub = com.bydmate.app.navdata.NavGuidanceHub
         if (hub.snapshot().active) {
-            hub.requestHudRefresh()
+            hub.requestHudRefresh("waze_notification_overlay")
             Log.i(TAG, "Waze navigation overlay settled; requested HUD clear/redraw")
         }
     }

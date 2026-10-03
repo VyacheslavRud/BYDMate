@@ -204,7 +204,13 @@ class HudSomeIpBridge(
         return rc
     }
 
-    override fun fireEvent(topic: Long, payload: ByteArray): Int {
+    override fun fireEvent(topic: Long, payload: ByteArray): Int = fireEvent(topic, payload, 0L)
+
+    /**
+     * [timestampMs] is the long after the topic. Production sends 0 (donor framing); byd-hud
+     * sends the wall clock, which HUD Lab compares on this firmware's refused picture frames.
+     */
+    fun fireEvent(topic: Long, payload: ByteArray, timestampMs: Long): Int {
         if (payload.isEmpty() || payload.size > HudProtobufBuilder.MAX_PAYLOAD_BYTES) {
             Log.e(TAG, "fireEvent rejected invalid payload size=${payload.size}")
             return RESULT_INVALID_PAYLOAD
@@ -213,7 +219,7 @@ class HudSomeIpBridge(
         return transact(binder, TX_FIRE_EVENT) {
             it.writeInt(1)
             it.writeLong(topic)
-            it.writeLong(0L)
+            it.writeLong(timestampMs)
             it.writeInt(payload.size)
             it.writeByteArray(payload)
         }

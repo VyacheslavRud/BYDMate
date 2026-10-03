@@ -183,16 +183,20 @@ class HudProtobufBuilderTest {
     }
 
     @Test fun `Sea Lion production mapping emits only values confirmed on this firmware`() {
+        // Firmware enum (byd-hud, Sea Lion 07): 1 = left, 3 = slight left. Both render left here.
         listOf(
             NavManeuverCodes.GAODE_LEFT,
-            NavManeuverCodes.GAODE_SLIGHT_LEFT,
             NavManeuverCodes.GAODE_HARD_LEFT,
-        ).forEach { gaode -> assertEquals(3, HudProtobufBuilder.seaLionF28ForGaode(gaode)) }
+        ).forEach { gaode -> assertEquals(1, HudProtobufBuilder.seaLionF28ForGaode(gaode)) }
+        assertEquals(3, HudProtobufBuilder.seaLionF28ForGaode(NavManeuverCodes.GAODE_SLIGHT_LEFT))
         listOf(
             NavManeuverCodes.GAODE_RIGHT,
-            NavManeuverCodes.GAODE_SLIGHT_RIGHT,
             NavManeuverCodes.GAODE_HARD_RIGHT,
         ).forEach { gaode -> assertEquals(2, HudProtobufBuilder.seaLionF28ForGaode(gaode)) }
+        // Parked HUD Lab K05/K08 (2026-10-03): 5 drew right, 8 drew a U-turn, as byd-hud lists.
+        assertEquals(5, HudProtobufBuilder.seaLionF28ForGaode(NavManeuverCodes.GAODE_SLIGHT_RIGHT))
+        assertEquals(8, HudProtobufBuilder.seaLionF28ForGaode(NavManeuverCodes.GAODE_UTURN_RIGHT))
+        assertEquals(7, HudProtobufBuilder.seaLionF28ForGaode(NavManeuverCodes.GAODE_UTURN))
         assertEquals(
             HudProtobufBuilder.SEA_LION_F28_STRAIGHT,
             HudProtobufBuilder.seaLionF28ForGaode(NavManeuverCodes.GAODE_STRAIGHT),
@@ -256,9 +260,38 @@ class HudProtobufBuilderTest {
             val distant = unwrap(HudProtobufBuilder.buildSeaLionGuidanceFrame(maneuver, 101, "A"))
             val nearby = unwrap(HudProtobufBuilder.buildSeaLionGuidanceFrame(maneuver, 100, "A"))
             assertEquals(11L, distant[28]!!.single() as Long)
-            assertTrue((nearby[28]!!.single() as Long) in setOf(2L, 3L, 7L, 10L))
+            assertTrue((nearby[28]!!.single() as Long) in setOf(1L, 2L, 3L, 5L, 7L, 8L))
             assertEquals(100L, nearby[9]!!.single() as Long)
         }
+    }
+
+    @Test fun `lab framing probe writes the counting f2 and keeps production f2 constant`() {
+        val spec = HudLabFrameSpec(f28 = 2, distanceMeters = 50, road = "", f2Counter = true)
+        assertEquals(37L, unwrap(HudProtobufBuilder.buildHudLabScenarioFrame(spec, null, null, 37))[2]!!.single())
+        assertEquals(2L, unwrap(HudProtobufBuilder.buildSeaLionGuidanceFrame(2, 50, ""))[2]!!.single())
+    }
+
+    @Test fun `beyond the approach every maneuver is straight, even an unknown one`() {
+        listOf(
+            0,
+            NavManeuverCodes.GAODE_LEFT,
+            NavManeuverCodes.GAODE_ROUNDABOUT_ENTER,
+            NavManeuverCodes.GAODE_ARRIVE,
+        ).forEach { maneuver ->
+            val fields = unwrap(HudProtobufBuilder.buildSeaLionGuidanceFrame(maneuver, 101, "A"))
+            assertEquals("gaode=$maneuver", 11L, fields[28]!!.single() as Long)
+            assertEquals(101L, fields[9]!!.single() as Long)
+        }
+    }
+
+    @Test fun `inside the approach an unknown maneuver still draws no arrow`() {
+        listOf(0, NavManeuverCodes.GAODE_ROUNDABOUT_ENTER, NavManeuverCodes.GAODE_ARRIVE)
+            .forEach { maneuver ->
+                val fields = unwrap(HudProtobufBuilder.buildSeaLionGuidanceFrame(maneuver, 100, "A"))
+                assertNull("gaode=$maneuver", fields[28])
+            }
+        // Unknown distance with an unknown maneuver stays arrow-less as before.
+        assertNull(unwrap(HudProtobufBuilder.buildSeaLionGuidanceFrame(0, 0, "A"))[28])
     }
 
     @Test fun `Sea Lion straight maneuver emits the confirmed native straight selector`() {
@@ -374,8 +407,9 @@ class HudProtobufBuilderTest {
             }
     }
 
-    @Test fun `HUD Lab rejects values outside the conservative donor bound`() {
-        listOf(5, 6, 50, 255).forEach { rawF28 ->
+    @Test fun `HUD Lab rejects values outside the donor bound and the roundabout search`() {
+        // 5, 6 and 99 joined the bounded set only as explicit roundabout-search probes.
+        listOf(50, 98, 100, 255).forEach { rawF28 ->
             assertThrows(IllegalArgumentException::class.java) {
                 HudProtobufBuilder.buildHudLabScenarioFrame(
                     HudLabFrameSpec(f28 = rawF28),
@@ -383,6 +417,15 @@ class HudProtobufBuilderTest {
                     null,
                 )
             }
+        }
+    }
+
+    @Test fun `HUD Lab accepts exactly the roundabout search selectors outside the donor bound`() {
+        listOf(5, 6, 99).forEach { rawF28 ->
+            val fields = unwrap(
+                HudProtobufBuilder.buildHudLabScenarioFrame(HudLabFrameSpec(f28 = rawF28), null, null),
+            )
+            assertEquals(rawF28.toLong(), fields[28]!!.single() as Long)
         }
     }
 

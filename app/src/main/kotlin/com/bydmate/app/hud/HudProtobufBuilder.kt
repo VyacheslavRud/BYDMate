@@ -15,10 +15,12 @@ object HudProtobufBuilder {
     const val MAX_ETA_CHARS = 16
     const val MAX_SPEED_LIMIT = 250
 
+    const val SEA_LION_F28_LEFT = 1
     const val SEA_LION_F28_RIGHT = 2
-    const val SEA_LION_F28_LEFT = 3
+    const val SEA_LION_F28_SLIGHT_LEFT = 3
+    const val SEA_LION_F28_SLIGHT_RIGHT = 5
     const val SEA_LION_F28_UTURN_LEFT = 7
-    const val SEA_LION_F28_UTURN_RIGHT = 10
+    const val SEA_LION_F28_UTURN_RIGHT = 8
     const val SEA_LION_F28_STRAIGHT = 11
     const val SEA_LION_TURN_DISTANCE_METERS = 100
 
@@ -34,22 +36,25 @@ object HudProtobufBuilder {
     /**
      * Sea Lion 07 (2025 CN) native-arrow mapping confirmed by the parked HUD Lab.
      *
-     * Raw f28=2/3 render right/left, 7/10 render circular left/right and 11 renders straight.
-     * All five values were confirmed by the parked HUD Lab on the target vehicle. The real Waze
-     * distance stays untouched so the firmware can apply its own near-turn threshold. Raw f28=1
-     * is deliberately never used: the car rendered it as left at close range. Uncalibrated
-     * maneuvers keep the route card but omit f28 rather than showing a false arrow.
+     * The firmware enum is 1=left, 2=right, 3=slight left, 5=slight right, 7/8=U-turn left/right,
+     * 11=straight, 99=no arrow (byd-hud `GMapsDirectManeuverMap.nativeFor`, field-tested on Sea
+     * Lion 07). This car drew every one of them as expected in the parked HUD Lab (2026-07 and
+     * 2026-10-03); 7, 8, 9 and 10 all draw a U-turn and no f28 value draws a roundabout. The real
+     * Waze distance stays untouched so the firmware can apply its own near-turn threshold.
+     * Uncalibrated maneuvers keep the route card but omit f28 rather than showing a false arrow.
      */
     fun seaLionF28ForGaode(gaode: Int): Int? = when (gaode) {
         NavManeuverCodes.GAODE_LEFT,
-        NavManeuverCodes.GAODE_SLIGHT_LEFT,
         NavManeuverCodes.GAODE_HARD_LEFT,
         -> SEA_LION_F28_LEFT
 
+        NavManeuverCodes.GAODE_SLIGHT_LEFT -> SEA_LION_F28_SLIGHT_LEFT
+
         NavManeuverCodes.GAODE_RIGHT,
-        NavManeuverCodes.GAODE_SLIGHT_RIGHT,
         NavManeuverCodes.GAODE_HARD_RIGHT,
         -> SEA_LION_F28_RIGHT
+
+        NavManeuverCodes.GAODE_SLIGHT_RIGHT -> SEA_LION_F28_SLIGHT_RIGHT
 
         NavManeuverCodes.GAODE_UTURN -> SEA_LION_F28_UTURN_LEFT
         NavManeuverCodes.GAODE_UTURN_RIGHT -> SEA_LION_F28_UTURN_RIGHT
@@ -58,11 +63,16 @@ object HudProtobufBuilder {
         else -> null
     }
 
-    /** Zero is also the route hub's unknown/expired distance, never evidence of a nearby turn. */
+    /**
+     * Beyond the 100 m approach every maneuver is "continue straight" on the glass. A known turn
+     * was already sent as straight there; an unknown or glyph-less one (roundabout, arrival) now
+     * matches it, so the arrow no longer disappears for a second after every passed turn.
+     * Zero is the route hub's unknown/expired distance, never evidence of a nearby turn.
+     */
     fun seaLionF28ForGuidance(gaode: Int, distanceMeters: Int): Int? {
+        if (distanceMeters > SEA_LION_TURN_DISTANCE_METERS) return SEA_LION_F28_STRAIGHT
         val maneuver = seaLionF28ForGaode(gaode) ?: return null
-        return if (distanceMeters in 1..SEA_LION_TURN_DISTANCE_METERS) maneuver
-        else SEA_LION_F28_STRAIGHT
+        return if (distanceMeters >= 1) maneuver else SEA_LION_F28_STRAIGHT
     }
 
     /**
@@ -162,16 +172,24 @@ object HudProtobufBuilder {
         spec: HudLabFrameSpec,
         maneuverIconPng: ByteArray?,
         speedSignPng: ByteArray?,
+        f2Value: Int = 2,
     ): ByteArray {
         require(spec.effectiveRenderClass in setOf(1, 6)) {
             "unsupported HUD Lab f6=${spec.effectiveRenderClass}"
         }
-        require(spec.f28 == null || spec.f28 in HudF28ExplorerCatalog.donorValues) {
+        require(
+            spec.f28 == null || spec.f28 in HudF28ExplorerCatalog.donorValues ||
+                spec.f28 in HudLabScenarioCatalog.SEARCH_F28_VALUES,
+        ) {
             "unsupported HUD Lab f28=${spec.f28}"
         }
-        require(spec.iconCode == null || spec.iconCode in setOf(0, 1, 2, 9, 11)) {
+        require(
+            spec.iconCode == null || spec.iconCode in setOf(0, 1, 2, 9, 11) ||
+                spec.iconCode == HudLabScenarioCatalog.SEARCH_ROUNDABOUT_ICON,
+        ) {
             "unsupported HUD Lab icon=${spec.iconCode}"
         }
+        require(f2Value in 0..255) { "HUD Lab f2 out of range" }
         require((spec.iconCode != null) == (maneuverIconPng != null)) {
             "HUD Lab maneuver asset does not match frame spec"
         }
@@ -195,6 +213,7 @@ object HudProtobufBuilder {
             "HUD Lab ETA text too long"
         }
         val payload = buildFrameWithRawF28(
+            f2 = f2Value.toLong(),
             renderClass = spec.effectiveRenderClass,
             rawF28 = spec.f28,
             distanceMeters = spec.distanceMeters,
@@ -210,6 +229,7 @@ object HudProtobufBuilder {
     }
 
     private fun buildFrameWithRawF28(
+        f2: Long = 2L,
         renderClass: Int? = null,
         rawF28: Int?,
         distanceMeters: Int,
@@ -222,8 +242,8 @@ object HudProtobufBuilder {
     ): ByteArray {
         val inner = ByteArrayOutputStream()
         // f2 is the constant 2 in every reference guidance frame (donor stage 6,
-        // 1779/1779 discope events); only the clear frame carries a counter here.
-        writeVarintField(inner, 2, 2L)
+        // 1779/1779 discope events); only the clear frame and lab framing probes count here.
+        writeVarintField(inner, 2, f2)
         writeVarintField(
             inner,
             6,

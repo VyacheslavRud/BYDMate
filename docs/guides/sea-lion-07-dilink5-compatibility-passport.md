@@ -180,10 +180,13 @@ The production Waze windshield-HUD contract remains deliberately minimal and con
 
 - `f9`: real maneuver distance;
 - `f10`: road text;
+- `f28=1`: left (production since 3.6.45; firmware enum per byd-hud, rendered left in the
+  July parked test);
 - `f28=2`: right;
-- `f28=3`: left;
-- `f28=7`: left U-turn variant from earlier calibration;
-- `f28=10`: right U-turn variant from earlier calibration;
+- `f28=3`: slight left (rendered left in parked tests; used only for slight left);
+- `f28=5`: slight right (rendered right on 2026-10-03; used only for slight right);
+- `f28=7`: left U-turn;
+- `f28=8`: right U-turn (rendered U-turn on 2026-10-03; 9 and 10 also draw a U-turn);
 - `f28=11`: straight;
 - production sends the calibrated turn selector only with a known distance of 1–100 m; outside
   that range it sends straight, preserving the real `f9` distance and without additional clears;

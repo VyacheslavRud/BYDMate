@@ -169,6 +169,8 @@ class HudPushLoop(
         // Do not feed donor PNG fields or uncalibrated maneuver metadata to the Sea Lion gateway.
         // The Waze parser, route snapshot and service lifecycle stay untouched; only the native
         // SOME/IP payload is narrowed to the fields confirmed by parked tests on this car.
+        // A changed f28 is drawn by the firmware on the next frame, turn-to-straight included
+        // (parked HUD Lab T01-T03, 2026-10-03), so no CLEAR or arrow-less bridge is inserted.
         val rawF28 = HudProtobufBuilder.seaLionF28ForGuidance(s.maneuverGaode, s.distanceMeters)
         val frame = HudProtobufBuilder.buildSeaLionGuidanceFrame(
             maneuverGaode = s.maneuverGaode,

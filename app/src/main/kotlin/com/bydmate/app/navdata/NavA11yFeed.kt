@@ -25,6 +25,10 @@ object NavA11yFeed {
     private const val EVIDENCE_PERSIST_INTERVAL_MS = 60_000L
     /** AccessibilityEvent types are a small fixed set; the bound only guards a hostile stream. */
     private const val MAX_EVENT_TYPE_BUCKETS = 32
+    /** Past the visual reader's own 900 ms spacing, so the follow-up screenshot is not refused. */
+    internal const val VISUAL_CONFIRMATION_DELAY_MS = 1_100L
+
+    private val visualFilter = VisualManeuverFilter()
 
     enum class ProbeResult {
         GUIDANCE,
@@ -122,6 +126,13 @@ object NavA11yFeed {
             processWindow(service, System.currentTimeMillis(), SystemClock.elapsedRealtime())
         }.onFailure { Log.w(TAG, "Immediate Waze probe failed: ${it.message}") }
     }
+    private val visualConfirmationRunnable = Runnable {
+        if (!enabled || !NavGuidanceHub.snapshot().active) return@Runnable
+        val service = SteeringWheelKeyService.instance ?: return@Runnable
+        runCatching {
+            processWindow(service, System.currentTimeMillis(), SystemClock.elapsedRealtime())
+        }.onFailure { Log.w(TAG, "Visual confirmation probe failed: ${it.message}") }
+    }
     private val deferredEventProbeRunnable = Runnable {
         if (!enabled) return@Runnable
         val service = SteeringWheelKeyService.instance ?: run {
@@ -207,6 +218,8 @@ object NavA11yFeed {
         mainHandler.removeCallbacks(noRouteConfirmationRunnable)
         mainHandler.removeCallbacks(immediateProbeRunnable)
         mainHandler.removeCallbacks(deferredEventProbeRunnable)
+        mainHandler.removeCallbacks(visualConfirmationRunnable)
+        visualFilter.reset()
         lastProcessMs = 0L
         lastProcessElapsedMs = 0L
         rootReachable = null
@@ -327,7 +340,7 @@ object NavA11yFeed {
                     if (guidance.maneuverGaode == 0) {
                         requestVisualManeuver(service, root)
                     }
-                    if (recoveredWindow) NavGuidanceHub.requestHudRefresh()
+                    if (recoveredWindow) NavGuidanceHub.requestHudRefresh("waze_window_recovered")
                     ProbeResult.GUIDANCE
                 }
                 is NavA11yExtractor.ReadResult.NoGuidance -> {
@@ -348,7 +361,7 @@ object NavA11yFeed {
                             NavGuidanceHub.markRouteObserved(NavGuidanceHub.Source.A11Y, nowMs)
                             requestVisualManeuver(service, root)
                         }
-                        if (recoveredWindow) NavGuidanceHub.requestHudRefresh()
+                        if (recoveredWindow) NavGuidanceHub.requestHudRefresh("waze_window_recovered")
                         if (hintApplied) ProbeResult.GUIDANCE else ProbeResult.ROUTE_UNREADABLE
                     } else {
                         lastNoGuidanceAtMs = nowMs
@@ -404,21 +417,49 @@ object NavA11yFeed {
         root: AccessibilityNodeInfo,
     ) {
         visualRequests++
-        val accepted = WazeVisualManeuverReader.request(service, root) { maneuverGaode ->
+        val accepted = WazeVisualManeuverReader.request(service, root) { reading ->
             if (!enabled) return@request
-            applyVisualManeuver(maneuverGaode)
+            applyVisualReading(reading)
         }
         if (accepted) visualRequestsAccepted++
     }
 
     /**
+     * One completed pixel reading of Waze's maneuver icon; 0 means the icon was captured but not
+     * recognized. Runs on the screenshot worker thread: the hub and the filter are synchronized.
+     * A changed direction waits for a second agreeing reading, requested about a second later
+     * so a stationary Waze, which emits no events, still confirms or drops the arrow.
+     */
+    internal fun applyVisualReading(reading: Int, nowMs: Long = System.currentTimeMillis()) {
+        val current = NavGuidanceHub.snapshot(nowMs)
+        if (!current.active) {
+            visualFilter.reset()
+            return
+        }
+        when (val decision = visualFilter.onReading(reading, current.maneuverGaode, nowMs)) {
+            VisualManeuverFilter.Decision.Confirmed ->
+                if (reading > 0) applyVisualManeuver(reading, nowMs)
+            is VisualManeuverFilter.Decision.Pending -> scheduleVisualConfirmation()
+            is VisualManeuverFilter.Decision.Apply ->
+                applyVisualManeuver(decision.maneuverGaode, nowMs)
+            VisualManeuverFilter.Decision.Clear ->
+                NavGuidanceHub.clearManeuverHint(NavGuidanceHub.Source.A11Y, nowMs)
+        }
+    }
+
+    private fun scheduleVisualConfirmation() {
+        mainHandler.removeCallbacks(visualConfirmationRunnable)
+        mainHandler.postDelayed(visualConfirmationRunnable, VISUAL_CONFIRMATION_DELAY_MS)
+    }
+
+    /**
      * Applies one classified arrow to the route.
      *
-     * Waze publishes the arrow only as an image, so the classifier re-reads the very same arrow
-     * about once a second for the whole approach to a turn. Requesting a HUD refresh per read made
-     * the windshield card clear and redraw at 1 Hz. Re-confirmation still renews the guidance lease,
-     * but only a maneuver the driver can actually see change is worth a clear/redraw. Overlay
-     * recovery and Waze window recovery request their own refresh and are deliberately untouched.
+     * The classifier re-reads the same arrow about once a second; a re-confirmation renews the
+     * guidance lease and nothing else. A changed arrow needs no CLEAR either: the parked HUD Lab
+     * run of 2026-10-03 (T01-T03) showed the glass replacing left with right, straight with right
+     * and right with straight on the next frame. Every CLEAR here had blinked the card for no
+     * reason; overlay and Waze window recovery keep their own refresh.
      */
     internal fun applyVisualManeuver(
         maneuverGaode: Int,
@@ -436,7 +477,6 @@ object NavA11yFeed {
                 "Waze visual maneuver=" +
                     "${NavManeuverCodes.codeName(maneuverGaode)} gaode=$maneuverGaode",
             )
-            NavGuidanceHub.requestHudRefresh()
         }
     }
 

@@ -208,7 +208,7 @@ class HudLabManager @Inject constructor(
                     }
 
                     is HudLabScenarioStep.Send -> {
-                        val built = buildPayload(step.frame)
+                        var built = buildPayload(step.frame, nextLabF2(step.frame))
                         if (built == null) {
                             aborted = HudLabSendFailure.HUD_ICON_UNAVAILABLE
                             val event = HudLabEvent(
@@ -226,13 +226,17 @@ class HudLabManager @Inject constructor(
                             )
                             return@forEachIndexed
                         }
-                        val (payload, pngBytes) = built
-                        val payloadHash = payload.sha256()
                         repeat(step.repeatCount) { push ->
                             if (aborted != null) return@repeat
                             // Fixed delay intentionally mirrors HudPushLoop and never catches up
                             // with back-to-back native calls after slow durable journal IO.
                             if (push > 0) scenarioDelay(step.cadenceMs)
+                            // A counting f2 changes the payload on every push, like byd-hud.
+                            if (push > 0 && step.frame.f2Counter) {
+                                built = buildPayload(step.frame, nextLabF2(step.frame)) ?: built
+                            }
+                            val (payload, pngBytes) = requireNotNull(built)
+                            val payloadHash = payload.sha256()
                             val attemptId = UUID.randomUUID().toString()
                             val intent = HudLabEvent(
                                 type = HudLabEventType.SEND,
@@ -243,7 +247,8 @@ class HudLabManager @Inject constructor(
                                 elapsedMs = SystemClock.elapsedRealtime() - startedElapsedMs,
                                 payloadBytes = payload.size,
                                 payloadSha256 = payloadHash,
-                                fieldManifest = step.frame.fieldManifest + ",pngBytes=$pngBytes",
+                                fieldManifest = step.frame.fieldManifest + ",pngBytes=$pngBytes" +
+                                    if (step.frame.wallClockTimestamp) ",binderTs=wall" else "",
                                 phase = HudLabEventPhase.INTENT,
                                 attemptId = attemptId,
                             )
@@ -254,7 +259,15 @@ class HudLabManager @Inject constructor(
                                     intent,
                                 ),
                             )
-                            val result = hudController.sendHudLabFrame(payload, parkConfirmedByUser)
+                            val result = hudController.sendHudLabFrame(
+                                payload,
+                                parkConfirmedByUser,
+                                timestampMs = if (step.frame.wallClockTimestamp) {
+                                    System.currentTimeMillis()
+                                } else {
+                                    0L
+                                },
+                            )
                             // Claim output before the journal append: if that commit throws, the
                             // outer catch must still know that a frame needs an emergency clear.
                             // Any fireEvent result means the native mutation was attempted. Even a
@@ -365,17 +378,23 @@ class HudLabManager @Inject constructor(
         }
     }
 
-    private fun buildPayload(spec: HudLabFrameSpec): Pair<ByteArray, Int>? {
+    private fun buildPayload(spec: HudLabFrameSpec, f2Value: Int): Pair<ByteArray, Int>? {
         val maneuverPng = spec.iconCode?.let(HudIconLoader::labIconFor)
         if (spec.iconCode != null && maneuverPng == null) return null
         val signPng = if (spec.includeSpeedSign) HudSpeedSign.render(spec.speedLimit) else null
         if (spec.includeSpeedSign && signPng == null) return null
         return runCatching {
-            HudProtobufBuilder.buildHudLabScenarioFrame(spec, maneuverPng, signPng) to
+            HudProtobufBuilder.buildHudLabScenarioFrame(spec, maneuverPng, signPng, f2Value) to
                 ((maneuverPng?.size ?: 0) + (signPng?.size ?: 0))
         }.onFailure { Log.e(TAG, "HUD Lab payload build failed: ${it.message}", it) }
             .getOrNull()
     }
+
+    /** byd-hud's rolling 0..255 frame counter for framing probes; the constant 2 otherwise. */
+    private fun nextLabF2(spec: HudLabFrameSpec): Int =
+        if (spec.f2Counter) labF2Counter++ and 0xff else 2
+
+    private var labF2Counter = 0
 
     fun recordObservation(observed: HudLabObserved) {
         if (observed == HudLabObserved.NAMED_INDICATOR) return

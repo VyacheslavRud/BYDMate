@@ -139,6 +139,28 @@ class HudControllerTest {
         c.setEnabled(false)
     }
 
+    @Test fun `HUD Lab framing probe carries the wall clock only when asked`() {
+        requireDebugHudLab()
+        installSomeIp()
+        coEvery { helperBootstrap.ensureRunning() } returns true
+        val bridge = connectedBridge()
+        every { bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, any()) } returns 0
+        every { bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, any(), any()) } returns 1
+        val c = controller(bridge)
+        c.hudLabVehicleSnapshot = { diParsData(speed = 0, gear = 1) }
+        c.setEnabled(true)
+        val labFrame = HudProtobufBuilder.buildHudLabFrame(2)
+
+        val plain = c.sendHudLabFrame(labFrame, parkConfirmedByUser = true)
+        val wall = c.sendHudLabFrame(labFrame, parkConfirmedByUser = true, timestampMs = 1_234L)
+
+        assertEquals(0, plain.rc)
+        assertEquals(1, wall.rc)
+        verify(exactly = 1) { bridge.fireEvent(HudSomeIpBridge.TOPIC_NAVI, any(), 1_234L) }
+        c.clearHudLabFrame()
+        c.setEnabled(false)
+    }
+
     @Test fun `HUD Lab keeps production suspended until zero clear and increments counters`() {
         requireDebugHudLab()
         installSomeIp()

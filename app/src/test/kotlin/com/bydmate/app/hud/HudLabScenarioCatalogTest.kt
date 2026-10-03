@@ -134,4 +134,87 @@ class HudLabScenarioCatalogTest {
             assertTrue(fields.none(forbiddenFields::contains))
         }
     }
+
+    @Test
+    fun `roundabout search catalog is separate, unique and runnable by id`() {
+        val ids = HudLabScenarioCatalog.search.map(HudLabScenario::id)
+        assertEquals(ids.size, ids.toSet().size)
+        assertTrue(ids.none { id -> HudLabScenarioCatalog.all.any { it.id == id } })
+        ids.forEach { assertEquals(it, scenario(it).id) }
+        assertEquals(listOf("C01", "T01", "T02", "T03"), ids.take(4))
+        assertEquals(listOf("P01", "P02", "P03"), ids.takeLast(3))
+    }
+
+    @Test
+    fun `framing probe sends a plain right arrow with byd-hud framing`() {
+        val frame = onlySend("C01").frame
+        assertEquals(2, frame.f28)
+        assertEquals(50, frame.distanceMeters)
+        assertNull(frame.iconCode)
+        assertTrue(frame.f2Counter && frame.wallClockTimestamp)
+        assertEquals(HudLabObserved.RIGHT, scenario("C01").expected)
+    }
+
+    @Test
+    fun `transition probes change only the arrow and never send a CLEAR between phases`() {
+        val expected = mapOf(
+            "T01" to (1 to 2),
+            "T02" to (11 to 2),
+            "T03" to (2 to 11),
+        )
+        expected.forEach { (id, arrows) ->
+            val steps = scenario(id).steps
+            assertEquals(3, steps.size)
+            assertTrue(steps[0] is HudLabScenarioStep.Clear)
+            val first = steps[1] as HudLabScenarioStep.Send
+            val second = steps[2] as HudLabScenarioStep.Send
+            assertEquals(arrows.first, first.frame.f28)
+            assertEquals(arrows.second, second.frame.f28)
+            listOf(first, second).forEach { send ->
+                assertNull(send.frame.iconCode)
+                assertFalse(send.frame.f2Counter)
+                assertFalse(send.frame.wallClockTimestamp)
+            }
+            assertEquals(HudLabObserved.ARROW_CHANGED, scenario(id).expected)
+        }
+    }
+
+    @Test
+    fun `selector probes cover the search values at the firmware turn distance`() {
+        val probes = HudLabScenarioCatalog.search.filter { it.id.startsWith("K") }
+        assertEquals(
+            HudLabScenarioCatalog.SEARCH_F28_VALUES,
+            probes.map { (it.steps.last() as HudLabScenarioStep.Send).frame.f28 },
+        )
+        probes.forEach { probe ->
+            val frame = (probe.steps.last() as HudLabScenarioStep.Send).frame
+            assertEquals(50, frame.distanceMeters)
+            assertNull(frame.iconCode)
+            assertEquals(HudLabObserved.ROUNDABOUT, probe.expected)
+        }
+    }
+
+    @Test
+    fun `picture probes vary one framing variable at a time`() {
+        fun frame(id: String) = onlySend(id).frame
+        listOf("P01", "P02", "P03").forEach { id ->
+            assertEquals(HudLabScenarioCatalog.SEARCH_ROUNDABOUT_ICON, frame(id).iconCode)
+            assertEquals(99, frame(id).f28)
+        }
+        assertTrue(frame("P01").f2Counter && frame("P01").wallClockTimestamp)
+        assertTrue(!frame("P02").f2Counter && frame("P02").wallClockTimestamp)
+        assertTrue(frame("P03").f2Counter && !frame("P03").wallClockTimestamp)
+    }
+
+    @Test
+    fun `every search frame passes the lab encoder bounds`() {
+        val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
+        HudLabScenarioCatalog.search.forEach { scenario ->
+            scenario.steps.filterIsInstance<HudLabScenarioStep.Send>().forEach { send ->
+                val icon = if (send.frame.iconCode != null) png else null
+                val payload = HudProtobufBuilder.buildHudLabScenarioFrame(send.frame, icon, null, 7)
+                assertTrue(payload.isNotEmpty())
+            }
+        }
+    }
 }

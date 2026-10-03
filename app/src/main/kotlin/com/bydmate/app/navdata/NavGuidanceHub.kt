@@ -36,6 +36,13 @@ object NavGuidanceHub {
     internal const val MANEUVER_HOLD_MS = 30_000L
     /** Waze often publishes the semantic arrow once, then updates only the numeric distance. */
     private const val MANEUVER_DISTANCE_JITTER_METERS = 75
+    /**
+     * Inside the last 100 m Waze counts down in small steps, so a 40 m rise means the turn was
+     * passed and the next one is close. The 75 m far-range tolerance carried a passed left arrow
+     * onto a right turn 60-90 m later, which the glass then drew on the wrong side.
+     */
+    private const val APPROACH_DISTANCE_METERS = 100
+    private const val APPROACH_DISTANCE_JITTER_METERS = 40
     // Two 15 s refresh periods leave room for normal Handler jitter and one temporarily
     // unreadable Waze tree. Matching the refresh interval exactly makes distance hit zero between
     // the probe and the next 300 ms HUD tick, which can visibly rebuild or hide the factory card.
@@ -370,9 +377,40 @@ object NavGuidanceHub {
      * so the push loop needs one explicit clear/redraw cycle after the Waze route window returns.
      */
     @Synchronized
-    fun requestHudRefresh() {
+    fun requestHudRefresh(reason: String = "unspecified") {
         hudRefreshGeneration++
         if (hudRefreshGeneration == Long.MIN_VALUE) hudRefreshGeneration = 1L
+        // Every CLEAR/redraw blinks the card; the reason makes a blink traceable in a drive log.
+        Log.i(TAG, "HUD refresh requested: reason=$reason generation=$hudRefreshGeneration")
+    }
+
+    /**
+     * Drops a direction the pixel reader can no longer see on Waze's icon. Without this an old
+     * arrow, renewed by distance-only updates, could outlive a passed turn when the next icon is
+     * one the classifier does not recognize. Text-derived maneuvers are left alone.
+     */
+    @Synchronized
+    internal fun clearManeuverHint(source: Source, nowMs: Long = System.currentTimeMillis()): Boolean {
+        if (expireRouteIfNeeded(nowMs)) return false
+        val current = when (source) {
+            Source.A11Y -> a11y
+            Source.NOTIFICATION -> notification
+        } ?: return false
+        if (current.data.maneuverGaode <= 0) return false
+        val cleared = current.copy(
+            data = current.data.copy(maneuverGaode = 0),
+            maneuverAtMs = 0L,
+        )
+        when (source) {
+            Source.A11Y -> a11y = cleared
+            Source.NOTIFICATION -> notification = cleared
+        }
+        Log.i(
+            TAG,
+            "maneuver cleared: source=$source previous=" +
+                NavManeuverCodes.codeName(current.data.maneuverGaode),
+        )
+        return true
     }
 
     /**
@@ -523,12 +561,24 @@ object NavGuidanceHub {
         val newDistance = incoming.distanceMeters
         if (oldDistance <= 0 || newDistance <= 0) return ManeuverContinuity.NO_EVIDENCE
 
-        val distanceJumped = newDistance > oldDistance + MANEUVER_DISTANCE_JITTER_METERS
+        val jitter = if (oldDistance <= APPROACH_DISTANCE_METERS) {
+            APPROACH_DISTANCE_JITTER_METERS
+        } else {
+            MANEUVER_DISTANCE_JITTER_METERS
+        }
+        val distanceJumped = newDistance > oldDistance + jitter
         val oldRoad = previous.data.road.trim()
         val newRoad = incoming.road.trim()
         val nextRoadChanged = oldRoad.isNotEmpty() && newRoad.isNotEmpty() && oldRoad != newRoad &&
             newDistance >= oldDistance - MANEUVER_DISTANCE_JITTER_METERS
         return if (distanceJumped || nextRoadChanged) {
+            // Distances only, never street text: one drive log must show why an arrow vanished.
+            Log.i(
+                TAG,
+                "maneuver reset: previous=${NavManeuverCodes.codeName(previous.data.maneuverGaode)} " +
+                    "distance=$oldDistance->$newDistance " +
+                    "reason=${if (distanceJumped) "distance_jump" else "road_changed"}",
+            )
             ManeuverContinuity.NEW_MANEUVER_UNKNOWN
         } else {
             ManeuverContinuity.SAME_MANEUVER
