@@ -76,6 +76,8 @@ object NavGuidanceHub {
         val etaUpdatedAtMs: Long = 0L,
         val totalDistMeters: Int = 0,
         val speedLimit: Int = 0,
+        /** Numbered exit of a roundabout [maneuverGaode]; 0 = none or unknown. */
+        val roundaboutExit: Int = 0,
         /** Monotonic request to clear and redraw the factory HUD after another system overlay. */
         val hudRefreshGeneration: Long = 0L,
         /** Last parsed field update, intentionally not refreshed by a route-presence probe. */
@@ -185,6 +187,7 @@ object NavGuidanceHub {
             arrivalTime = arrivalSource?.data?.arrivalTime.orEmpty(),
             totalDistMeters = totalDistSource?.data?.totalDistMeters ?: 0,
             speedLimit = speedSource?.data?.speedLimit ?: 0,
+            roundaboutExit = maneuverSource?.data?.roundaboutExit ?: 0,
         )
         return Snapshot(
             active = true,
@@ -197,6 +200,7 @@ object NavGuidanceHub {
             etaUpdatedAtMs = etaSource?.etaAtMs ?: 0L,
             totalDistMeters = data.totalDistMeters,
             speedLimit = data.speedLimit,
+            roundaboutExit = data.roundaboutExit,
             hudRefreshGeneration = hudRefreshGeneration,
             // Age of the selected primary, not the newest unrelated fallback event.
             lastUpdateMs = first.updatedAtMs,
@@ -244,6 +248,12 @@ object NavGuidanceHub {
                     ?: previous?.data?.totalDistMeters ?: 0,
                 speedLimit = data.speedLimit.takeIf { it > 0 }
                     ?: previous?.data?.speedLimit ?: 0,
+                // The exit number belongs to the maneuver and follows exactly its continuity.
+                roundaboutExit = when {
+                    data.maneuverGaode > 0 -> data.roundaboutExit
+                    maneuverContinuity == ManeuverContinuity.NEW_MANEUVER_UNKNOWN -> 0
+                    else -> previous?.data?.roundaboutExit ?: 0
+                },
             ),
             updatedAtMs = nowMs,
             maneuverAtMs = when {
@@ -352,6 +362,11 @@ object NavGuidanceHub {
                 arrivalTime = current.arrivalTime,
                 totalDistMeters = current.totalDistMeters,
                 speedLimit = current.speedLimit,
+                // The pixel reader sees the ring but not the number printed inside it.
+                roundaboutExit = current.roundaboutExit.takeIf {
+                    NavManeuverCodes.isRoundabout(maneuverGaode) &&
+                        NavManeuverCodes.isRoundabout(current.maneuverGaode)
+                } ?: 0,
             ),
             source,
             nowMs,
@@ -398,7 +413,7 @@ object NavGuidanceHub {
         } ?: return false
         if (current.data.maneuverGaode <= 0) return false
         val cleared = current.copy(
-            data = current.data.copy(maneuverGaode = 0),
+            data = current.data.copy(maneuverGaode = 0, roundaboutExit = 0),
             maneuverAtMs = 0L,
         )
         when (source) {

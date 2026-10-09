@@ -136,6 +136,8 @@ object NaviNotificationParser {
             etaSeconds = NavGuidanceParser.parseDurationSeconds(remainingTime),
             arrivalTime = arrivalTime.orEmpty(),
             totalDistMeters = NavGuidanceParser.parseDistanceText(remainingDistance),
+            roundaboutExit = NavManeuverCodes.numberedExit(maneuverLine)
+                ?.takeIf { NavManeuverCodes.isRoundabout(maneuverCode) } ?: 0,
         // Distance-only and road-only notifications can be community alerts. A recognized
         // instruction is required before notification text can activate or overwrite the HUD.
         ).takeIf { it.maneuverGaode != 0 }

@@ -613,4 +613,35 @@ class NavGuidanceHubTest {
         assertEquals(900, fresh.distanceMeters)
         assertEquals(null, NavGuidanceHub.diagnostics().lastRouteEndReason)
     }
+
+    @Test fun `roundabout exit follows its maneuver`() {
+        val ring = NavManeuverCodes.GAODE_ROUNDABOUT_EXIT
+        NavGuidanceHub.update(data(gaode = ring, dist = 250, road = "A").copy(roundaboutExit = 2), NavGuidanceHub.Source.A11Y, 1_000L)
+        assertEquals(2, NavGuidanceHub.snapshot(1_000L).roundaboutExit)
+
+        // Distance-only progress keeps the exit together with the arrow.
+        NavGuidanceHub.update(data(dist = 180), NavGuidanceHub.Source.A11Y, 2_000L)
+        assertEquals(ring, NavGuidanceHub.snapshot(2_000L).maneuverGaode)
+        assertEquals(2, NavGuidanceHub.snapshot(2_000L).roundaboutExit)
+
+        // The pixel reader sees only the ring: the number read from text survives.
+        NavGuidanceHub.updateManeuverHint(NavManeuverCodes.GAODE_ROUNDABOUT_ENTER, NavGuidanceHub.Source.A11Y, 3_000L)
+        assertEquals(2, NavGuidanceHub.snapshot(3_000L).roundaboutExit)
+
+        // A different direction replaces the roundabout and its exit.
+        NavGuidanceHub.updateManeuverHint(NavManeuverCodes.GAODE_LEFT, NavGuidanceHub.Source.A11Y, 4_000L)
+        assertEquals(0, NavGuidanceHub.snapshot(4_000L).roundaboutExit)
+    }
+
+    @Test fun `passed roundabout drops its exit`() {
+        val ring = NavManeuverCodes.GAODE_ROUNDABOUT_EXIT
+        NavGuidanceHub.update(data(gaode = ring, dist = 60, road = "A").copy(roundaboutExit = 3), NavGuidanceHub.Source.A11Y, 1_000L)
+        NavGuidanceHub.update(data(dist = 700), NavGuidanceHub.Source.A11Y, 2_000L)
+        assertEquals(0, NavGuidanceHub.snapshot(2_000L).maneuverGaode)
+        assertEquals(0, NavGuidanceHub.snapshot(2_000L).roundaboutExit)
+
+        NavGuidanceHub.update(data(gaode = ring, dist = 60).copy(roundaboutExit = 3), NavGuidanceHub.Source.A11Y, 3_000L)
+        NavGuidanceHub.clearManeuverHint(NavGuidanceHub.Source.A11Y, 4_000L)
+        assertEquals(0, NavGuidanceHub.snapshot(4_000L).roundaboutExit)
+    }
 }

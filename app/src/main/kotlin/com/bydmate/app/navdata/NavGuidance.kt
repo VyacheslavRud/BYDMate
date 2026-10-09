@@ -10,6 +10,8 @@ data class NavGuidance(
     val arrivalTime: String = "",
     val totalDistMeters: Int = 0,
     val speedLimit: Int = 0,
+    /** Numbered roundabout exit 1..10 that belongs to [maneuverGaode]; 0 = none or unknown. */
+    val roundaboutExit: Int = 0,
 )
 
 /** Pure parsers: raw Waze widget strings -> NavGuidance. Shared by the a11y
@@ -60,8 +62,9 @@ object NavGuidanceParser {
     fun parse(raw: RawFields): NavGuidance? {
         val guidanceVisible = raw.maneuverDesc != null || raw.distance != null || raw.nextStreet != null
         if (!guidanceVisible) return null
+        val maneuver = resolveManeuver(raw)
         return NavGuidance(
-            maneuverGaode = resolveManeuver(raw),
+            maneuverGaode = maneuver,
             distanceMeters = resolveDistance(raw.distance),
             road = raw.nextStreet.orEmpty(),
             etaSeconds = parseDurationSeconds(raw.etaTime),
@@ -73,6 +76,7 @@ object NavGuidanceParser {
                 ?: "",
             totalDistMeters = parseDistanceText(raw.etaDistance),
             speedLimit = parseSpeedLimit(raw.speedLimit),
+            roundaboutExit = resolveRoundaboutExit(raw, maneuver),
         )
     }
 
@@ -100,10 +104,21 @@ object NavGuidanceParser {
     private fun resolveManeuver(raw: RawFields): Int {
         // A numbered exit (1..10) is a sufficient roundabout signal even if Waze exposes only
         // a generic turn phrase in the maneuver view.
-        val exitNum = raw.exitNumber?.let { Regex("""\d+""").find(it)?.value }?.toIntOrNull()
-        if (exitNum != null && exitNum in 1..10) return NavManeuverCodes.GAODE_ROUNDABOUT_EXIT
+        if (numberedExit(raw.exitNumber) != null) return NavManeuverCodes.GAODE_ROUNDABOUT_EXIT
         return NavManeuverCodes.fromInstructionText(raw.maneuverDesc)
     }
+
+    /** The exit number is kept only when the maneuver the driver performs first is the roundabout;
+     *  in "turn right, then take the 2nd exit" it belongs to a later maneuver. */
+    private fun resolveRoundaboutExit(raw: RawFields, maneuver: Int): Int {
+        if (!NavManeuverCodes.isRoundabout(maneuver)) return 0
+        return numberedExit(raw.exitNumber)
+            ?: NavManeuverCodes.numberedExit(raw.maneuverDesc)
+            ?: 0
+    }
+
+    private fun numberedExit(value: String?): Int? =
+        value?.let { Regex("""\d+""").find(it)?.value }?.toIntOrNull()?.takeIf { it in 1..10 }
 
     private fun resolveDistance(distance: String?): Int {
         val rawText = distance?.trim() ?: return 0

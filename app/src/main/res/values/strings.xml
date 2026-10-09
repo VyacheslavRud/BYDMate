@@ -1221,6 +1221,8 @@
     <string name="hud_unit_kilometers">км</string>
     <string name="hud_unit_meters">м</string>
     <string name="hud_decimal_separator">,</string>
+    <string name="hud_roundabout">Кольцо</string>
+    <string name="hud_roundabout_exit">%1$d-й съезд</string>
     <string name="settings_hud_route_info_title">Время прибытия в строке улицы</string>
     <string name="settings_hud_route_info_desc">Перед названием улицы: время прибытия, сколько осталось ехать и расстояние до конца маршрута. Ближе 300 м к повороту — только улица.</string>
 

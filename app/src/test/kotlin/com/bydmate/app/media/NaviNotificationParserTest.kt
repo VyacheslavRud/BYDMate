@@ -380,4 +380,23 @@ class NaviNotificationParserTest {
     @Test fun `notification mirror selection handles no remaining notification`() {
         assertNull(newestNavigationNotification(emptyList()))
     }
+
+    @Test fun `roundabout exit number comes from the notification instruction`() {
+        val parsed = NaviNotificationParser.fromText(
+            title = "200 m",
+            text = "At the roundabout, take the 2nd exit onto Main Street",
+            subText = null,
+            bigText = null,
+        )
+        assertEquals(NavManeuverCodes.GAODE_ROUNDABOUT_EXIT, parsed.guidance?.maneuverGaode)
+        assertEquals(2, parsed.guidance?.roundaboutExit)
+
+        val turn = NaviNotificationParser.fromText(
+            title = "200 m",
+            text = "Turn right, then take the 2nd exit",
+            subText = null,
+            bigText = null,
+        )
+        assertEquals(0, turn.guidance?.roundaboutExit)
+    }
 }

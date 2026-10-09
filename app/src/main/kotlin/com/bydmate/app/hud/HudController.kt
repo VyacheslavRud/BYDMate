@@ -196,12 +196,14 @@ class HudController @Inject constructor(
         prefs().edit().putBoolean(KEY_STREET_ROUTE_INFO, on).apply()
     }
 
-    private fun streetLineUnits() = HudStreetLine.Units(
+    private fun streetLineLabels() = HudStreetLine.Labels(
         minutes = context.getString(R.string.hud_unit_minutes),
         hours = context.getString(R.string.hud_unit_hours),
         kilometers = context.getString(R.string.hud_unit_kilometers),
         meters = context.getString(R.string.hud_unit_meters),
         decimalSeparator = context.getString(R.string.hud_decimal_separator).firstOrNull() ?: '.',
+        roundabout = context.getString(R.string.hud_roundabout),
+        roundaboutExit = context.getString(R.string.hud_roundabout_exit),
     )
 
     /** True only when the feature is on AND the gateway probe confirmed support -
@@ -652,9 +654,9 @@ class HudController @Inject constructor(
                     },
                     outputSuspended = { hudLabOutputSuspended },
                     streetLine = run {
-                        val units = streetLineUnits()
+                        val labels = streetLineLabels()
                         val line: (NavGuidanceHub.Snapshot, Long) -> String = { snapshot, nowMs ->
-                            HudStreetLine.compose(snapshot, nowMs, isStreetRouteInfoEnabled(), units)
+                            HudStreetLine.compose(snapshot, nowMs, isStreetRouteInfoEnabled(), labels)
                         }
                         line
                     },

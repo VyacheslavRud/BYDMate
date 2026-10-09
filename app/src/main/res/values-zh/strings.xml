@@ -1184,6 +1184,8 @@
     <string name="hud_unit_kilometers">公里</string>
     <string name="hud_unit_meters">米</string>
     <string name="hud_decimal_separator">.</string>
+    <string name="hud_roundabout">环岛</string>
+    <string name="hud_roundabout_exit">第%1$d出口</string>
     <string name="settings_hud_route_info_title">在街道行显示到达时间</string>
     <string name="settings_hud_route_info_desc">街道名称前显示到达时间、剩余时间和到终点的距离。距转弯 300 米以内只显示街道。</string>
 

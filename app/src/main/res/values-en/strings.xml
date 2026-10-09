@@ -1066,6 +1066,8 @@
     <string name="hud_unit_kilometers">km</string>
     <string name="hud_unit_meters">m</string>
     <string name="hud_decimal_separator">.</string>
+    <string name="hud_roundabout">Roundabout</string>
+    <string name="hud_roundabout_exit">exit %1$d</string>
     <string name="settings_hud_route_info_title">Arrival time in the street line</string>
     <string name="settings_hud_route_info_desc">Before the street name: arrival time, time left and distance to the end of the route. Within 300 m of a turn only the street is shown.</string>
 

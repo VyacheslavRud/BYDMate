@@ -42,6 +42,9 @@ object NavManeuverCodes {
 
     fun isDirectionalManeuver(gaode: Int): Boolean = gaode in DIRECTIONAL_CODES
 
+    fun isRoundabout(gaode: Int): Boolean =
+        gaode == GAODE_ROUNDABOUT_ENTER || gaode == GAODE_ROUNDABOUT_EXIT
+
     /** Privacy-safe parsing result used by diagnostics: it exposes only recognized directions,
      *  never Waze's raw instruction or road names. [recognizedCodes] is in textual order. */
     data class ParseResult(
@@ -195,6 +198,22 @@ object NavManeuverCodes {
     }
 
     fun fromInstructionText(text: String?): Int = parseInstructionText(text).gaode
+
+    /** Roundabout exit number 1..10 from an instruction ("take the 2nd exit", "2-й съезд"). */
+    fun numberedExit(text: String?): Int? {
+        if (text.isNullOrBlank()) return null
+        val normalized = text.lowercase()
+            .replace(' ', ' ')
+            .replace(' ', ' ')
+            .replace('‑', '-')
+            .replace(WHITESPACE, " ")
+        return listOf(EN_NUMBERED_EXIT_RE, RU_NUMBERED_EXIT_RE)
+            .flatMap { regex -> regex.findAll(normalized).toList() }
+            .sortedBy { it.range.first }
+            .firstNotNullOfOrNull { match ->
+                match.groupValues.getOrNull(1)?.toIntOrNull()?.takeIf { it in 1..10 }
+            }
+    }
 
     /** GAODE -> short Russian phrase; used by get_route_info when only hub numerics exist. */
     private val PHRASES = mapOf(

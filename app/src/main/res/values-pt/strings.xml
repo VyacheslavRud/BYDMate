@@ -1063,6 +1063,8 @@
     <string name="hud_unit_kilometers">km</string>
     <string name="hud_unit_meters">m</string>
     <string name="hud_decimal_separator">,</string>
+    <string name="hud_roundabout">Rotatória</string>
+    <string name="hud_roundabout_exit">%1$dª saída</string>
     <string name="settings_hud_route_info_title">Hora de chegada na linha da rua</string>
     <string name="settings_hud_route_info_desc">Antes do nome da rua: hora de chegada, tempo restante e distância até o fim da rota. A menos de 300 m de uma curva, só a rua.</string>
 

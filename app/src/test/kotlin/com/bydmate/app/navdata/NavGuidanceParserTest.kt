@@ -109,4 +109,26 @@ class NavGuidanceParserTest {
         assertEquals(0, parsed.distanceMeters)
         assertEquals(0, parsed.etaSeconds)
     }
+
+    @Test fun `roundabout exit number is kept with the roundabout`() {
+        val fromNode = NavGuidanceParser.parse(raw(maneuverDesc = "Roundabout", exitNumber = "3", distance = "200 m"))!!
+        assertEquals(NavManeuverCodes.GAODE_ROUNDABOUT_EXIT, fromNode.maneuverGaode)
+        assertEquals(3, fromNode.roundaboutExit)
+
+        val fromText = NavGuidanceParser.parse(raw(maneuverDesc = "На кольце 2-й съезд", distance = "150 м"))!!
+        assertEquals(NavManeuverCodes.GAODE_ROUNDABOUT_EXIT, fromText.maneuverGaode)
+        assertEquals(2, fromText.roundaboutExit)
+
+        val noNumber = NavGuidanceParser.parse(raw(maneuverDesc = "Въезжайте на кольцо", distance = "150 м"))!!
+        assertEquals(NavManeuverCodes.GAODE_ROUNDABOUT_ENTER, noNumber.maneuverGaode)
+        assertEquals(0, noNumber.roundaboutExit)
+    }
+
+    @Test fun `exit number of a later maneuver is dropped`() {
+        val d = NavGuidanceParser.parse(raw(maneuverDesc = "Turn right, then take the 2nd exit", distance = "90 m"))!!
+        assertEquals(NavManeuverCodes.GAODE_RIGHT, d.maneuverGaode)
+        assertEquals(0, d.roundaboutExit)
+        val outOfRange = NavGuidanceParser.parse(raw(maneuverDesc = "Roundabout", exitNumber = "12", distance = "90 m"))!!
+        assertEquals(0, outOfRange.roundaboutExit)
+    }
 }

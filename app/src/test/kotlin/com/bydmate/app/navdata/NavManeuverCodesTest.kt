@@ -140,4 +140,14 @@ class NavManeuverCodesTest {
         assertEquals(24, gaode("Съезд\u00A0с\u00A0кольца"))
         assertEquals(45, gaode("Промежуточная\u00A0точка"))
     }
+
+    @Test fun `numbered roundabout exit is read from instruction text`() {
+        assertEquals(2, NavManeuverCodes.numberedExit("At the roundabout, take the 2nd exit"))
+        assertEquals(3, NavManeuverCodes.numberedExit("Take the 3rd exit onto Main St"))
+        assertEquals(1, NavManeuverCodes.numberedExit("На круговом движении 1-й съезд"))
+        assertEquals(4, NavManeuverCodes.numberedExit("кольцо, 4\u00A0съезд"))
+        assertEquals(null, NavManeuverCodes.numberedExit("Take exit 25"))
+        assertEquals(null, NavManeuverCodes.numberedExit("Take the 12th exit"))
+        assertEquals(null, NavManeuverCodes.numberedExit(null))
+    }
 }
