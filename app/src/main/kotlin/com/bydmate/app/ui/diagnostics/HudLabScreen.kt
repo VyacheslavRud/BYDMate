@@ -74,11 +74,12 @@ fun HudLabScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     var selectedCatalog by rememberSaveable { mutableIntStateOf(0) }
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
-    val activeCatalog = selectedCatalog.takeIf { it in 0..2 } ?: 0
+    val activeCatalog = selectedCatalog.takeIf { it in 0..3 } ?: 0
     val scenarios = when (activeCatalog) {
         0 -> HudLabScenarioCatalog.confirmed
         1 -> HudLabScenarioCatalog.compatibility
-        else -> HudLabScenarioCatalog.search
+        2 -> HudLabScenarioCatalog.search
+        else -> HudLabScenarioCatalog.fields
     }
     val safeSelectedIndex = selectedIndex.coerceIn(0, scenarios.lastIndex.coerceAtLeast(0))
     var parkConfirmed by rememberSaveable { mutableStateOf(false) }
@@ -142,6 +143,11 @@ fun HudLabScreen(
                         selectedIndex = 0
                         parkConfirmed = false
                     },
+                    onSelectFields = {
+                        selectedCatalog = 3
+                        selectedIndex = 0
+                        parkConfirmed = false
+                    },
                 )
             }
             if (scenarios.isNotEmpty()) {
@@ -188,6 +194,7 @@ private fun HudLabCatalogCard(
     onSelectConfirmed: () -> Unit,
     onSelectCompatibility: () -> Unit,
     onSelectSearch: () -> Unit,
+    onSelectFields: () -> Unit,
 ) {
     val accent = when (selectedCatalog) {
         0 -> AccentBlue
@@ -235,13 +242,22 @@ private fun HudLabCatalogCard(
                     onClick = onSelectSearch,
                     modifier = Modifier.weight(1f),
                 )
+                HudLabCatalogButton(
+                    selected = selectedCatalog == 3,
+                    label = stringResource(R.string.diagnostics_hud_lab_catalog_fields),
+                    accent = AccentBlue,
+                    enabled = enabled,
+                    onClick = onSelectFields,
+                    modifier = Modifier.weight(1f),
+                )
             }
             Text(
                 stringResource(
                     when (selectedCatalog) {
                         0 -> R.string.diagnostics_hud_lab_catalog_confirmed_hint
                         1 -> R.string.diagnostics_hud_lab_catalog_compatibility_hint
-                        else -> R.string.diagnostics_hud_lab_catalog_search_hint
+                        2 -> R.string.diagnostics_hud_lab_catalog_search_hint
+                        else -> R.string.diagnostics_hud_lab_catalog_fields_hint
                     },
                 ),
                 color = if (selectedCatalog == 0) TextSecondary else accent,
@@ -601,6 +617,9 @@ private fun observationOptions(
     scenarioId: String?,
     expected: HudLabObserved,
 ): List<HudLabObserved> = when {
+    scenarioId != null &&
+        HudLabScenarioCatalog.byId(scenarioId)?.observations?.isNotEmpty() == true ->
+        HudLabScenarioCatalog.byId(scenarioId)!!.observations
     scenarioId?.startsWith("C") == true -> listOf(
         HudLabObserved.RIGHT,
         HudLabObserved.LEFT,
@@ -778,6 +797,18 @@ private fun hudLabObservedText(observed: HudLabObserved): String = stringResourc
         HudLabObserved.FIRST_PHASE_ONLY -> R.string.diagnostics_hud_lab_saw_first_only
         HudLabObserved.SECOND_PHASE_ONLY -> R.string.diagnostics_hud_lab_saw_second_only
         HudLabObserved.ARROW_CHANGED -> R.string.diagnostics_hud_lab_saw_arrow_changed
+        HudLabObserved.TEXT_FULL -> R.string.diagnostics_hud_lab_saw_text_full
+        HudLabObserved.TEXT_CUT -> R.string.diagnostics_hud_lab_saw_text_cut
+        HudLabObserved.TEXT_SCROLLS -> R.string.diagnostics_hud_lab_saw_text_scrolls
+        HudLabObserved.TEXT_BROKEN_CHARS -> R.string.diagnostics_hud_lab_saw_text_broken
+        HudLabObserved.DISTANCE_GLITCH -> R.string.diagnostics_hud_lab_saw_distance_glitch
+        HudLabObserved.NOW_LABEL -> R.string.diagnostics_hud_lab_saw_now_label
+        HudLabObserved.CAMERA_VISIBLE -> R.string.diagnostics_hud_lab_saw_camera
+        HudLabObserved.DANGER_SIGN_VISIBLE -> R.string.diagnostics_hud_lab_saw_danger
+        HudLabObserved.LANES_VISIBLE -> R.string.diagnostics_hud_lab_saw_lanes
+        HudLabObserved.REMAINING_VISIBLE -> R.string.diagnostics_hud_lab_saw_remaining
+        HudLabObserved.DESTINATION_VISIBLE -> R.string.diagnostics_hud_lab_saw_destination
+        HudLabObserved.NOTHING_NEW -> R.string.diagnostics_hud_lab_saw_nothing_new
         HudLabObserved.VISIBLE_UNDESCRIBED ->
             R.string.diagnostics_hud_lab_saw_visible_undescribed
         HudLabObserved.NAMED_INDICATOR -> R.string.diagnostics_hud_lab_saw_named_indicator

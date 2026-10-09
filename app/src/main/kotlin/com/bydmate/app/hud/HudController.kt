@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import com.bydmate.app.BuildConfig
+import com.bydmate.app.R
 import com.bydmate.app.data.automation.VehicleSafetySnapshot
 import com.bydmate.app.data.diagnostics.DiagnosticEvidenceStore
 import com.bydmate.app.data.vehicle.HelperBootstrap
@@ -98,6 +99,7 @@ class HudController @Inject constructor(
         const val KEY_ENABLED = "hud_enabled"
         const val KEY_SUPPORTED = "hud_supported"
         const val KEY_SPEED_SIGN = "hud_speed_sign"
+        const val KEY_STREET_ROUTE_INFO = "hud_street_route_info"
         private const val KEY_LAST_FRAME_ATTEMPT_AT = "hud_last_frame_attempt_at"
         private const val KEY_LAST_FRAME_SUCCESS_AT = "hud_last_frame_success_at"
         private const val KEY_LAST_GUIDANCE_FRAME_SUCCESS_AT = "hud_last_guidance_frame_success_at"
@@ -186,6 +188,21 @@ class HudController @Inject constructor(
     fun setSpeedSignEnabled(on: Boolean) {
         prefs().edit().putBoolean(KEY_SPEED_SIGN, on).apply()
     }
+
+    /** Arrival time, remaining time and distance in front of the street name (f10). */
+    fun isStreetRouteInfoEnabled(): Boolean = prefs().getBoolean(KEY_STREET_ROUTE_INFO, true)
+
+    fun setStreetRouteInfoEnabled(on: Boolean) {
+        prefs().edit().putBoolean(KEY_STREET_ROUTE_INFO, on).apply()
+    }
+
+    private fun streetLineUnits() = HudStreetLine.Units(
+        minutes = context.getString(R.string.hud_unit_minutes),
+        hours = context.getString(R.string.hud_unit_hours),
+        kilometers = context.getString(R.string.hud_unit_kilometers),
+        meters = context.getString(R.string.hud_unit_meters),
+        decimalSeparator = context.getString(R.string.hud_decimal_separator).firstOrNull() ?: '.',
+    )
 
     /** True only when the feature is on AND the gateway probe confirmed support -
      *  the a11y keep-alive gate must not fire on the raw pref (Codex fix 1). */
@@ -634,6 +651,13 @@ class HudController @Inject constructor(
                         scope.launch { rebuildChannel("transport:clear_rejected:$rc") }
                     },
                     outputSuspended = { hudLabOutputSuspended },
+                    streetLine = run {
+                        val units = streetLineUnits()
+                        val line: (NavGuidanceHub.Snapshot, Long) -> String = { snapshot, nowMs ->
+                            HudStreetLine.compose(snapshot, nowMs, isStreetRouteInfoEnabled(), units)
+                        }
+                        line
+                    },
                 )
                     .also { it.start(scope) }
                 Log.i(TAG, "HUD output active")

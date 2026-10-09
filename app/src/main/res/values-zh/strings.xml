@@ -1179,6 +1179,13 @@
     <string name="settings_hud_status_bind_failed">无法连接 SOME/IP 总线</string>
     <string name="settings_hud_status_send_failed">总线已连接，但 HUD 帧被拒绝</string>
     <string name="settings_hud_hint">需要配备抬头显示的车型。数据来自 Waze 窗口和导航通知</string>
+    <string name="hud_unit_minutes">分钟</string>
+    <string name="hud_unit_hours">小时</string>
+    <string name="hud_unit_kilometers">公里</string>
+    <string name="hud_unit_meters">米</string>
+    <string name="hud_decimal_separator">.</string>
+    <string name="settings_hud_route_info_title">在街道行显示到达时间</string>
+    <string name="settings_hud_route_info_desc">街道名称前显示到达时间、剩余时间和到终点的距离。距转弯 300 米以内只显示街道。</string>
 
     <!-- Vehicle diagnostics -->
     <string name="settings_diagnostics_header">诊断</string>
@@ -1405,6 +1412,20 @@
     <string name="diagnostics_hud_lab_saw_first_only">仅第一阶段</string>
     <string name="diagnostics_hud_lab_saw_second_only">仅第二阶段</string>
     <string name="diagnostics_hud_lab_saw_arrow_changed">箭头切换为第二个</string>
+    <string name="diagnostics_hud_lab_catalog_fields">新字段</string>
+    <string name="diagnostics_hud_lab_catalog_fields_hint">每个测试都显示熟悉的 50 米右转箭头，并新增一个字段：文字、距离、限速、摄像头、危险标志、剩余行程、车道。记录是否出现新内容；如出现异常显示请拍照。C01 检查帧计数器。</string>
+    <string name="diagnostics_hud_lab_saw_text_full">文字完整显示</string>
+    <string name="diagnostics_hud_lab_saw_text_cut">文字被截断</string>
+    <string name="diagnostics_hud_lab_saw_text_scrolls">文字滚动</string>
+    <string name="diagnostics_hud_lab_saw_text_broken">部分字符无法显示</string>
+    <string name="diagnostics_hud_lab_saw_distance_glitch">距离显示异常</string>
+    <string name="diagnostics_hud_lab_saw_now_label">显示\"现在\"代替距离</string>
+    <string name="diagnostics_hud_lab_saw_camera">显示摄像头图标</string>
+    <string name="diagnostics_hud_lab_saw_danger">显示危险标志</string>
+    <string name="diagnostics_hud_lab_saw_lanes">显示车道</string>
+    <string name="diagnostics_hud_lab_saw_remaining">显示剩余距离或时间</string>
+    <string name="diagnostics_hud_lab_saw_destination">显示目的地文字</string>
+    <string name="diagnostics_hud_lab_saw_nothing_new">只有箭头，无新内容</string>
     <string name="diagnostics_hud_lab_saw_other">其他符号</string>
     <string name="diagnostics_hud_lab_saw_named_indicator">已描述的指示符</string>
     <string name="diagnostics_hud_lab_saw_visible_undescribed">已显示指示符但未描述</string>

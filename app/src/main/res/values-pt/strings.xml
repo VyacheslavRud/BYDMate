@@ -1058,6 +1058,13 @@
     <string name="settings_hud_status_bind_failed">Falha ao conectar ao barramento SOME/IP</string>
     <string name="settings_hud_status_send_failed">Barramento conectado, mas o quadro do HUD foi rejeitado</string>
     <string name="settings_hud_hint">Requer versão com head-up display. Os dados vêm da janela e da notificação de navegação do Waze</string>
+    <string name="hud_unit_minutes">min</string>
+    <string name="hud_unit_hours">h</string>
+    <string name="hud_unit_kilometers">km</string>
+    <string name="hud_unit_meters">m</string>
+    <string name="hud_decimal_separator">,</string>
+    <string name="settings_hud_route_info_title">Hora de chegada na linha da rua</string>
+    <string name="settings_hud_route_info_desc">Antes do nome da rua: hora de chegada, tempo restante e distância até o fim da rota. A menos de 300 m de uma curva, só a rua.</string>
 
     <!-- Vehicle diagnostics -->
     <string name="settings_diagnostics_header">Diagnóstico</string>
@@ -1284,6 +1291,20 @@
     <string name="diagnostics_hud_lab_saw_first_only">Apenas a primeira fase</string>
     <string name="diagnostics_hud_lab_saw_second_only">Apenas a segunda fase</string>
     <string name="diagnostics_hud_lab_saw_arrow_changed">A seta mudou para a segunda</string>
+    <string name="diagnostics_hud_lab_catalog_fields">Novos campos</string>
+    <string name="diagnostics_hud_lab_catalog_fields_hint">Cada teste mostra a seta conhecida para a direita a 50 m e acrescenta um campo novo: texto, distância, limite de velocidade, radar, sinal de perigo, restante da viagem, faixas. Marque se apareceu algo novo; fotografe o para-brisa se surgir algo incomum. C01 verifica o contador de quadros.</string>
+    <string name="diagnostics_hud_lab_saw_text_full">Texto visível por inteiro</string>
+    <string name="diagnostics_hud_lab_saw_text_cut">Texto cortado</string>
+    <string name="diagnostics_hud_lab_saw_text_scrolls">Texto rola</string>
+    <string name="diagnostics_hud_lab_saw_text_broken">Algumas letras não aparecem</string>
+    <string name="diagnostics_hud_lab_saw_distance_glitch">Distância com falha</string>
+    <string name="diagnostics_hud_lab_saw_now_label">\"Agora\" em vez da distância</string>
+    <string name="diagnostics_hud_lab_saw_camera">Ícone de radar visível</string>
+    <string name="diagnostics_hud_lab_saw_danger">Sinal de perigo visível</string>
+    <string name="diagnostics_hud_lab_saw_lanes">Faixas visíveis</string>
+    <string name="diagnostics_hud_lab_saw_remaining">Restante de distância ou tempo visível</string>
+    <string name="diagnostics_hud_lab_saw_destination">Texto de destino visível</string>
+    <string name="diagnostics_hud_lab_saw_nothing_new">Só a seta, nada novo</string>
     <string name="diagnostics_hud_lab_saw_other">Outro símbolo</string>
     <string name="diagnostics_hud_lab_saw_named_indicator">Indicador descrito</string>
     <string name="diagnostics_hud_lab_saw_visible_undescribed">Indicador visível sem descrição</string>

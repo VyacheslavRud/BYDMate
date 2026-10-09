@@ -164,9 +164,18 @@ object HudProtobufBuilder {
         )
     }
 
+    /** Schema fields a parked probe may add, with the only encoding each one accepts. */
+    private val LAB_EXTRA_VARINT_FIELDS = setOf(3, 4, 5, 12, 13, 14, 15, 17, 18, 23)
+    private val LAB_EXTRA_TEXT_FIELDS = setOf(24, 25, 27, 29)
+    private val LAB_EXTRA_PACKED_FIELDS = setOf(7, 8)
+    private const val LAB_EXTRA_MAX_VARINT = 100_000L
+    private const val LAB_EXTRA_MAX_TEXT_CHARS = 120
+    private const val LAB_EXTRA_MAX_PACKED_VALUES = 8
+
     /**
-     * Exact bounded builder for the parked scenario matrix. [HudLabFrameSpec] exposes only fields
-     * already present in the donor guidance frames; arbitrary protobuf fields cannot be injected.
+     * Exact bounded builder for the parked scenario matrix. [HudLabFrameSpec] exposes the donor
+     * guidance fields plus a fixed list of this firmware's schema fields, each with bounded values
+     * and its schema encoding; arbitrary protobuf fields cannot be injected.
      */
     fun buildHudLabScenarioFrame(
         spec: HudLabFrameSpec,
@@ -212,6 +221,7 @@ object HudProtobufBuilder {
         require(spec.etaString == null || spec.etaString.length <= MAX_ETA_CHARS) {
             "HUD Lab ETA text too long"
         }
+        requireLabExtras(spec)
         val payload = buildFrameWithRawF28(
             f2 = f2Value.toLong(),
             renderClass = spec.effectiveRenderClass,
@@ -223,9 +233,35 @@ object HudProtobufBuilder {
             speedLimit = spec.speedLimit,
             maneuverIconPng = maneuverIconPng,
             speedSignPng = speedSignPng.takeIf { spec.includeSpeedSign },
+            omitDistance = spec.omitDistance,
+            extras = spec.extras,
         )
         require(payload.size <= MAX_PAYLOAD_BYTES) { "HUD Lab payload exceeds safe limit" }
         return payload
+    }
+
+    private fun requireLabExtras(spec: HudLabFrameSpec) {
+        val fields = spec.extras.map(HudLabExtraField::field)
+        require(fields.size == fields.toSet().size) { "HUD Lab extra field repeated" }
+        spec.extras.forEach { extra ->
+            when (extra) {
+                is HudLabExtraField.Varint -> {
+                    require(extra.field in LAB_EXTRA_VARINT_FIELDS) { "HUD Lab f${extra.field} is not a number field" }
+                    require(extra.value in 0..LAB_EXTRA_MAX_VARINT) { "HUD Lab f${extra.field} out of range" }
+                }
+                is HudLabExtraField.Text -> {
+                    require(extra.field in LAB_EXTRA_TEXT_FIELDS) { "HUD Lab f${extra.field} is not a text field" }
+                    require(extra.value.length <= LAB_EXTRA_MAX_TEXT_CHARS) { "HUD Lab f${extra.field} text too long" }
+                }
+                is HudLabExtraField.Packed -> {
+                    require(extra.field in LAB_EXTRA_PACKED_FIELDS) { "HUD Lab f${extra.field} is not a lane array" }
+                    require(extra.values.size in 1..LAB_EXTRA_MAX_PACKED_VALUES) { "HUD Lab f${extra.field} lane count" }
+                    require(extra.values.all { it in 0..255 }) { "HUD Lab f${extra.field} lane code out of range" }
+                }
+            }
+        }
+        require(spec.extras.none { it.field == 7 } || !spec.includeSpeedSign) { "HUD Lab f7 already holds a picture" }
+        require(spec.extras.none { it.field == 8 } || spec.iconCode == null) { "HUD Lab f8 already holds a picture" }
     }
 
     private fun buildFrameWithRawF28(
@@ -239,28 +275,53 @@ object HudProtobufBuilder {
         speedLimit: Int,
         maneuverIconPng: ByteArray?,
         speedSignPng: ByteArray?,
+        omitDistance: Boolean = false,
+        extras: List<HudLabExtraField> = emptyList(),
     ): ByteArray {
         val inner = ByteArrayOutputStream()
+        // Lab-only schema fields go in field-number order between the donor fields.
+        fun extrasIn(range: IntRange) = extras.filter { it.field in range }.sortedBy { it.field }
+            .forEach { writeLabExtra(inner, it) }
         // f2 is the constant 2 in every reference guidance frame (donor stage 6,
         // 1779/1779 discope events); only the clear frame and lab framing probes count here.
         writeVarintField(inner, 2, f2)
+        extrasIn(3..5)
         writeVarintField(
             inner,
             6,
             (renderClass ?: if (speedSignPng != null) 6 else 1).toLong(),
         )
         if (speedSignPng != null) writeBytesField(inner, 7, speedSignPng)
+        extrasIn(7..7)
         if (maneuverIconPng != null) writeBytesField(inner, 8, maneuverIconPng)
-        writeVarintField(inner, 9, distanceMeters.toLong())
+        extrasIn(8..8)
+        if (!omitDistance) writeVarintField(inner, 9, distanceMeters.toLong())
         if (road.isNotEmpty()) writeBytesField(inner, 10, road.toByteArray(Charsets.UTF_8))
         if (speedLimit > 0) writeVarintField(inner, 11, speedLimit.toLong())
+        extrasIn(12..15)
         writeVarintField(inner, 16, 2L)
+        extrasIn(17..25)
         if (etaString != null) writeBytesField(inner, 26, etaString.toByteArray(Charsets.UTF_8))
+        extrasIn(27..27)
         // Do not manufacture donor metadata for an unknown Waze maneuver. The route card remains
         // visible and a later parsed A11Y/notification update adds both exact f8 and f28 values.
         rawF28?.let { writeVarintField(inner, 28, it.toLong()) }
+        extrasIn(29..32)
         writeFixed64Field(inner, 33, progress(distanceMeters, totalDistMeters).toRawBits())
         return wrap(inner.toByteArray())
+    }
+
+    private fun writeLabExtra(out: ByteArrayOutputStream, extra: HudLabExtraField) {
+        when (extra) {
+            is HudLabExtraField.Varint -> writeVarintField(out, extra.field, extra.value)
+            is HudLabExtraField.Text ->
+                writeBytesField(out, extra.field, extra.value.toByteArray(Charsets.UTF_8))
+            is HudLabExtraField.Packed -> {
+                val packed = ByteArrayOutputStream()
+                extra.values.forEach { writeVarint(packed, it.toLong()) }
+                writeBytesField(out, extra.field, packed.toByteArray())
+            }
+        }
     }
 
     /** Bounded frame builder. The optional speed-sign PNG is dropped first. A corrupt/foreign

@@ -38,6 +38,8 @@ class HudPushLoop(
     initialClearPending: Boolean = false,
     private val onClearExhausted: (Int) -> Unit = {},
     private val outputSuspended: () -> Boolean = { false },
+    /** Text for f10; HudController adds route progress via [HudStreetLine]. */
+    private val streetLine: (NavGuidanceHub.Snapshot, Long) -> String = { s, _ -> s.road },
 ) {
     companion object {
         private const val TAG = "HudPushLoop"
@@ -111,7 +113,8 @@ class HudPushLoop(
             }
             return wasActive
         }
-        val s = NavGuidanceHub.snapshot(nowMsProvider())
+        val nowMs = nowMsProvider()
+        val s = NavGuidanceHub.snapshot(nowMs)
         val previousRefreshGeneration = lastRefreshGeneration
         lastRefreshGeneration = s.hudRefreshGeneration
         if (!hasRenderableHudGuidance(s)) {
@@ -175,7 +178,7 @@ class HudPushLoop(
         val frame = HudProtobufBuilder.buildSeaLionGuidanceFrame(
             maneuverGaode = s.maneuverGaode,
             distanceMeters = s.distanceMeters,
-            road = s.road,
+            road = streetLine(s, nowMs),
         )
         deliver(HudFrameKind.GUIDANCE, frame)?.let { rc ->
             onGuidanceAttempt(s.maneuverGaode, rawF28, rc)

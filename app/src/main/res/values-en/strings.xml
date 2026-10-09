@@ -1061,6 +1061,13 @@
     <string name="settings_hud_status_bind_failed">Could not connect to the SOME/IP bus</string>
     <string name="settings_hud_status_send_failed">Bus connected, but the HUD frame was rejected</string>
     <string name="settings_hud_hint">Requires a trim with the head-up display. Data comes from the Waze window and navigation notification</string>
+    <string name="hud_unit_minutes">min</string>
+    <string name="hud_unit_hours">h</string>
+    <string name="hud_unit_kilometers">km</string>
+    <string name="hud_unit_meters">m</string>
+    <string name="hud_decimal_separator">.</string>
+    <string name="settings_hud_route_info_title">Arrival time in the street line</string>
+    <string name="settings_hud_route_info_desc">Before the street name: arrival time, time left and distance to the end of the route. Within 300 m of a turn only the street is shown.</string>
 
     <!-- Vehicle diagnostics -->
     <string name="settings_diagnostics_header">Diagnostics</string>
@@ -1287,6 +1294,20 @@
     <string name="diagnostics_hud_lab_saw_first_only">First phase only</string>
     <string name="diagnostics_hud_lab_saw_second_only">Second phase only</string>
     <string name="diagnostics_hud_lab_saw_arrow_changed">Arrow switched to the second one</string>
+    <string name="diagnostics_hud_lab_catalog_fields">New fields</string>
+    <string name="diagnostics_hud_lab_catalog_fields_hint">Each probe draws the familiar right arrow at 50 m and adds one new field: text, distance, speed limit, camera, danger sign, remaining trip, lanes. Mark whether anything new appeared; photograph the glass if something unusual shows. C01 checks the frame counter.</string>
+    <string name="diagnostics_hud_lab_saw_text_full">Text fully visible</string>
+    <string name="diagnostics_hud_lab_saw_text_cut">Text cut off</string>
+    <string name="diagnostics_hud_lab_saw_text_scrolls">Text scrolls</string>
+    <string name="diagnostics_hud_lab_saw_text_broken">Some letters missing or broken</string>
+    <string name="diagnostics_hud_lab_saw_distance_glitch">Distance glitches</string>
+    <string name="diagnostics_hud_lab_saw_now_label">\"Now\" instead of distance</string>
+    <string name="diagnostics_hud_lab_saw_camera">Camera icon visible</string>
+    <string name="diagnostics_hud_lab_saw_danger">Danger sign visible</string>
+    <string name="diagnostics_hud_lab_saw_lanes">Lanes visible</string>
+    <string name="diagnostics_hud_lab_saw_remaining">Remaining distance or time visible</string>
+    <string name="diagnostics_hud_lab_saw_destination">Destination text visible</string>
+    <string name="diagnostics_hud_lab_saw_nothing_new">Only the arrow, nothing new</string>
     <string name="diagnostics_hud_lab_saw_other">Different symbol</string>
     <string name="diagnostics_hud_lab_saw_named_indicator">Described indicator</string>
     <string name="diagnostics_hud_lab_saw_visible_undescribed">Indicator visible without description</string>

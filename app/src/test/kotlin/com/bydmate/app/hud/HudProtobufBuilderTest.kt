@@ -1,6 +1,7 @@
 package com.bydmate.app.hud
 
 import com.bydmate.app.navdata.NavManeuverCodes
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
@@ -524,5 +525,90 @@ class HudProtobufBuilderTest {
         ))
         val progress = Double.fromBits(f[33]!![0] as Long)
         assertEquals(0.0, progress, 1e-9)
+    }
+
+    private fun tagOrder(payload: ByteArray): List<Int> {
+        var pos = 1
+        while (payload[pos].toInt() and 0x80 != 0) pos++
+        pos++
+        val tags = mutableListOf<Int>()
+        fun varint(): Long {
+            var result = 0L; var shift = 0
+            while (true) {
+                val b = payload[pos++].toInt() and 0xFF
+                result = result or ((b and 0x7F).toLong() shl shift)
+                if (b < 0x80) return result
+                shift += 7
+            }
+        }
+        while (pos < payload.size) {
+            val key = varint()
+            tags += (key ushr 3).toInt()
+            when ((key and 7).toInt()) {
+                0 -> varint()
+                1 -> pos += 8
+                // Read the length first: `pos += varint()` would add it to the stale position.
+                2 -> { val length = varint().toInt(); pos += length }
+                5 -> pos += 4
+            }
+        }
+        return tags
+    }
+
+    @Test fun `lab lane arrays are packed uint32 in schema order`() {
+        val spec = HudLabFrameSpec(
+            f28 = 11, distanceMeters = 200, road = "L",
+            extras = listOf(
+                HudLabExtraField.Packed(8, listOf(255, 0, 255)),
+                HudLabExtraField.Varint(5, 3),
+                HudLabExtraField.Packed(7, listOf(1, 0, 3)),
+                HudLabExtraField.Text(29, "1,255|0,0|3,255|"),
+            ),
+        )
+        val payload = HudProtobufBuilder.buildHudLabScenarioFrame(spec, null, null)
+        val fields = unwrap(payload)
+        assertArrayEquals(byteArrayOf(1, 0, 3), fields[7]!!.single() as ByteArray)
+        assertArrayEquals(
+            byteArrayOf(0xFF.toByte(), 0x01, 0, 0xFF.toByte(), 0x01),
+            fields[8]!!.single() as ByteArray,
+        )
+        assertEquals(3L, fields[5]!!.single())
+        assertEquals("1,255|0,0|3,255|", String(fields[29]!!.single() as ByteArray, Charsets.UTF_8))
+        val order = tagOrder(payload)
+        assertEquals(order.sorted(), order)
+    }
+
+    @Test fun `lab probe can leave the distance out`() {
+        val fields = unwrap(
+            HudProtobufBuilder.buildHudLabScenarioFrame(
+                HudLabFrameSpec(f28 = 2, road = "", omitDistance = true), null, null,
+            ),
+        )
+        assertNull(fields[9])
+        assertEquals(2L, fields[28]!!.single())
+    }
+
+    @Test fun `lab extras accept only their schema encoding and bounds`() {
+        listOf(
+            HudLabFrameSpec(extras = listOf(HudLabExtraField.Text(15, "50"))),
+            HudLabFrameSpec(extras = listOf(HudLabExtraField.Varint(7, 1))),
+            HudLabFrameSpec(extras = listOf(HudLabExtraField.Varint(9, 1))),
+            HudLabFrameSpec(extras = listOf(HudLabExtraField.Varint(15, 100_001))),
+            HudLabFrameSpec(extras = listOf(HudLabExtraField.Packed(7, emptyList()))),
+            HudLabFrameSpec(extras = listOf(HudLabExtraField.Packed(8, listOf(256)))),
+            HudLabFrameSpec(extras = listOf(HudLabExtraField.Text(25, "x".repeat(121)))),
+            HudLabFrameSpec(
+                extras = listOf(HudLabExtraField.Varint(15, 1), HudLabExtraField.Varint(15, 2)),
+            ),
+        ).forEach { spec ->
+            assertThrows(IllegalArgumentException::class.java) {
+                HudProtobufBuilder.buildHudLabScenarioFrame(spec, null, null)
+            }
+        }
+    }
+
+    @Test fun `production frame is unchanged by the lab extras support`() {
+        val frame = HudProtobufBuilder.buildSeaLionGuidanceFrame(NavManeuverCodes.GAODE_RIGHT, 50, "Road")
+        assertEquals(listOf(2, 6, 9, 10, 16, 28, 33), tagOrder(frame))
     }
 }

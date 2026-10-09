@@ -1004,6 +1004,7 @@ private fun DisplaySection() {
     // ClusterEntryPoint as projection - HudController is a @Singleton behind it.
     val hudController = remember { entryPoint.hudController() }
     var hudEnabled by remember { mutableStateOf(hudController.isEnabled()) }
+    var hudRouteInfo by remember { mutableStateOf(hudController.isStreetRouteInfoEnabled()) }
     val hudStatus by hudController.status.collectAsStateWithLifecycle()
 
     SectionHeader(text = stringResource(R.string.settings_hud_header))
@@ -1033,6 +1034,16 @@ private fun DisplaySection() {
                         else -> stringResource(R.string.settings_hud_status_connecting)
                     },
                     ok = hudStatus == HudController.Status.ON,
+                )
+                SettingDivider()
+                SettingToggleRow(
+                    title = stringResource(R.string.settings_hud_route_info_title),
+                    description = stringResource(R.string.settings_hud_route_info_desc),
+                    checked = hudRouteInfo,
+                    onCheckedChange = {
+                        hudRouteInfo = it
+                        hudController.setStreetRouteInfoEnabled(it)
+                    },
                 )
             }
             SettingHint(text = stringResource(R.string.settings_hud_hint))

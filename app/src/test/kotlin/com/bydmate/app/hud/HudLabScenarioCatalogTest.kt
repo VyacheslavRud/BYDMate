@@ -141,7 +141,7 @@ class HudLabScenarioCatalogTest {
         assertEquals(ids.size, ids.toSet().size)
         assertTrue(ids.none { id -> HudLabScenarioCatalog.all.any { it.id == id } })
         ids.forEach { assertEquals(it, scenario(it).id) }
-        assertEquals(listOf("C01", "T01", "T02", "T03"), ids.take(4))
+        assertEquals(listOf("T01", "T02", "T03"), ids.take(3))
         assertEquals(listOf("P01", "P02", "P03"), ids.takeLast(3))
     }
 
@@ -216,5 +216,42 @@ class HudLabScenarioCatalogTest {
                 assertTrue(payload.isNotEmpty())
             }
         }
+    }
+
+    @Test
+    fun `field probes are unique, separate and answerable`() {
+        val ids = HudLabScenarioCatalog.fields.map(HudLabScenario::id)
+        assertEquals(ids.size, ids.toSet().size)
+        val elsewhere = (HudLabScenarioCatalog.all + HudLabScenarioCatalog.search).map(HudLabScenario::id)
+        assertTrue(ids.none(elsewhere::contains))
+        assertEquals("C01", ids.first())
+        HudLabScenarioCatalog.fields.forEach { probe ->
+            assertEquals(probe.id, scenario(probe.id).id)
+            assertTrue(probe.id, probe.observations.isNotEmpty())
+            assertTrue(probe.id, probe.observations.contains(HudLabObserved.NOT_REPORTED))
+            assertEquals(HudLabScenarioGroup.FIELD_PROBE, probe.group)
+        }
+    }
+
+    @Test
+    fun `every field probe passes the lab encoder and keeps fields in order`() {
+        HudLabScenarioCatalog.fields.forEach { probe ->
+            val send = onlySend(probe.id)
+            val payload = HudProtobufBuilder.buildHudLabScenarioFrame(send.frame, null, null, 3)
+            assertTrue(probe.id, payload.isNotEmpty())
+            val manifestFields = fieldNumbers(send.frame)
+            assertEquals(probe.id, manifestFields.sorted(), manifestFields)
+            assertEquals(probe.id, manifestFields.size, manifestFields.toSet().size)
+        }
+    }
+
+    @Test
+    fun `field probes cover the untested schema fields`() {
+        val sent = HudLabScenarioCatalog.fields
+            .flatMap { onlySend(it.id).frame.extras.map(HudLabExtraField::field) }
+            .toSet()
+        assertEquals(setOf(3, 4, 5, 7, 8, 12, 13, 14, 15, 17, 18, 23, 24, 25, 27, 29), sent)
+        assertTrue(onlySend("F07").frame.omitDistance)
+        assertEquals(5, onlySend("F06").frame.distanceMeters)
     }
 }

@@ -1216,6 +1216,13 @@
     <string name="settings_hud_status_bind_failed">Не удалось подключиться к шине SOME/IP</string>
     <string name="settings_hud_status_send_failed">Шина подключена, но кадр HUD отклонён</string>
     <string name="settings_hud_hint">Нужна комплектация с проекционным дисплеем. Данные читаются из окна и навигационного уведомления Waze</string>
+    <string name="hud_unit_minutes">мин</string>
+    <string name="hud_unit_hours">ч</string>
+    <string name="hud_unit_kilometers">км</string>
+    <string name="hud_unit_meters">м</string>
+    <string name="hud_decimal_separator">,</string>
+    <string name="settings_hud_route_info_title">Время прибытия в строке улицы</string>
+    <string name="settings_hud_route_info_desc">Перед названием улицы: время прибытия, сколько осталось ехать и расстояние до конца маршрута. Ближе 300 м к повороту — только улица.</string>
 
     <!-- Vehicle diagnostics -->
     <string name="settings_diagnostics_header">Диагностика</string>
@@ -1442,6 +1449,20 @@
     <string name="diagnostics_hud_lab_saw_first_only">Только первая фаза</string>
     <string name="diagnostics_hud_lab_saw_second_only">Только вторая фаза</string>
     <string name="diagnostics_hud_lab_saw_arrow_changed">Стрелка сменилась на вторую</string>
+    <string name="diagnostics_hud_lab_catalog_fields">Новые поля</string>
+    <string name="diagnostics_hud_lab_catalog_fields_hint">Каждая проба рисует знакомую стрелку «направо» на 50 м и добавляет одно новое поле: текст, расстояние, ограничение скорости, камеру, знак опасности, остаток пути, полосы. Отмечайте, появилось ли что-то новое; если появилось необычное — сфотографируйте стекло. C01 проверяет счётчик кадров.</string>
+    <string name="diagnostics_hud_lab_saw_text_full">Текст виден целиком</string>
+    <string name="diagnostics_hud_lab_saw_text_cut">Текст обрезан</string>
+    <string name="diagnostics_hud_lab_saw_text_scrolls">Текст прокручивается</string>
+    <string name="diagnostics_hud_lab_saw_text_broken">Часть букв не отображается</string>
+    <string name="diagnostics_hud_lab_saw_distance_glitch">Расстояние со сбоем</string>
+    <string name="diagnostics_hud_lab_saw_now_label">Вместо расстояния «сейчас»</string>
+    <string name="diagnostics_hud_lab_saw_camera">Виден значок камеры</string>
+    <string name="diagnostics_hud_lab_saw_danger">Виден знак опасности</string>
+    <string name="diagnostics_hud_lab_saw_lanes">Видны полосы</string>
+    <string name="diagnostics_hud_lab_saw_remaining">Виден остаток пути или времени</string>
+    <string name="diagnostics_hud_lab_saw_destination">Виден текст назначения</string>
+    <string name="diagnostics_hud_lab_saw_nothing_new">Только стрелка, нового нет</string>
     <string name="diagnostics_hud_lab_saw_other">Другой символ</string>
     <string name="diagnostics_hud_lab_saw_named_indicator">Описанный индикатор</string>
     <string name="diagnostics_hud_lab_saw_visible_undescribed">Индикатор был, без описания</string>
